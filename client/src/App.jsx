@@ -1,4 +1,4 @@
-import BooksViewer from "./BooksViewer";
+import BooksViewer from "/components/BooksViewer";
 
 function App() {
   return (

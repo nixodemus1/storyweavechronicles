@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { fetchBooks } from "../src/api/books";
 
 export default function BooksViewer() {
   const [pdfs, setPdfs] = useState([]);
@@ -8,8 +9,7 @@ export default function BooksViewer() {
   useEffect(() => {
     const fetchPdfs = async () => {
       try {
-        const res = await fetch(`/list-pdfs/${folderId}`);
-        const data = await res.json();
+        const data = await fetchBooks(folderId);
 
         if (data.error && data.error.includes("No valid credentials")) {
           window.location.href = "/authorize";

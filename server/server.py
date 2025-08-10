@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, send_file, redirect
+from flask import Flask, jsonify, send_file, redirect, send_from_directory
 from flask_cors import CORS
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -36,6 +36,9 @@ def get_drive_service():
 
     return build('drive', 'v3', credentials=creds)
 
+@app.route("/")
+def serve_index():
+    return send_from_directory("../client/dist", "index.html")
 
 @app.route('/authorize')
 def authorize():
