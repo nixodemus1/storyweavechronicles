@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { fetchBooks } from "../src/api/books";
+import { fetchBooks } from "../api/books";
 
 export default function BooksViewer() {
   const [pdfs, setPdfs] = useState([]);

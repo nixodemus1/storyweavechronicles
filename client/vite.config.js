@@ -8,6 +8,7 @@ export default defineConfig({
       '/list-pdfs': 'http://localhost:5000',
       '/view-pdf': 'http://localhost:5000',
       '/download-pdf': 'http://localhost:5000',
+      "/pdf-cover": "http://localhost:5000",
       '/authorize': 'http://localhost:5000',
     }
   }

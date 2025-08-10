@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, send_file, redirect, send_from_directory
 from flask_cors import CORS
+import fitz  # PyMuPDF
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -36,9 +37,13 @@ def get_drive_service():
 
     return build('drive', 'v3', credentials=creds)
 
-@app.route("/")
-def serve_index():
-    return send_from_directory("../client/dist", "index.html")
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_react(path):
+    if path != "" and os.path.exists(f"../client/dist/{path}"):
+        return send_from_directory("../client/dist", path)
+    else:
+        return send_from_directory("../client/dist", "index.html")
 
 @app.route('/authorize')
 def authorize():
@@ -88,6 +93,24 @@ def download_pdf(file_id):
         request = service.files().get_media(fileId=file_id)
         file_content = io.BytesIO(request.execute())
         return send_file(file_content, mimetype='application/pdf', as_attachment=True, download_name=filename)
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+@app.route('/pdf-cover/<file_id>')
+def pdf_cover(file_id):
+    """Return the first page of a PDF as an image for the cover."""
+    try:
+        service = get_drive_service()
+        request = service.files().get_media(fileId=file_id)
+        file_content = io.BytesIO(request.execute())
+
+        # Load PDF and first page
+        doc = fitz.open(stream=file_content, filetype="pdf")
+        page = doc.load_page(0)  # first page
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # scale up for quality
+
+        img_bytes = io.BytesIO(pix.tobytes("png"))
+        return send_file(img_bytes, mimetype="image/png")
     except Exception as e:
         return jsonify(error=str(e)), 500
 

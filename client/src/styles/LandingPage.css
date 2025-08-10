@@ -1,0 +1,58 @@
+.landing-page {
+  font-family: sans-serif;
+  background-color: #f9f9f9;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  align-items: center;
+  background-color: #222;
+  color: white;
+}
+
+.logo {
+  margin: 0;
+  font-size: 1.8rem;
+}
+
+.google-login {
+  background-color: white;
+  color: #222;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.carousel-container {
+  flex: 1;
+  padding: 2rem;
+  width: 100%; /* ✅ ensure it has width */
+  box-sizing: border-box;
+}
+
+
+.book-slide {
+  position: relative;
+}
+
+.book-cover {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.book-title {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
