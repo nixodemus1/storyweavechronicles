@@ -1,17 +1,15 @@
-import { useEffect, useState } from "react";
-import Slider from "react-slick";
 
-// Import carousel CSS here (Vite-compatible)
-import "slick-carousel/slick/slick.css";
-import "slick-carousel/slick/slick-theme.css";
 import "../styles/LandingPage.css";
+import React, { useEffect, useState } from "react";
+import Slider from "react-slick";
 
 export default function LandingPage() {
   const [pdfs, setPdfs] = useState([]);
-  const folderId = "1qb8-tesI1rQjNLlRuVE7fDot5xiNgeO8"; // your Drive folder
 
+  const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
   useEffect(() => {
-    fetch("/list-pdfs/1qb8-tesI1rQjNLlRuVE7fDot5xiNgeO8") // had to hardcode due to CORS issues
+    if (!folderId) return;
+    fetch(`/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
         if (data.pdfs) {
@@ -19,14 +17,17 @@ export default function LandingPage() {
         }
       })
       .catch(err => console.error("Error fetching PDFs:", err));
-  }, []);
+  }, [folderId]);
 
+  // Determine slidesToShow and infinite based on pdfs.length
   const settings = {
     dots: true,
     infinite: true,
     speed: 500,
-    slidesToShow: Math.min(3, pdfs.length),
-    slidesToScroll: 1
+    slidesToShow: 10,
+    slidesToScroll: 1,
+    arrows: true,
+    adaptiveHeight: false,
   };
 
   if (pdfs.length === 0) {
@@ -35,19 +36,59 @@ export default function LandingPage() {
 
   return (
     <div className="landing-page">
-      <h1>StoryWeave Chronicles</h1>
-      <Slider {...settings}>
-        {pdfs.map((pdf) => (
-          <div key={pdf.id} className="carousel-item">
-            <img
-              src={`/pdf-cover/${pdf.id}`}
-              alt={pdf.name}
-              style={{ width: "100%", height: "auto" }}
-            />
-            <p>{pdf.name}</p>
-          </div>
-        ))}
-      </Slider>
+      <header className="header" style={{ position: 'relative' }}>
+        <h1 className="logo" style={{ marginRight: 'auto' }}>StoryWeave Chronicles</h1>
+        <a
+          href="/authorize"
+          style={{
+            position: 'absolute',
+            right: 32,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            background: '#0070f3',
+            color: '#fff',
+            padding: '0.5rem 1.2rem',
+            borderRadius: 6,
+            textDecoration: 'none',
+            fontWeight: 600,
+            fontSize: '1rem',
+            letterSpacing: 1,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            transition: 'background 0.2s',
+            zIndex: 10,
+          }}
+          onMouseOver={e => (e.currentTarget.style.background = '#005bb5')}
+          onMouseOut={e => (e.currentTarget.style.background = '#0070f3')}
+        >
+          Log In
+        </a>
+      </header>
+      <div className="carousel-container">
+        <Slider {...settings}>
+          {pdfs
+            .filter(pdf => pdf && pdf.id && pdf.name)
+            .map((pdf) => (
+              <div
+                key={pdf.id}
+                className="carousel-item"
+                style={{ cursor: 'pointer' }}
+                onClick={() => window.open(`/view-pdf/${pdf.id}`, '_blank')}
+                title={`Open ${pdf.name}`}
+              >
+                <img
+                  src={`/pdf-cover/${pdf.id}`}
+                  alt={pdf.name}
+                  className="book-cover"
+                  onError={e => {
+                    e.target.onerror = null;
+                    e.target.src = 'https://via.placeholder.com/180x260?text=No+Cover';
+                  }}
+                />
+                <div className="book-title">{pdf.name}</div>
+              </div>
+            ))}
+        </Slider>
+      </div>
     </div>
   );
 }

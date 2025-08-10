@@ -1,58 +1,149 @@
-.landing-page {
-  font-family: sans-serif;
-  background-color: #f9f9f9;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
 
 .header {
   display: flex;
-  justify-content: space-between;
-  padding: 1rem 2rem;
+  justify-content: center;
   align-items: center;
-  background-color: #222;
-  color: white;
+  background-color: #23272f;
+  color: #fff;
+  padding: 1.5rem 0 1rem 0;
+  min-height: 80px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  width: 100vw;
+  /* Remove z-index and position for now */
+  border: 2px solid #f39c12; /* debug border */
 }
-
-.logo {
-  margin: 0;
-  font-size: 1.8rem;
+.slick-prev:before, .slick-next:before {
+  color: #fff !important;
+  font-size: 32px !important;
+  text-shadow: 0 2px 8px #23272f;
 }
-
-.google-login {
-  background-color: white;
-  color: #222;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  cursor: pointer;
+.slick-dots li button:before {
+  color: #23272f !important;
+  font-size: 16px !important;
 }
-
+.slick-dots li.slick-active button:before {
+  color: #0070f3 !important;
+}
 .carousel-container {
   flex: 1;
-  padding: 2rem;
-  width: 100%; /* ✅ ensure it has width */
+  padding: 2rem 0 3rem 0;
+  width: auto;
+  min-width: 0;
+  margin: 0 auto;
   box-sizing: border-box;
-}
-
-
-.book-slide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow-x: visible;
+  border: 2px dotted #e74c3c; /* debug border */
   position: relative;
 }
-
-.book-cover {
+/* Wrap the carousel and controls for layout */
+.carousel-inner {
   width: 100%;
-  height: auto;
-  border-radius: 8px;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  position: relative;
 }
-
+.carousel-controls {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16px;
+  gap: 32px;
+}
+/* Robust slick carousel fixes */
+.slick-slider {
+  width: 100% !important;
+  max-width: 100vw !important;
+  min-width: 0 !important;
+  overflow: visible !important;
+  margin-bottom: 48px !important;
+  min-height: 340px;
+}
+.slick-arrow {
+  position: absolute !important;
+  bottom: 32px !important;
+  top: auto !important;
+  transform: none !important;
+  margin: 0 !important;
+  width: 40px;
+  height: 40px;
+  background: rgba(35,39,47,0.7);
+  border-radius: 50%;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 2;
+  box-shadow: none !important;
+}
+.slick-prev {
+  left: 10% !important;
+  right: auto !important;
+}
+.slick-next {
+  right: 10% !important;
+  left: auto !important;
+}
+.landing-page-carousel {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 320px !important;
+  min-width: 200px !important;
+  max-width: 220px !important;
+  box-sizing: border-box !important;
+}
+.carousel-item {
+  position: relative;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+}
+/* Force slick-track to use 100% width and prevent horizontal overflow */
+.slick-track {
+  width: 100% !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: stretch;
+}
+.book-cover {
+  width: 180px;
+  height: 260px;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  margin-bottom: 1rem;
+}
 .book-title {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  background: rgba(0,0,0,0.6);
-  color: white;
-  padding: 4px 8px;
+  margin-top: 0.5rem;
+  font-size: 1.1rem;
+  color: #333;
+  text-align: center;
+  background: rgba(255,255,255,0.85);
   border-radius: 4px;
+  max-width: 180px;
+  left: 0 !important;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  word-break: break-word;
+  right: 0 !important;
+}
+.slick-dots {
+  position: relative !important;
+  margin-top: 8px !important;
+  margin-bottom: 0 !important;
+  z-index: 1;
+}
+.slick-slide {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  height: 320px;
 }
