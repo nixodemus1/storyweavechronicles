@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import "../styles/PDFReader.css";
+import { useTheme } from "../themeContext";
 
 export default function PDFReader() {
   const { id } = useParams(); // expecting route like /read/:id
   const [pdfData, setPdfData] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const { theme, textColor, backgroundColor } = useTheme();
 
   useEffect(() => {
     fetch(`/api/pdf-text/${id}`)
@@ -21,13 +23,16 @@ export default function PDFReader() {
   }, [id]);
 
   if (!pdfData) {
-    return <div className="pdf-reader-loading">Loading PDF...</div>;
+    return <div className={`pdf-reader-loading ${theme}-mode`} style={{ background: backgroundColor, color: textColor, minHeight: '100vh' }}>Loading PDF...</div>;
   }
 
   const page = pdfData.pages.find(p => p.page === currentPage);
 
   return (
-    <div className="pdf-reader-container">
+    <div
+      className={`pdf-reader-container ${theme}-mode`}
+      style={{ background: backgroundColor, color: textColor, minHeight: '100vh' }}
+    >
       <header className="pdf-reader-header">
         <button
           className="pdf-reader-btn"

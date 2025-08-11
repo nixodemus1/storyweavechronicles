@@ -2,10 +2,12 @@ import "../styles/LandingPage.css";
 import React, { useEffect, useState } from "react";
 import Slider from "react-slick";
 import { useNavigate } from "react-router-dom";
+import { useTheme } from "../themeContext";
 
 export default function LandingPage() {
   const [pdfs, setPdfs] = useState([]);
   const navigate = useNavigate();
+  const { theme, textColor, backgroundColor } = useTheme();
 
   const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
 
@@ -32,7 +34,7 @@ export default function LandingPage() {
     dots: true,
     infinite: true,
     speed: 500,
-    slidesToShow: 8,
+    slidesToShow: 11,
     slidesToScroll: 1,
     arrows: true,
     adaptiveHeight: false,
@@ -50,7 +52,10 @@ export default function LandingPage() {
   const topVoted = pdfs.slice().sort(() => 0.5 - Math.random()).slice(0, 10);
 
   return (
-    <div className="landing-page">
+    <div
+      className={`landing-page ${theme}-mode`}
+      style={{ background: backgroundColor, color: textColor, minHeight: '100vh' }}
+    >
       <div className="searchbar-container">
         <input
           type="text"
