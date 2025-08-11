@@ -39,10 +39,11 @@ export default function LandingPage() {
     dots: true,
     infinite: true,
     speed: 500,
-    slidesToShow: 3,
+    slidesToShow: 10,
     slidesToScroll: 1,
     centerMode: true,
     centerPadding: '40px',
+    swipeToSlide: true,
     responsive: [
       { breakpoint: 900, settings: { slidesToShow: 2 } },
       { breakpoint: 600, settings: { slidesToShow: 1 } },
