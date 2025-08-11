@@ -11,6 +11,31 @@
   margin-bottom: 1rem;
 }
 
+/* PDF reader navigation buttons */
+.pdf-reader-btn {
+  background: #fff;
+  color: #222;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 0.4em 1em;
+  margin: 0 0.5em;
+  font-weight: 600;
+  font-size: 1em;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.pdf-reader-btn:disabled {
+  color: #aaa;
+  background: #f5f5f5;
+  cursor: not-allowed;
+}
+
+.pdf-reader-page-indicator {
+  font-weight: 500;
+  font-size: 1.1em;
+  margin: 0 1em;
+}
+
 .pdf-reader-page {
   background: #fff;
   padding: 1rem;

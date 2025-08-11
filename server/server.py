@@ -7,6 +7,7 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 import io
 import os
+import base64
 
 app = Flask(__name__)
 CORS(app)
@@ -110,7 +111,7 @@ def pdf_cover(file_id):
 
 @app.route('/api/pdf-text/<file_id>')
 def pdf_text(file_id):
-    """Extract all text from PDF and return as JSON, always include totalPages and images array."""
+    """Extract all text and images from PDF and return as JSON, always include totalPages and images array."""
     try:
         service = get_drive_service()
         request = service.files().get_media(fileId=file_id)
@@ -122,7 +123,16 @@ def pdf_text(file_id):
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)
             text = page.get_text("text")
-            images = []  # Placeholder for future image extraction
+            images = []
+            for img_index, img in enumerate(page.get_images(full=True)):
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                img_bytes = base_image["image"]
+                img_ext = base_image["ext"]
+                # Encode as base64 data URL
+                b64 = base64.b64encode(img_bytes).decode("utf-8")
+                data_url = f"data:image/{img_ext};base64,{b64}"
+                images.append(data_url)
             pages.append({"page": page_num + 1, "text": text, "images": images})
 
         return jsonify({"pages": pages, "totalPages": len(doc)})

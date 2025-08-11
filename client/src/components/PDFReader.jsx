@@ -30,15 +30,17 @@ export default function PDFReader() {
     <div className="pdf-reader-container">
       <header className="pdf-reader-header">
         <button
+          className="pdf-reader-btn"
           onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
           disabled={currentPage === 1}
         >
           ◀ Prev
         </button>
-        <span>
+        <span className="pdf-reader-page-indicator">
           Page {currentPage} / {pdfData.totalPages || pdfData.pages.length}
         </span>
         <button
+          className="pdf-reader-btn"
           onClick={() => setCurrentPage(p => Math.min((pdfData.totalPages || pdfData.pages.length), p + 1))}
           disabled={currentPage === (pdfData.totalPages || pdfData.pages.length)}
         >

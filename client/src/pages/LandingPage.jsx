@@ -32,47 +32,38 @@ export default function LandingPage() {
     dots: true,
     infinite: true,
     speed: 500,
-    slidesToShow: 10,
+    slidesToShow: 8,
     slidesToScroll: 1,
     arrows: true,
     adaptiveHeight: false,
+    swipeToSlide: true, // Allow dragging to move by multiple slides
+    draggable: true,
   };
 
   if (pdfs.length === 0) {
     return <div style={{ textAlign: "center", marginTop: "50px" }}>Loading...</div>;
   }
 
+  // Top 10 newest
+  const topNewest = pdfs.slice(0, 10);
+  // Top 10 by votes (simulate with random order for now)
+  const topVoted = pdfs.slice().sort(() => 0.5 - Math.random()).slice(0, 10);
+
   return (
     <div className="landing-page">
-      <header className="header" style={{ position: 'relative' }}>
-        <h1 className="logo" style={{ marginRight: 'auto' }}>StoryWeave Chronicles</h1>
-        <a
-          href="/authorize"
-          style={{
-            position: 'absolute',
-            right: 32,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            background: '#0070f3',
-            color: '#fff',
-            padding: '0.5rem 1.2rem',
-            borderRadius: 6,
-            textDecoration: 'none',
-            fontWeight: 600,
-            fontSize: '1rem',
-            letterSpacing: 1,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-            transition: 'background 0.2s',
-            zIndex: 10,
-          }}
-          onMouseOver={e => (e.currentTarget.style.background = '#005bb5')}
-          onMouseOut={e => (e.currentTarget.style.background = '#0070f3')}
-        >
-          Log In
-        </a>
-      </header>
+      <div className="searchbar-container">
+        <input
+          type="text"
+          className="searchbar-input"
+          placeholder="Search books (coming soon)"
+          disabled
+        />
+      </div>
       <div className="carousel-container">
-        <Slider {...settings}>
+        <Slider {...settings}
+          beforeChange={() => { window._carouselDragged = false; }}
+          afterChange={() => { window._carouselDragged = false; }}
+        >
           {pdfs
             .filter(pdf => pdf && pdf.id && pdf.name)
             .map((pdf) => (
@@ -80,8 +71,21 @@ export default function LandingPage() {
                 key={pdf.id}
                 className="carousel-item"
                 style={{ cursor: 'pointer' }}
-                onClick={() => navigate(`/read/${pdf.id}`)}
                 title={`Read ${pdf.name}`}
+                onMouseDown={() => { window._carouselDragged = false; }}
+                onMouseMove={() => { window._carouselDragged = true; }}
+                onMouseUp={() => {
+                  if (!window._carouselDragged) {
+                    navigate(`/read/${pdf.id}`);
+                  }
+                }}
+                onTouchStart={() => { window._carouselDragged = false; }}
+                onTouchMove={() => { window._carouselDragged = true; }}
+                onTouchEnd={() => {
+                  if (!window._carouselDragged) {
+                    navigate(`/read/${pdf.id}`);
+                  }
+                }}
               >
                 <img
                   src={`/pdf-cover/${pdf.id}`}
@@ -96,6 +100,35 @@ export default function LandingPage() {
               </div>
             ))}
         </Slider>
+      </div>
+      <div className="landing-description">
+        <p>Explore our collection of books and start reading today!</p>
+        <div className="top-lists-container">
+          <div className="top-list">
+            <h3>Top 10 Newest</h3>
+            <ol>
+              {topNewest.map((pdf) => (
+                <li key={pdf.id}>
+                  <button className="top-list-link" onClick={() => navigate(`/read/${pdf.id}`)}>
+                    {pdf.name}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </div>
+          <div className="top-list">
+            <h3>Top 10 by Votes</h3>
+            <ol>
+              {topVoted.map((pdf) => (
+                <li key={pdf.id}>
+                  <button className="top-list-link" onClick={() => navigate(`/read/${pdf.id}`)}>
+                    {pdf.name}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
       </div>
     </div>
   );
