@@ -11,8 +11,8 @@
 }
 
 body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
-  background: #181a20 !important;
-  color: #f5f6fa !important;
+  background: #181a20;
+  color: #f5f6fa;
 }
 .dark-mode .header {
   background: #23272f !important;
@@ -21,8 +21,8 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
 .dark-mode .landing-description,
 .dark-mode .top-list,
 .dark-mode .carousel-item {
-  background: #23272f !important;
-  color: #f5f6fa !important;
+  background: #23272f;
+  color: #f5f6fa;
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
 }
 .dark-mode .book-title {
@@ -114,8 +114,7 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
   display: flex;
   justify-content: center;
   align-items: center;
-  background-color: #23272f;
-  color: #fff;
+  /* background and color set by inline style for user customization */
   padding: 1.5rem 0 1rem 0;
   min-height: 80px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
@@ -171,6 +170,7 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
   overflow-x: visible;
   border: none;
   position: relative;
+  /* background and color set by inline style for user customization */
 }
 /* Wrap the carousel and controls for layout */
 .carousel-inner {
@@ -234,7 +234,7 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
 }
 .carousel-item {
   position: relative;
-  background: #fff;
+  /* background set by inline style for user customization */
   border-radius: 10px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.07);
 }
@@ -256,9 +256,8 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
 .book-title {
   margin-top: 0.5rem;
   font-size: 1.1rem;
-  color: #333;
+  /* color and background set by inline style for user customization */
   text-align: center;
-  background: rgba(255,255,255,0.85);
   border-radius: 4px;
   max-width: 180px;
   left: 0 !important;
@@ -284,10 +283,9 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
   max-width: 800px;
   margin: 2rem auto 0 auto;
   padding: 1.5rem 2rem;
-  background: #f9f9f9;
+  /* background and color set by inline style for user customization */
   border-radius: 8px;
   font-size: 1.15rem;
-  color: #222;
   text-align: center;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }
@@ -300,11 +298,12 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
   align-items: flex-start;
   gap: 2.5rem;
   margin-top: 2rem;
+  /* background and color set by inline style for user customization */
 }
 .top-list {
   flex: 1 1 0;
   min-width: 0;
-  background: #fff;
+  /* background and color set by inline style for user customization */
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   padding: 1rem 1.5rem 1.5rem 1.5rem;
@@ -315,7 +314,7 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
   margin-top: 0;
   margin-bottom: 1rem;
   font-size: 1.15rem;
-  color: #0070f3;
+  /* color set by inline style for user customization */
   text-align: center;
 }
 .top-list ol {
@@ -329,7 +328,7 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
 .top-list-link {
   background: none;
   border: none;
-  color: #23272f;
+  /* color set by inline style for user customization */
   font-size: 1.05rem;
   text-align: left;
   cursor: pointer;
@@ -343,5 +342,5 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
   text-decoration: underline solid #0070f3 2px;
 }
 .dark-mode .top-list-link {
-  color: #f5f6fa;
+  /* color set by inline style for user customization */
 }

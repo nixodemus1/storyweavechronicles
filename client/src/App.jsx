@@ -29,7 +29,7 @@ export default function App() {
           className={theme === "dark" ? "dark-mode" : "light-mode"}
           style={{ color: textColor, background: backgroundColor, minHeight: "100vh" }}
         >
-          <header className="header" style={{ position: 'relative', background: backgroundColor, color: textColor }}>
+          <header className="header" style={{ position: 'relative', background: backgroundColor, color: textColor, width: '100vw' }}>
             <h1 className="logo" style={{ marginRight: 'auto' }}>StoryWeave Chronicles</h1>
             <label style={{ marginRight: 8 }}>
               <span style={{ fontSize: '0.9rem', marginRight: 4 }}>Text</span>
