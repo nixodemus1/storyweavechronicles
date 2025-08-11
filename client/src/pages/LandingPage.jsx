@@ -3,7 +3,7 @@ import "../styles/LandingPage.css";
 import Slider from "react-slick";
 import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
-import { shadeColor } from "../utils/colorUtils";
+import { stepColor, getLuminance } from "../utils/colorUtils";
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -14,28 +14,25 @@ export default function LandingPage() {
   const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
 
   // Compute container background and text color variants automatically for contrast
-  function getContainerBg(bg, theme) {
-    // If bg is very light, darken; if very dark, lighten; else, shift by 8-12%
-    // Use shadeColor utility
-    // If bg is white or near-white, use light gray; if black or near-black, use dark gray
+  // Use smart stepColor utility for container backgrounds
+  function getContainerBg(bg, theme, step = 1) {
     if (!bg) return theme === 'dark' ? '#232323' : '#f5f5f5';
-    const hex = bg.replace('#', '');
-    const r = parseInt(hex.substring(0,2),16);
-    const g = parseInt(hex.substring(2,4),16);
-    const b = parseInt(hex.substring(4,6),16);
-    const luminance = (0.299*r + 0.587*g + 0.114*b)/255;
-    if (luminance > 0.85) return shadeColor(bg, -8); // very light, darken
-    if (luminance < 0.15) return shadeColor(bg, 10); // very dark, lighten
-    return shadeColor(bg, theme === 'dark' ? 10 : -8);
+    // Always brighten for dark backgrounds, darken for light backgrounds
+    const lum = getLuminance(bg);
+    const direction = lum < 0.5 ? 1 : -1;
+    return stepColor(bg, theme, step, direction);
   }
+
+  const containerBg = getContainerBg(backgroundColor, theme, 1);
+  const containerText = getContainerText(containerBg, textColor);
+  // Secondary container (top-10) color: one more step lighter (or darker)
+  const secondaryBg = getContainerBg(backgroundColor, theme, 2);
   function getContainerText(containerBg, rootText) {
     // If containerBg is too close to rootText, invert
     // Otherwise, use rootText
     // For simplicity, just use rootText for now
     return rootText;
   }
-  const containerBg = getContainerBg(backgroundColor, theme);
-  const containerText = getContainerText(containerBg, textColor);
 
   // Carousel settings
   const settings = {
@@ -145,7 +142,7 @@ export default function LandingPage() {
           Explore our collection of books and start reading today!
         </p>
         <div className="top-lists-container">
-          <div className="top-list" style={{ background: backgroundColor, color: textColor }}>
+          <div className="top-list" style={{ background: secondaryBg, color: textColor }}>
             <h3 style={{ color: textColor }}>Top 10 Newest</h3>
             <ol>
               {topNewest.map((pdf) => (
@@ -161,7 +158,7 @@ export default function LandingPage() {
               ))}
             </ol>
           </div>
-          <div className="top-list" style={{ background: backgroundColor, color: textColor }}>
+          <div className="top-list" style={{ background: secondaryBg, color: textColor }}>
             <h3 style={{ color: textColor }}>Top 10 by Votes</h3>
             <ol>
               {topVoted.map((pdf) => (

@@ -2,12 +2,22 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import "../styles/PDFReader.css";
 import { useTheme } from "../themeContext";
+import { stepColor, getLuminance } from "../utils/colorUtils";
 
 export default function PDFReader() {
   const { id } = useParams(); // expecting route like /read/:id
   const [pdfData, setPdfData] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const { theme, textColor, backgroundColor } = useTheme();
+  // Stepped container color logic (same as LandingPage)
+  function getContainerBg(bg, step = 1) {
+    if (!bg) return theme === 'dark' ? '#232323' : '#f5f5f5';
+    const lum = getLuminance(bg);
+    const direction = lum < 0.5 ? 1 : -1;
+    return stepColor(bg, theme, step, direction);
+  }
+  const containerBg = getContainerBg(backgroundColor, 1);
+  const containerText = textColor;
 
   useEffect(() => {
     fetch(`/api/pdf-text/${id}`)
@@ -53,7 +63,7 @@ export default function PDFReader() {
         </button>
       </header>
 
-      <div className="pdf-reader-page">
+      <div className="pdf-reader-page" style={{ background: containerBg, color: containerText, borderRadius: 8, padding: 16, margin: 16 }}>
         {page.images && page.images.length > 0 && (
           <div className="pdf-reader-images">
             {page.images.map((src, idx) => (
