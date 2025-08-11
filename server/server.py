@@ -23,19 +23,17 @@ def get_drive_service():
     """Return an authenticated Google Drive service without triggering full OAuth."""
     creds = None
 
-    # Load saved credentials if available
     if os.path.exists(TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
 
-    # Refresh if expired
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
 
-    # If still no valid creds, user must go to /authorize
     if not creds or not creds.valid:
         raise Exception("No valid credentials. Please visit /authorize to log in.")
 
     return build('drive', 'v3', credentials=creds)
+
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
@@ -45,26 +43,24 @@ def serve_react(path):
     else:
         return send_from_directory("../client/dist", "index.html")
 
+
 @app.route('/authorize')
 def authorize():
-    """Manually trigger OAuth flow and save credentials."""
     flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
     creds = flow.run_local_server(port=0)
 
-    # Save credentials for next time
     with open(TOKEN_FILE, 'w') as token:
         token.write(creds.to_json())
 
-    return redirect("/")  # Change to your frontend URL if needed
+    return redirect("/")
 
 
 @app.route('/list-pdfs/<folder_id>')
 def list_pdfs(folder_id):
-    """List all PDFs in a Google Drive folder."""
     try:
         service = get_drive_service()
         query = f"'{folder_id}' in parents and mimeType='application/pdf'"
-        results = service.files().list(q=query, fields="files(id, name)").execute()
+        results = service.files().list(q=query, fields="files(id, name, createdTime)").execute()
         files = results.get('files', [])
         return jsonify(pdfs=files)
     except Exception as e:
@@ -73,7 +69,6 @@ def list_pdfs(folder_id):
 
 @app.route('/view-pdf/<file_id>')
 def view_pdf(file_id):
-    """Serve a PDF for in-browser viewing."""
     try:
         service = get_drive_service()
         request = service.files().get_media(fileId=file_id)
@@ -85,7 +80,6 @@ def view_pdf(file_id):
 
 @app.route('/download-pdf/<file_id>')
 def download_pdf(file_id):
-    """Download a PDF by its ID."""
     try:
         service = get_drive_service()
         file_metadata = service.files().get(fileId=file_id, fields='name').execute()
@@ -96,21 +90,42 @@ def download_pdf(file_id):
     except Exception as e:
         return jsonify(error=str(e)), 500
 
+
 @app.route('/pdf-cover/<file_id>')
 def pdf_cover(file_id):
-    """Return the first page of a PDF as an image for the cover."""
     try:
         service = get_drive_service()
         request = service.files().get_media(fileId=file_id)
         file_content = io.BytesIO(request.execute())
 
-        # Load PDF and first page
         doc = fitz.open(stream=file_content, filetype="pdf")
-        page = doc.load_page(0)  # first page
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # scale up for quality
+        page = doc.load_page(0)
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
 
         img_bytes = io.BytesIO(pix.tobytes("png"))
         return send_file(img_bytes, mimetype="image/png")
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+
+@app.route('/api/pdf-text/<file_id>')
+def pdf_text(file_id):
+    """Extract all text from PDF and return as JSON, always include totalPages and images array."""
+    try:
+        service = get_drive_service()
+        request = service.files().get_media(fileId=file_id)
+        file_content = io.BytesIO(request.execute())
+
+        doc = fitz.open(stream=file_content, filetype="pdf")
+        pages = []
+
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            text = page.get_text("text")
+            images = []  # Placeholder for future image extraction
+            pages.append({"page": page_num + 1, "text": text, "images": images})
+
+        return jsonify({"pages": pages, "totalPages": len(doc)})
     except Exception as e:
         return jsonify(error=str(e)), 500
 

@@ -1,25 +1,33 @@
-
 import "../styles/LandingPage.css";
 import React, { useEffect, useState } from "react";
 import Slider from "react-slick";
+import { useNavigate } from "react-router-dom";
 
 export default function LandingPage() {
   const [pdfs, setPdfs] = useState([]);
+  const navigate = useNavigate();
 
   const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
+
   useEffect(() => {
     if (!folderId) return;
     fetch(`/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
         if (data.pdfs) {
-          setPdfs(data.pdfs);
+          // Sort newest first
+          const sorted = data.pdfs.slice().sort((a, b) => {
+            if (a.createdTime && b.createdTime) {
+              return new Date(b.createdTime) - new Date(a.createdTime);
+            }
+            return 0;
+          });
+          setPdfs(sorted);
         }
       })
       .catch(err => console.error("Error fetching PDFs:", err));
   }, [folderId]);
 
-  // Determine slidesToShow and infinite based on pdfs.length
   const settings = {
     dots: true,
     infinite: true,
@@ -72,8 +80,8 @@ export default function LandingPage() {
                 key={pdf.id}
                 className="carousel-item"
                 style={{ cursor: 'pointer' }}
-                onClick={() => window.open(`/view-pdf/${pdf.id}`, '_blank')}
-                title={`Open ${pdf.name}`}
+                onClick={() => navigate(`/read/${pdf.id}`)}
+                title={`Read ${pdf.name}`}
               >
                 <img
                   src={`/pdf-cover/${pdf.id}`}

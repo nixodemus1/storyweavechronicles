@@ -1,0 +1,29 @@
+.pdf-reader-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.pdf-reader-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.pdf-reader-page {
+  background: #fff;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.pdf-reader-images img {
+  max-width: 100%;
+  margin-bottom: 1rem;
+}
+
+.pdf-reader-text p {
+  line-height: 1.6;
+  font-size: 1rem;
+}
