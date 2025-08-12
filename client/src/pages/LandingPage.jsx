@@ -52,6 +52,27 @@ export default function LandingPage() {
 
   useEffect(() => {
     if (!folderId) return;
+    // Helper to compute a hash of the file list for change detection
+    function computeHash(pdfs) {
+      if (!pdfs || !Array.isArray(pdfs)) return '';
+      // Use id and createdTime for hash
+      return pdfs.map(pdf => `${pdf.id}:${pdf.createdTime || ''}`).sort().join('|');
+    }
+
+    // Try to load from localStorage
+    const cached = localStorage.getItem('swc_pdfs_cache');
+    const cachedHash = localStorage.getItem('swc_pdfs_hash');
+    let usedCache = false;
+    if (cached && cachedHash) {
+      try {
+        const parsed = JSON.parse(cached);
+        setPdfs(parsed);
+        setTopNewest(parsed.slice(0, 10));
+        setTopVoted(parsed.slice().sort(() => 0.5 - Math.random()).slice(0, 10));
+        usedCache = true;
+      } catch {}
+    }
+
     fetch(`/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
@@ -63,9 +84,14 @@ export default function LandingPage() {
             }
             return 0;
           });
-          setPdfs(sorted);
-          setTopNewest(sorted.slice(0, 10));
-          setTopVoted(sorted.slice().sort(() => 0.5 - Math.random()).slice(0, 10));
+          const hash = computeHash(sorted);
+          if (!usedCache || hash !== cachedHash) {
+            setPdfs(sorted);
+            setTopNewest(sorted.slice(0, 10));
+            setTopVoted(sorted.slice().sort(() => 0.5 - Math.random()).slice(0, 10));
+            localStorage.setItem('swc_pdfs_cache', JSON.stringify(sorted));
+            localStorage.setItem('swc_pdfs_hash', hash);
+          }
         }
       })
       .catch(err => console.error("Error fetching PDFs:", err));
@@ -91,6 +117,7 @@ export default function LandingPage() {
           afterChange={() => { window._carouselDragged = false; }}
         >
           {pdfs
+            .slice(0, 20)
             .filter(pdf => pdf && pdf.id && pdf.name)
             .map((pdf) => (
               <div
