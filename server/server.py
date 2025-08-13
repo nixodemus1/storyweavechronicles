@@ -128,6 +128,51 @@ def pdf_cover(file_id):
         return send_file(img_bytes, mimetype="image/png")
     except Exception as e:
         return jsonify(error=str(e)), 500
+    
+@app.route('/api/pdf-text/<file_id>')
+def pdf_text(file_id):
+    try:
+        service = get_drive_service()
+        # Download PDF from Google Drive
+        request = service.files().get_media(fileId=file_id)
+        file_content = io.BytesIO(request.execute())
+        doc = fitz.open(stream=file_content, filetype="pdf")
+        pages = []
+        for page_num in range(doc.page_count):
+            page = doc.load_page(page_num)
+            text = page.get_text()
+            images = []
+            for img in page.get_images(full=True):
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                img_bytes = base_image['image']
+                img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+                img_ext = base_image['ext']
+                images.append(f"data:image/{img_ext};base64,{img_base64}")
+            pages.append({
+                'page': page_num + 1,
+                'text': text,
+                'images': images
+            })
+        # Try to get metadata (title, etc.)
+        title = doc.metadata.get('title') if doc.metadata else None
+        name = None
+        # Try to get file name from Drive
+        try:
+            file_metadata = service.files().get(fileId=file_id, fields='name').execute()
+            name = file_metadata.get('name')
+        except Exception:
+            pass
+        return jsonify({
+            'success': True,
+            'id': file_id,
+            'title': title,
+            'name': name,
+            'totalPages': doc.page_count,
+            'pages': pages
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/update-colors', methods=['POST'])
 def update_colors():
@@ -416,6 +461,22 @@ def get_bookmarks():
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
     bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
+    # Get last updated time for each bookmarked PDF from Google Drive
+    try:
+        service = get_drive_service()
+        # Get all file IDs in bookmarks
+        file_ids = [bm['id'] for bm in bookmarks]
+        if file_ids:
+            # Query Google Drive for these files
+            query = " or ".join([f"'{fid}' in parents or id='{fid}'" for fid in file_ids])
+            results = service.files().list(q=query, fields="files(id, modifiedTime)").execute()
+            files = results.get('files', [])
+            file_update_map = {f['id']: f.get('modifiedTime') for f in files}
+            # Update each bookmark with actual last updated time
+            for bm in bookmarks:
+                bm['last_updated'] = file_update_map.get(bm['id'], bm.get('last_updated'))
+    except Exception as e:
+        pass  # If Drive fails, fallback to stored last_updated
     return jsonify({'success': True, 'bookmarks': bookmarks})
 
 @app.route('/api/add-bookmark', methods=['POST'])

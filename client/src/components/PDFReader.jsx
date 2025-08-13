@@ -24,10 +24,15 @@ export default function PDFReader() {
   const containerBg = getContainerBg(backgroundColor, 1);
   const containerText = textColor;
 
-  // Fetch PDF data
+  // Fetch PDF data with error handling for non-JSON responses
   useEffect(() => {
     fetch(`/api/pdf-text/${id}`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch PDF: ${res.status}`);
+        }
+        return res.json();
+      })
       .then(data => {
         if (!data.error) {
           setPdfData(data);
