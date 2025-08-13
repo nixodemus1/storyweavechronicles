@@ -35,6 +35,28 @@ class User(db.Model):
     timezone = db.Column(db.String(64), nullable=True)
     notification_prefs = db.Column(db.Text, nullable=True)  # JSON string
     notification_history = db.Column(db.Text, nullable=True)  # JSON string
+    is_admin = db.Column(db.Boolean, default=False)  # admin privileges
+
+
+# --- Voting Model ---
+class Vote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), nullable=False)
+    book_id = db.Column(db.String(128), nullable=False)
+    value = db.Column(db.Integer, nullable=False)  # 1-5 stars
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+class Comment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(db.String(128), nullable=False)
+    username = db.Column(db.String(80), nullable=False)
+    parent_id = db.Column(db.Integer, nullable=True)  # null for top-level
+    text = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    edited = db.Column(db.Boolean, default=False)
+    upvotes = db.Column(db.Integer, default=0)
+    downvotes = db.Column(db.Integer, default=0)
+    deleted = db.Column(db.Boolean, default=False)  # for moderation
 
 # Create tables if not exist
 with app.app_context():
@@ -585,6 +607,212 @@ def get_user():
         'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
         'notificationHistory': json.loads(user.notification_history) if user.notification_history else []
     })
+
+@app.route('/api/vote-book', methods=['POST'])
+def vote_book():
+    data = request.get_json()
+    username = data.get('username')
+    book_id = data.get('book_id')
+    value = data.get('value')  # 1-5
+    if not username or not book_id or value not in [1,2,3,4,5]:
+        return jsonify({'success': False, 'message': 'Invalid vote data.'}), 400
+    vote = Vote.query.filter_by(username=username, book_id=book_id).first()
+    if vote:
+        vote.value = value
+        vote.timestamp = datetime.datetime.utcnow()
+    else:
+        vote = Vote(username=username, book_id=book_id, value=value)
+        db.session.add(vote)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Vote recorded.'})
+
+@app.route('/api/book-votes', methods=['GET'])
+def book_votes():
+    book_id = request.args.get('book_id')
+    if not book_id:
+        return jsonify({'success': False, 'message': 'Book ID required.'}), 400
+    votes = Vote.query.filter_by(book_id=book_id).all()
+    if not votes:
+        return jsonify({'success': True, 'average': 0, 'count': 0})
+    avg = round(sum(v.value for v in votes) / len(votes), 2)
+    return jsonify({'success': True, 'average': avg, 'count': len(votes)})
+
+@app.route('/api/top-voted-books', methods=['GET'])
+def top_voted_books():
+    from sqlalchemy import func
+    vote_counts = db.session.query(
+        Vote.book_id,
+        func.avg(Vote.value).label('avg_vote'),
+        func.count(Vote.value).label('vote_count')
+    ).group_by(Vote.book_id).order_by(func.avg(Vote.value).desc()).limit(10).all()
+    # Get book metadata from Google Drive
+    service = None
+    try:
+        service = get_drive_service()
+    except Exception:
+        pass
+    books = []
+    for book_id, avg_vote, vote_count in vote_counts:
+        meta = {'id': book_id, 'average': round(avg_vote,2), 'count': vote_count}
+        if service:
+            try:
+                file_metadata = service.files().get(fileId=book_id, fields='name').execute()
+                meta['name'] = file_metadata.get('name')
+            except Exception:
+                meta['name'] = None
+        books.append(meta)
+    return jsonify({'success': True, 'books': books})
+
+@app.route('/api/user-voted-books', methods=['GET'])
+def user_voted_books():
+    username = request.args.get('username')
+    if not username:
+        return jsonify({'success': False, 'message': 'Username required.'}), 400
+    votes = Vote.query.filter_by(username=username).all()
+    voted_books = [{'book_id': v.book_id, 'value': v.value, 'timestamp': v.timestamp.isoformat()} for v in votes]
+    return jsonify({'success': True, 'voted_books': voted_books})
+
+@app.route('/api/add-comment', methods=['POST'])
+def add_comment():
+    data = request.get_json()
+    book_id = data.get('book_id')
+    username = data.get('username')
+    text = data.get('text')
+    parent_id = data.get('parent_id')
+    if not book_id or not username or not text:
+        return jsonify({'success': False, 'message': 'Missing fields.'}), 400
+    comment = Comment(book_id=book_id, username=username, text=text, parent_id=parent_id)
+    db.session.add(comment)
+    db.session.commit()
+    # Hook for notifications: if parent_id, notify parent comment's author
+    return jsonify({'success': True, 'message': 'Comment added.', 'comment_id': comment.id})
+
+@app.route('/api/edit-comment', methods=['POST'])
+def edit_comment():
+    data = request.get_json()
+    comment_id = data.get('comment_id')
+    username = data.get('username')
+    text = data.get('text')
+    comment = Comment.query.get(comment_id)
+    if not comment or comment.deleted:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+    if comment.username != username:
+        user = User.query.filter_by(username=username).first()
+        if not user or not user.is_admin:
+            return jsonify({'success': False, 'message': 'Not authorized.'}), 403
+    comment.text = text
+    comment.edited = True
+    comment.timestamp = datetime.datetime.utcnow()
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Comment edited.'})
+
+@app.route('/api/delete-comment', methods=['POST'])
+def delete_comment():
+    data = request.get_json()
+    comment_id = data.get('comment_id')
+    username = data.get('username')
+    comment = Comment.query.get(comment_id)
+    if not comment or comment.deleted:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+    if comment.username != username:
+        user = User.query.filter_by(username=username).first()
+        if not user or not user.is_admin:
+            return jsonify({'success': False, 'message': 'Not authorized.'}), 403
+    comment.deleted = True
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Comment deleted.'})
+
+@app.route('/api/get-comments', methods=['GET'])
+def get_comments():
+    book_id = request.args.get('book_id')
+    if not book_id:
+        return jsonify({'success': False, 'message': 'Book ID required.'}), 400
+    comments = Comment.query.filter_by(book_id=book_id).order_by(Comment.timestamp.asc()).all()
+    # Build nested replies
+    comment_map = {c.id: c for c in comments if not c.deleted}
+    tree = []
+    for c in comment_map.values():
+        item = {
+            'id': c.id,
+            'book_id': c.book_id,
+            'username': c.username,
+            'parent_id': c.parent_id,
+            'text': c.text,
+            'timestamp': c.timestamp.isoformat(),
+            'edited': c.edited,
+            'upvotes': c.upvotes,
+            'downvotes': c.downvotes,
+            'deleted': c.deleted,
+            'replies': []
+        }
+        if c.parent_id and c.parent_id in comment_map:
+            comment_map[c.parent_id].replies.append(item)
+        else:
+            tree.append(item)
+    return jsonify({'success': True, 'comments': tree})
+
+@app.route('/api/vote-comment', methods=['POST'])
+def vote_comment():
+    data = request.get_json()
+    comment_id = data.get('comment_id')
+    value = data.get('value')  # 1 for upvote, -1 for downvote
+    if value not in [1, -1]:
+        return jsonify({'success': False, 'message': 'Invalid vote value.'}), 400
+    comment = Comment.query.get(comment_id)
+    if not comment or comment.deleted:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+    if value == 1:
+        comment.upvotes += 1
+    else:
+        comment.downvotes += 1
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Vote recorded.', 'upvotes': comment.upvotes, 'downvotes': comment.downvotes})
+
+@app.route('/api/get-comment-votes', methods=['GET'])
+def get_comment_votes():
+    comment_id = request.args.get('comment_id')
+    comment = Comment.query.get(comment_id)
+    if not comment or comment.deleted:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+    return jsonify({'success': True, 'upvotes': comment.upvotes, 'downvotes': comment.downvotes})
+
+@app.route('/api/user-comments', methods=['GET'])
+def user_comments():
+    username = request.args.get('username')
+    comments = Comment.query.filter_by(username=username).order_by(Comment.timestamp.desc()).all()
+    return jsonify({'success': True, 'comments': [
+        {
+            'id': c.id,
+            'book_id': c.book_id,
+            'parent_id': c.parent_id,
+            'text': c.text,
+            'timestamp': c.timestamp.isoformat(),
+            'edited': c.edited,
+            'upvotes': c.upvotes,
+            'downvotes': c.downvotes,
+            'deleted': c.deleted
+        } for c in comments if not c.deleted
+    ]})
+
+@app.route('/api/moderate-comment', methods=['POST'])
+def moderate_comment():
+    data = request.get_json()
+    comment_id = data.get('comment_id')
+    action = data.get('action')  # 'delete', 'hide', etc.
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user or not user.is_admin:
+        return jsonify({'success': False, 'message': 'Not authorized.'}), 403
+    comment = Comment.query.get(comment_id)
+    if not comment:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+    if action == 'delete':
+        comment.deleted = True
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Comment deleted.'})
+    # Add more moderation actions as needed
+    return jsonify({'success': False, 'message': 'Unknown action.'}), 400
+
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):

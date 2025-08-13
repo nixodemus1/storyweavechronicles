@@ -14,6 +14,9 @@ export default function PDFReader() {
   const { user, setUser } = useContext(ThemeContext);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkMsg, setBookmarkMsg] = useState("");
+  const [userVote, setUserVote] = useState(null);
+  const [voteStats, setVoteStats] = useState({ average: 0, count: 0 });
+
   // Stepped container color logic (same as LandingPage)
   function getContainerBg(bg, step = 1) {
     if (!bg) return theme === 'dark' ? '#232323' : '#f5f5f5';
@@ -102,6 +105,43 @@ export default function PDFReader() {
     }
   }, [user, id, currentPage, isBookmarked]);
 
+  // Fetch user's vote for this book
+  useEffect(() => {
+    if (user && user.username && id) {
+      fetch(`/api/user-voted-books?username=${user.username}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.voted_books)) {
+            const v = data.voted_books.find(b => b.book_id === id);
+            if (v) setUserVote(v.value);
+          }
+        });
+    }
+  }, [user, id]);
+
+  // Fetch vote stats for this book
+  useEffect(() => {
+    if (id) {
+      fetch(`/api/book-votes?book_id=${id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) setVoteStats({ average: data.average, count: data.count });
+        });
+    }
+  }, [id, userVote]);
+
+  // Voting handler
+  const handleVote = async (value) => {
+    if (!user || !user.username) return;
+    const res = await fetch('/api/vote-book', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user.username, book_id: id, value })
+    });
+    const data = await res.json();
+    if (data.success) setUserVote(value);
+  };
+
   // Book title (prefer metadata, fallback to pdfData or ID)
   const bookTitle = bookMeta?.name || pdfData?.title || pdfData?.name || `Book ${id}`;
 
@@ -145,6 +185,222 @@ export default function PDFReader() {
       setBookmarkMsg(data.message || "Failed to remove bookmark.");
     }
   };
+
+  // Comments section
+  function CommentsSection({ bookId, user, containerBg, containerText }) {
+    const [comments, setComments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [newComment, setNewComment] = useState("");
+    const [replyTo, setReplyTo] = useState(null); // comment id
+    const [editId, setEditId] = useState(null);
+    const [editText, setEditText] = useState("");
+    const [msg, setMsg] = useState("");
+
+    // Fetch comments
+    useEffect(() => {
+      setLoading(true);
+      fetch(`/api/get-comments?book_id=${bookId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.comments)) {
+            setComments(data.comments);
+          }
+          setLoading(false);
+        });
+    }, [bookId]);
+
+    // Add comment or reply
+    const handleAddComment = async () => {
+      if (!user || !user.username) {
+        setMsg("Log in to comment.");
+        return;
+      }
+      if (!newComment.trim()) return;
+      const res = await fetch('/api/add-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          book_id: bookId,
+          username: user.username,
+          text: newComment,
+          parent_id: replyTo
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNewComment("");
+        setReplyTo(null);
+        setMsg("");
+        // Refresh comments
+        fetch(`/api/get-comments?book_id=${bookId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && Array.isArray(data.comments)) {
+              setComments(data.comments);
+            }
+          });
+      } else {
+        setMsg(data.message || "Failed to add comment.");
+      }
+    };
+
+    // Edit comment
+    const handleEditComment = async (commentId) => {
+      if (!editText.trim()) return;
+      const res = await fetch('/api/edit-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          comment_id: commentId,
+          username: user.username,
+          text: editText
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditId(null);
+        setEditText("");
+        // Refresh comments
+        fetch(`/api/get-comments?book_id=${bookId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && Array.isArray(data.comments)) {
+              setComments(data.comments);
+            }
+          });
+      } else {
+        setMsg(data.message || "Failed to edit comment.");
+      }
+    };
+
+    // Delete comment
+    const handleDeleteComment = async (commentId) => {
+      const res = await fetch('/api/delete-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          comment_id: commentId,
+          username: user.username
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Refresh comments
+        fetch(`/api/get-comments?book_id=${bookId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && Array.isArray(data.comments)) {
+              setComments(data.comments);
+            }
+          });
+      } else {
+        setMsg(data.message || "Failed to delete comment.");
+      }
+    };
+
+    // Vote comment
+    const handleVoteComment = async (commentId, value) => {
+      await fetch('/api/vote-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment_id: commentId, value })
+      });
+      // Refresh comments
+      fetch(`/api/get-comments?book_id=${bookId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.comments)) {
+            setComments(data.comments);
+          }
+        });
+    };
+
+    // Render comments recursively
+    function renderComments(list, depth = 0) {
+      return list.map(comment => (
+        <div key={comment.id} style={{
+          background: depth === 0 ? containerBg : stepColor(containerBg, 'dark', depth, 1),
+          color: containerText,
+          borderRadius: 6,
+          margin: '12px 0 0 0',
+          padding: '12px 16px',
+          marginLeft: depth * 24,
+          boxShadow: depth === 0 ? '0 1px 4px rgba(0,0,0,0.06)' : 'none'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontWeight: 600 }}>{comment.username}</span>
+            <span style={{ fontSize: 12, color: '#888' }}>{new Date(comment.timestamp).toLocaleString()}</span>
+            {comment.edited && <span style={{ fontSize: 11, color: '#f5c518', marginLeft: 6 }}>(edited)</span>}
+          </div>
+          {editId === comment.id ? (
+            <div>
+              <textarea
+                value={editText}
+                onChange={e => setEditText(e.target.value)}
+                rows={2}
+                style={{ width: '100%', marginTop: 6, borderRadius: 4 }}
+              />
+              <button onClick={() => handleEditComment(comment.id)} style={{ marginRight: 8 }}>Save</button>
+              <button onClick={() => { setEditId(null); setEditText(""); }}>Cancel</button>
+            </div>
+          ) : (
+            <div style={{ margin: '8px 0' }}>{comment.text}</div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={() => handleVoteComment(comment.id, 1)} style={{ color: '#0070f3' }}>▲ {comment.upvotes}</button>
+            <button onClick={() => handleVoteComment(comment.id, -1)} style={{ color: '#c00' }}>▼ {comment.downvotes}</button>
+            <button onClick={() => setReplyTo(comment.id)} style={{ color: '#888' }}>Reply</button>
+            {user && user.username === comment.username && (
+              <>
+                <button onClick={() => { setEditId(comment.id); setEditText(comment.text); }} style={{ color: '#888' }}>Edit</button>
+                <button onClick={() => handleDeleteComment(comment.id)} style={{ color: '#c00' }}>Delete</button>
+              </>
+            )}
+          </div>
+          {/* Render replies */}
+          {comment.replies && comment.replies.length > 0 && renderComments(comment.replies, depth + 1)}
+        </div>
+      ));
+    }
+
+    return (
+      <div style={{
+        background: containerBg,
+        color: containerText,
+        borderRadius: 8,
+        padding: 18,
+        marginTop: 18,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+      }}>
+        <h3 style={{ marginBottom: 10 }}>Comments</h3>
+        {msg && <div style={{ color: '#c00', marginBottom: 8 }}>{msg}</div>}
+        {loading ? (
+          <div>Loading comments...</div>
+        ) : (
+          <>
+            {renderComments(comments)}
+            <div style={{ marginTop: 18 }}>
+              <textarea
+                value={newComment}
+                onChange={e => setNewComment(e.target.value)}
+                rows={2}
+                style={{ width: '100%', borderRadius: 4 }}
+                placeholder={replyTo ? "Write a reply..." : "Write a comment..."}
+              />
+              <button onClick={handleAddComment} style={{ marginTop: 6 }}>
+                {replyTo ? "Reply" : "Comment"}
+              </button>
+              {replyTo && (
+                <button onClick={() => { setReplyTo(null); setNewComment(""); }} style={{ marginLeft: 8 }}>
+                  Cancel Reply
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
 
   if (!pdfData) {
     return <div className={`pdf-reader-loading ${theme}-mode`} style={{ background: backgroundColor, color: textColor, minHeight: '100vh' }}>Loading PDF...</div>;
@@ -222,18 +478,36 @@ export default function PDFReader() {
           )}
           {bookmarkMsg && <span style={{ marginLeft: 10, color: bookmarkMsg.includes('Bookmarked') ? 'green' : '#c00', fontSize: 14 }}>{bookmarkMsg}</span>}
         </div>
-        {/* Voting system placeholder */}
+        {/* Voting system */}
         <div style={{ marginBottom: 10 }}>
           <span style={{ fontWeight: 500, marginRight: 8 }}>Your Rating:</span>
           {[1,2,3,4,5].map(star => (
-            <span key={star} style={{ fontSize: 22, color: '#f5c518', cursor: 'pointer', opacity: 0.5 }} title="Voting coming soon">★</span>
+            <span
+              key={star}
+              style={{
+                fontSize: 22,
+                color: star <= userVote ? '#f5c518' : '#ccc',
+                cursor: user ? 'pointer' : 'not-allowed',
+                opacity: user ? 1 : 0.5,
+                marginRight: 2
+              }}
+              title={user ? `Rate ${star} star${star > 1 ? 's' : ''}` : "Log in to vote"}
+              onClick={() => user && handleVote(star)}
+            >★</span>
           ))}
-          <span style={{ marginLeft: 8, color: '#888', fontSize: 13 }}>(Voting coming soon)</span>
+          <span style={{ marginLeft: 8, color: '#888', fontSize: 13 }}>
+            {voteStats.count > 0
+              ? `Avg: ${voteStats.average} (${voteStats.count} vote${voteStats.count > 1 ? 's' : ''})`
+              : "(No votes yet)"}
+          </span>
         </div>
-        {/* Comments section placeholder */}
-        <div style={{ marginTop: 18, color: '#888', fontStyle: 'italic', fontSize: 15 }}>
-          Comments coming soon...
-        </div>
+        {/* Comments section */}
+        <CommentsSection
+          bookId={id}
+          user={user}
+          containerBg={containerBg}
+          containerText={containerText}
+        />
       </div>
     </div>
   );

@@ -22,17 +22,58 @@ export default function LandingPage() {
     const direction = lum < 0.5 ? 1 : -1;
     return stepColor(bg, theme, step, direction);
   }
-
-  const containerBg = getContainerBg(backgroundColor, theme, 1);
-  const containerText = getContainerText(containerBg, textColor);
-  // Secondary container (top-10) color: one more step lighter (or darker)
-  const secondaryBg = getContainerBg(backgroundColor, theme, 2);
   function getContainerText(containerBg, rootText) {
     // If containerBg is too close to rootText, invert
     // Otherwise, use rootText
     // For simplicity, just use rootText for now
     return rootText;
   }
+
+  const containerBg = getContainerBg(backgroundColor, theme, 1);
+  const containerText = getContainerText(containerBg, textColor);
+  // Secondary container (top-10) color: one more step lighter (or darker)
+  const secondaryBg = getContainerBg(backgroundColor, theme, 2);
+
+  // --- Move arrow components inside LandingPage ---
+  const NextArrow = ({ currentSlide, slideCount, ...props }) => (
+    <div
+      {...props}
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: '50%',
+        background: containerBg,
+        color: containerText,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 32,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+        cursor: 'pointer',
+        zIndex: 2
+      }}
+    >▶</div>
+  );
+
+  const PrevArrow = ({ currentSlide, slideCount, ...props }) => (
+    <div
+      {...props}
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: '50%',
+        background: containerBg,
+        color: containerText,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 32,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+        cursor: 'pointer',
+        zIndex: 2
+      }}
+    >◀</div>
+  );
 
   // Carousel settings
   const settings = {
@@ -44,10 +85,35 @@ export default function LandingPage() {
     centerMode: true,
     centerPadding: '40px',
     swipeToSlide: true,
+    arrows: true, // keep this true to show arrows
+    nextArrow: <NextArrow />, // only your custom arrow
+    prevArrow: <PrevArrow />, // only your custom arrow
     responsive: [
       { breakpoint: 900, settings: { slidesToShow: 2 } },
       { breakpoint: 600, settings: { slidesToShow: 1 } },
     ],
+    appendDots: dots => (
+      <ul style={{
+        background: containerBg,
+        borderRadius: 8,
+        padding: '8px 0',
+        margin: 0
+      }}>{dots}</ul>
+    ),
+    customPaging: (i) => (
+      <button
+        type="button"
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: '50%',
+          background: containerText,
+          border: `2px solid ${containerBg}`,
+          margin: '0 4px',
+          opacity: 0.7
+        }}
+      />
+    ),
   };
 
   useEffect(() => {
@@ -95,6 +161,19 @@ export default function LandingPage() {
         }
       })
       .catch(err => console.error("Error fetching PDFs:", err));
+  }, [folderId]);
+
+  useEffect(() => {
+    if (!folderId) return;
+    // ...existing code for newest...
+    fetch(`/api/top-voted-books`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.books)) {
+          setTopVoted(data.books);
+        }
+      })
+      .catch(err => console.error("Error fetching top voted books:", err));
   }, [folderId]);
 
   return (

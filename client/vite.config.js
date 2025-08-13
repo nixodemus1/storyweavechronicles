@@ -30,7 +30,19 @@ export default defineConfig({
       '/api/remove-bookmark': 'http://localhost:5000',
       '/api/get-bookmarks': 'http://localhost:5000',
       '/api/update-bookmark-meta': 'http://localhost:5000',
-      '/api/get-user': 'http://localhost:5000'
+      '/api/get-user': 'http://localhost:5000',
+      '/api/vote-book': 'http://localhost:5000',
+      '/api/book-votes': 'http://localhost:5000',
+      '/api/top-voted-books': 'http://localhost:5000',
+      '/api/user-voted-books': 'http://localhost:5000',
+      '/api/add-comment': 'http://localhost:5000',
+      '/api/edit-comment': 'http://localhost:5000',
+      '/api/delete-comment': 'http://localhost:5000',
+      '/api/get-comments': 'http://localhost:5000',
+      '/api/vote-comment': 'http://localhost:5000',
+      '/api/get-comment-votes': 'http://localhost:5000',
+      '/api/user-comments': 'http://localhost:5000',
+      '/api/moderate-comment': 'http://localhost:5000',
     }
   }
 })
