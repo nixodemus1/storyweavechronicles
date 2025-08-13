@@ -47,11 +47,12 @@ export default function App() {
       localStorage.removeItem('user');
     }
   }, [user]);
-  // Save color changes to backend for logged-in user
+  // Save color changes to backend only if user changes them (not when syncing from backend)
+  const [colorChangedByUser, setColorChangedByUser] = useState(false);
   useEffect(() => {
     localStorage.setItem('backgroundColor', backgroundColor);
     localStorage.setItem('textColor', textColor);
-    if (user && user.username) {
+    if (user && user.username && colorChangedByUser) {
       fetch("/api/update-colors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,8 +62,19 @@ export default function App() {
           textColor,
         }),
       });
+      setColorChangedByUser(false);
     }
-  }, [backgroundColor, textColor, user]);
+  }, [backgroundColor, textColor, user, colorChangedByUser]);
+
+  // When user changes color, set flag
+  const handleBackgroundColorChange = (color) => {
+    setBackgroundColor(color);
+    setColorChangedByUser(true);
+  };
+  const handleTextColorChange = (color) => {
+    setTextColor(color);
+    setColorChangedByUser(true);
+  };
 
   // Update default colors when theme changes
   useEffect(() => {
@@ -84,14 +96,24 @@ export default function App() {
       // Always use backend's saved color values after login/register
       setBackgroundColor(data.backgroundColor || "#f5f6fa");
       setTextColor(data.textColor || "#23272f");
-      // Fetch full user profile to ensure email is present
+      // After registration, backend does not return username/email, so use form data if missing
+      let username = data.username;
+      let email = data.email;
+      if (!username || !email) {
+        // Try to get from registration form (if available)
+        if (data.message && window.lastRegisterPayload) {
+          username = window.lastRegisterPayload.username;
+          email = window.lastRegisterPayload.email;
+        }
+      }
+      // Fetch full user profile to ensure all fields are present
       let userProfile = data;
-      if (data.username) {
+      if (username) {
         try {
           const res = await fetch('/api/get-user', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: data.username })
+            body: JSON.stringify({ username })
           });
           const profile = await res.json();
           if (profile.success) userProfile = profile;
@@ -113,9 +135,9 @@ export default function App() {
     }
     return <LoginRegisterPage onAuth={handleAuth} {...props} />;
   }
-  // On mount, if user exists but email is missing, fetch user profile
+  // On mount, or when username changes, fetch and apply color preferences from backend
   useEffect(() => {
-    if (user && user.username && !user.email) {
+    if (user && user.username) {
       fetch('/api/get-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -124,11 +146,14 @@ export default function App() {
         .then(res => res.json())
         .then(profile => {
           if (profile.success) {
+            setBackgroundColor(profile.backgroundColor || '#f5f6fa');
+            setTextColor(profile.textColor || '#23272f');
+            setFont(profile.font || '');
             setUser(u => ({ ...u, ...profile }));
           }
         });
     }
-  }, [user]);
+  }, [user?.username]);
 
   // Compute container color for header
   const headerContainerColor = stepColor(
@@ -139,7 +164,7 @@ export default function App() {
 
   return (
     <ThemeContext.Provider value={{
-      theme, toggleTheme, textColor, setTextColor, backgroundColor, setBackgroundColor,
+      theme, toggleTheme, textColor, setTextColor: handleTextColorChange, backgroundColor, setBackgroundColor: handleBackgroundColorChange,
       font, setFont, user, setUser
     }}>
       <Router>

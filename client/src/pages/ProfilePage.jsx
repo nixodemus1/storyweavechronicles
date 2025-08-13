@@ -472,10 +472,12 @@ export default function ProfilePage({ user, setUser, onLogout }) {
                   e.preventDefault();
                   setSecondaryEmailMsg("");
                   if (!newSecondaryEmail) return setSecondaryEmailMsg("Enter an email.");
+                  // Always send both username and email
+                  const payload = { username: user?.username || "", email: newSecondaryEmail };
                   const res = await fetch('/api/add-secondary-email', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: user.username, email: newSecondaryEmail })
+                    body: JSON.stringify(payload)
                   });
                   const data = await res.json();
                   setSecondaryEmailMsg(data.message);

@@ -67,21 +67,35 @@ export default function PDFReader() {
             const bm = data.bookmarks.find(b => b.id === id);
             setIsBookmarked(!!bm);
             if (bm && bm.last_page) setCurrentPage(bm.last_page);
+          } else {
+            // No bookmarks or error, just continue
+            setIsBookmarked(false);
           }
+        })
+        .catch(() => {
+          // Network or server error, just continue
+          setIsBookmarked(false);
         });
     }
   }, [user, id]);
 
-  // Track last page update
+  // Track last page update only if book is bookmarked
   useEffect(() => {
-    if (user && user.username && id && currentPage) {
+    if (user && user.username && id && currentPage && isBookmarked) {
       fetch('/api/update-bookmark-meta', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username, book_id: id, last_page: currentPage })
-      });
+      })
+        .then(res => res.json())
+        .then(data => {
+          // Only update if success, otherwise ignore
+        })
+        .catch(() => {
+          // Ignore errors for new accounts with no bookmarks
+        });
     }
-  }, [user, id, currentPage]);
+  }, [user, id, currentPage, isBookmarked]);
 
   // Book title (prefer metadata, fallback to pdfData or ID)
   const bookTitle = bookMeta?.name || pdfData?.title || pdfData?.name || `Book ${id}`;
@@ -126,8 +140,6 @@ export default function PDFReader() {
       setBookmarkMsg(data.message || "Failed to remove bookmark.");
     }
   };
-
-  console.log("PDFReader user:", user);
 
   if (!pdfData) {
     return <div className={`pdf-reader-loading ${theme}-mode`} style={{ background: backgroundColor, color: textColor, minHeight: '100vh' }}>Loading PDF...</div>;
