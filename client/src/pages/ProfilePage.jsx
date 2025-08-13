@@ -17,6 +17,7 @@ function BookmarksTab({ user }) {
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
   const textColor = useContext(ThemeContext).textColor;
+  // Fetch bookmarks with metadata
   React.useEffect(() => {
     if (!user?.username) return;
     setLoading(true);
@@ -34,6 +35,7 @@ function BookmarksTab({ user }) {
         }
       });
   }, [user?.username]);
+  // Fetch all books
   React.useEffect(() => {
     const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
     if (!folderId) return;
@@ -45,7 +47,17 @@ function BookmarksTab({ user }) {
         setLoading(false);
       });
   }, []);
-  const bookmarkedBooks = books.filter(b => bookmarks.includes(b.id));
+  // Merge book info with bookmark metadata
+  const bookmarkedBooks = bookmarks
+    .map(bm => {
+      const book = books.find(b => b.id === bm.id);
+      return book ? { ...book, ...bm } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      // Sort by most recent update
+      return new Date(b.last_updated) - new Date(a.last_updated);
+    });
   return (
     <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32 }}>
       <h3>Your Bookmarked Books</h3>
@@ -57,8 +69,29 @@ function BookmarksTab({ user }) {
         ) : (
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {bookmarkedBooks.map(book => (
-              <li key={book.id} style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <li
+                key={book.id}
+                style={{
+                  marginBottom: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  background: book.unread ? '#ffe0e0' : 'transparent',
+                  borderRadius: 6,
+                  padding: '6px 8px',
+                  boxShadow: book.unread ? '0 0 4px #c00' : 'none',
+                }}
+              >
                 <span style={{ fontWeight: 600, color: textColor }}>{book.name}</span>
+                <span style={{ fontSize: 13, color: '#888' }}>
+                  Last updated: {book.last_updated}
+                </span>
+                <span style={{ fontSize: 13, color: '#888' }}>
+                  Last page read: {book.last_page}
+                </span>
+                {book.unread && (
+                  <span style={{ color: '#c00', fontWeight: 700, fontSize: 13 }}>Unread update!</span>
+                )}
                 <a href={`/read/${book.id}`} style={{ color: '#0070f3', textDecoration: 'underline', fontSize: 15 }}>Read</a>
               </li>
             ))}
@@ -73,6 +106,7 @@ export default function ProfilePage({ user, setUser, onLogout }) {
   const [activeTab, setActiveTab] = useState("settings");
   const [timezone, setTimezone] = useState(user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const [sidebarManual, setSidebarManual] = useState(false); // track manual toggle
   const { backgroundColor, textColor, setBackgroundColor, setTextColor, font, setFont } = useContext(ThemeContext);
   // Save color changes to backend for logged-in user
   React.useEffect(() => {
@@ -146,32 +180,44 @@ export default function ProfilePage({ user, setUser, onLogout }) {
   return (
     <div style={{ display: 'flex', minHeight: '80vh' }}>
       {/* Sidebar */}
-      <aside style={{
-        width: sidebarExpanded ? 180 : 56,
-        background: stepColor(backgroundColor, 'sidebar', 1),
-        color: textColor,
-        transition: 'width 0.2s',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: sidebarExpanded ? 'flex-start' : 'center',
-        padding: sidebarExpanded ? '24px 12px 24px 18px' : '24px 6px',
-        borderRight: '1px solid #eee',
-        gap: 10
-      }}>
-        {/* User avatar */}
+      <aside
+        style={{
+          width: sidebarExpanded ? 180 : 56,
+          background: stepColor(backgroundColor, 'sidebar', 1),
+          color: textColor,
+          transition: 'width 0.2s',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: sidebarExpanded ? 'flex-start' : 'center',
+          padding: sidebarExpanded ? '24px 12px 24px 18px' : '24px 6px',
+          borderRight: '1px solid #eee',
+          gap: 10
+        }}
+        onMouseEnter={() => { if (!sidebarManual) setSidebarExpanded(true); }}
+        onMouseLeave={() => { if (!sidebarManual) setSidebarExpanded(false); }}
+      >
+        {/* User avatar (styled div, matches header) */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 18, width: '100%' }}>
-          <img
-            src={user?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.username || 'U')}&background=fff&color=23272f&size=64`}
-            alt="User avatar"
-            style={{ width: 48, height: 48, borderRadius: '50%', marginBottom: 6, border: `2px solid ${textColor}` }}
-          />
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: '50%',
+              background: backgroundColor,
+              color: textColor,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 6,
+              fontWeight: 700,
+              fontSize: 24,
+              border: `2px solid ${textColor}`,
+            }}
+          >
+            {user?.username ? user.username[0].toUpperCase() : "?"}
+          </div>
           {sidebarExpanded && <div style={{ fontWeight: 600, fontSize: 16, color: textColor }}>{user?.username}</div>}
         </div>
-        <button
-          onClick={() => setSidebarExpanded(e => !e)}
-          style={{ background: 'none', border: 'none', color: textColor, fontSize: 22, marginBottom: 18, cursor: 'pointer', alignSelf: sidebarExpanded ? 'flex-end' : 'center' }}
-          title={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-        >{sidebarExpanded ? '«' : '»'}</button>
         <button
           onClick={() => setActiveTab('settings')}
           style={{

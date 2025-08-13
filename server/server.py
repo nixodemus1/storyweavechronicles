@@ -481,7 +481,12 @@ def drive_webhook():
         pass
     return '', 200
 
-# --- Bookmarks Endpoints ---
+# --- Enhanced Bookmarks Endpoints ---
+import datetime
+
+def _now():
+    return datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+
 @app.route('/api/add-bookmark', methods=['POST'])
 def add_bookmark():
     data = request.get_json()
@@ -492,8 +497,20 @@ def add_bookmark():
     user = users.get(username)
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
-    if book_id not in user['bookmarks']:
-        user['bookmarks'].append(book_id)
+    # Bookmarks now store metadata: {id, last_updated, unread, last_page}
+    if 'bookmarks' not in user:
+        user['bookmarks'] = []
+    # Check if already bookmarked
+    for bm in user['bookmarks']:
+        if bm['id'] == book_id:
+            return jsonify({'success': True, 'message': 'Already bookmarked.', 'bookmarks': user['bookmarks']})
+    # Add new bookmark
+    user['bookmarks'].append({
+        'id': book_id,
+        'last_updated': _now(),
+        'unread': False,
+        'last_page': 1
+    })
     return jsonify({'success': True, 'message': 'Bookmarked.', 'bookmarks': user['bookmarks']})
 
 @app.route('/api/remove-bookmark', methods=['POST'])
@@ -506,8 +523,7 @@ def remove_bookmark():
     user = users.get(username)
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
-    if book_id in user['bookmarks']:
-        user['bookmarks'].remove(book_id)
+    user['bookmarks'] = [bm for bm in user.get('bookmarks', []) if bm['id'] != book_id]
     return jsonify({'success': True, 'message': 'Bookmark removed.', 'bookmarks': user['bookmarks']})
 
 @app.route('/api/get-bookmarks', methods=['POST'])
@@ -519,7 +535,32 @@ def get_bookmarks():
     user = users.get(username)
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
-    return jsonify({'success': True, 'bookmarks': user['bookmarks']})
+    return jsonify({'success': True, 'bookmarks': user.get('bookmarks', [])})
+
+# Update bookmark metadata (last_page, unread)
+@app.route('/api/update-bookmark-meta', methods=['POST'])
+def update_bookmark_meta():
+    data = request.get_json()
+    username = data.get('username')
+    book_id = data.get('book_id')
+    last_page = data.get('last_page')
+    unread = data.get('unread')
+    if not username or not book_id:
+        return jsonify({'success': False, 'message': 'Username and book_id required.'}), 400
+    user = users.get(username)
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    updated = False
+    for bm in user.get('bookmarks', []):
+        if bm['id'] == book_id:
+            if last_page is not None:
+                bm['last_page'] = last_page
+            if unread is not None:
+                bm['unread'] = unread
+            updated = True
+    if not updated:
+        return jsonify({'success': False, 'message': 'Bookmark not found.'}), 404
+    return jsonify({'success': True, 'message': 'Bookmark updated.', 'bookmarks': user['bookmarks']})
 
 if __name__ == '__main__':
     app.run(debug=True)
