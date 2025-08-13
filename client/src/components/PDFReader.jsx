@@ -196,6 +196,9 @@ export default function PDFReader() {
     const [editText, setEditText] = useState("");
     const [msg, setMsg] = useState("");
 
+    // Add state to cache user color info
+    const [userColors, setUserColors] = useState({});
+
     // Fetch comments
     useEffect(() => {
       setLoading(true);
@@ -208,6 +211,36 @@ export default function PDFReader() {
           setLoading(false);
         });
     }, [bookId]);
+
+    // Fetch color info for all unique usernames in comments
+    useEffect(() => {
+      if (!comments.length) return;
+      const uniqueUsernames = [...new Set(comments.flatMap(function collectUsers(c) {
+        return [c.username, ...(c.replies ? c.replies.flatMap(collectUsers) : [])];
+      }))];
+      // Only fetch for usernames not already cached
+      const toFetch = uniqueUsernames.filter(u => !userColors[u]);
+      if (!toFetch.length) return;
+      Promise.all(
+        toFetch.map(username =>
+          fetch(`/api/get-user-meta?username=${encodeURIComponent(username)}`)
+            .then(res => res.json())
+            .then(data => ({
+              username,
+              backgroundColor: data.success ? data.background_color : undefined,
+              textColor: data.success ? data.text_color : undefined
+            }))
+        )
+      ).then(results => {
+        setUserColors(prev => {
+          const updated = { ...prev };
+          results.forEach(({ username, backgroundColor, textColor }) => {
+            updated[username] = { backgroundColor, textColor };
+          });
+          return updated;
+        });
+      });
+    }, [comments]);
 
     // Add comment or reply
     const handleAddComment = async () => {
@@ -315,6 +348,35 @@ export default function PDFReader() {
         });
     };
 
+    // Avatar component
+    function UserAvatar({ username }) {
+      const colors = userColors[username] || {};
+      const bg = colors.backgroundColor || "#232323";
+      const txt = colors.textColor || "#fff";
+      return (
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            background: bg,
+            color: txt,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 700,
+            fontSize: 15,
+            border: '1.5px solid #888',
+            marginRight: 8,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+          }}
+          title={username}
+        >
+          {username ? username[0].toUpperCase() : "?"}
+        </div>
+      );
+    }
+
     // Render comments recursively
     function renderComments(list, depth = 0) {
       return list.map(comment => (
@@ -328,6 +390,7 @@ export default function PDFReader() {
           boxShadow: depth === 0 ? '0 1px 4px rgba(0,0,0,0.06)' : 'none'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <UserAvatar username={comment.username} />
             <span style={{ fontWeight: 600 }}>{comment.username}</span>
             <span style={{ fontSize: 12, color: '#888' }}>{new Date(comment.timestamp).toLocaleString()}</span>
             {comment.edited && <span style={{ fontSize: 11, color: '#f5c518', marginLeft: 6 }}>(edited)</span>}

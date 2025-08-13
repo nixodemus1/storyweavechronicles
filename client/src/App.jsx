@@ -263,7 +263,10 @@ export default function App() {
                   alignItems: 'center',
                   marginLeft: 8,
                   textDecoration: 'none',
-                  color: textColor
+                  color: textColor,
+                  minWidth: 0,
+                  maxWidth: 220, // optional: limit max width
+                  flexShrink: 1
                 }}
                 title="View profile"
               >
@@ -277,7 +280,7 @@ export default function App() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    marginRight: 0,
+                    marginRight: 8,
                     fontWeight: 700,
                     fontSize: 18,
                     border: '1.5px solid #888',
@@ -286,7 +289,18 @@ export default function App() {
                 >
                   {user.username ? user.username[0].toUpperCase() : "?"}
                 </div>
-                {/* Username removed for cleaner look */}
+                <span
+                  style={{
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    maxWidth: 120, // adjust as needed
+                    display: 'inline-block'
+                  }}
+                >
+                  {user.username || user.email}
+                </span>
               </Link>
             ) : (
               <Link

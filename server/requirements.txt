@@ -1,0 +1,9 @@
+Flask
+Flask-SQLAlchemy
+Flask-Cors
+Flask-Mail
+python-dotenv
+PyMuPDF
+google-auth
+google-auth-oauthlib
+google-api-python-client

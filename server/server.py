@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, send_file, redirect, send_from_directory, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from flask_mail import Mail, Message
 import fitz  # PyMuPDF
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -12,14 +13,21 @@ import base64
 import hashlib
 import datetime
 import json
-
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(basedir, 'storyweave.db')}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
 CORS(app)
+mail = Mail(app)
 
 # SQLAlchemy User model
 class User(db.Model):
@@ -63,10 +71,9 @@ with app.app_context():
     db.create_all()
 
 # Google Drive API scope
-SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+SCOPES = [os.getenv('SCOPES', 'https://www.googleapis.com/auth/drive.readonly')]
 
 # Credential storage
-CREDENTIALS_FILE = 'server/credentials.json'
 TOKEN_FILE = 'server/token.json'
 
 def hash_password(password):
@@ -74,13 +81,45 @@ def hash_password(password):
 
 def get_drive_service():
     creds = None
+    # Build credentials from .env
+    client_id = os.getenv('GOOGLE_CLIENT_ID')
+    client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
+    token_uri = os.getenv('GOOGLE_TOKEN_URI')
+    auth_uri = os.getenv('GOOGLE_AUTH_URI')
+    auth_provider_x509_cert_url = os.getenv('GOOGLE_AUTH_CERT_URI')
+    redirect_uris = [os.getenv('GOOGLE_REDIRECT_URI')]
+    # Load token from file as before
     if os.path.exists(TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
     if not creds or not creds.valid:
-        raise Exception("No valid credentials. Please visit /authorize to log in.")
+        # Use InstalledAppFlow with .env values
+        flow = InstalledAppFlow.from_client_config({
+            "installed": {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "project_id": os.getenv('GOOGLE_PROJECT_ID'),
+                "auth_uri": auth_uri,
+                "token_uri": token_uri,
+                "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
+                "redirect_uris": redirect_uris
+            }
+        }, SCOPES)
+        creds = flow.run_local_server(port=0)
+        with open(TOKEN_FILE, 'w') as token:
+            token.write(creds.to_json())
     return build('drive', 'v3', credentials=creds)
+
+def send_notification_email(user, subject, body):
+    if not user.email:
+        return
+    msg = Message(subject, sender=app.config['MAIL_USERNAME'], recipients=[user.email])
+    msg.body = body
+    try:
+        mail.send(msg)
+    except Exception as e:
+        print(f"Failed to send email to {user.email}: {e}")
 
 # --- Notification Utility ---
 def add_notification(user, type_, title, body):
@@ -95,6 +134,10 @@ def add_notification(user, type_, title, body):
     })
     user.notification_history = json.dumps(history)
     db.session.commit()
+    # Send email if user wants immediate notifications
+    prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+    if prefs.get('emailFrequency', 'immediate') == 'immediate':
+        send_notification_email(user, title, body)
 
 @app.route('/authorize')
 def authorize():
@@ -227,7 +270,8 @@ def get_notification_prefs():
             'newBooks': True,
             'updates': True,
             'announcements': True,
-            'channels': ['primary']
+            'channels': ['primary'],
+            'emailFrequency': 'immediate'  # Add this line
         }
         user.notification_prefs = json.dumps(prefs)
         db.session.commit()
@@ -469,7 +513,17 @@ def drive_webhook():
     changed = request.headers.get('X-Goog-Changed')
     print(f"[Drive Webhook] Channel: {channel_id}, Resource: {resource_id}, State: {resource_state}, Changed: {changed}")
     if resource_state == 'update':
-        pass
+        # Find book title from Drive
+        try:
+            service = get_drive_service()
+            file_metadata = service.files().get(fileId=resource_id, fields='name').execute()
+            book_title = file_metadata.get('name', 'A book in your favorites')
+        except Exception:
+            book_title = 'A book in your favorites'
+        # Notify users who bookmarked this book
+        notify_data = {'book_id': resource_id, 'book_title': book_title}
+        with app.test_request_context(json=notify_data):
+            notify_book_update()
     return '', 200
 
 @app.route('/api/get-bookmarks', methods=['GET', 'POST'])
@@ -816,6 +870,18 @@ def moderate_comment():
         return jsonify({'success': True, 'message': 'Comment deleted.'})
     # Add more moderation actions as needed
     return jsonify({'success': False, 'message': 'Unknown action.'}), 400
+
+@app.route('/api/get-user-meta', methods=['GET'])
+def get_user_meta():
+    username = request.args.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    return jsonify({
+        'success': True,
+        'background_color': user.background_color or '#232323',
+        'text_color': user.text_color or '#fff'
+    })
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
