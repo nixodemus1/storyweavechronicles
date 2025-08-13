@@ -71,9 +71,40 @@ function BookmarksTab({ user }) {
 
 export default function ProfilePage({ user, setUser, onLogout }) {
   const [activeTab, setActiveTab] = useState("settings");
-  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  const [timezone, setTimezone] = useState(user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const { backgroundColor, textColor, setBackgroundColor, setTextColor, font, setFont } = useContext(ThemeContext);
+  // Save color changes to backend for logged-in user
+  React.useEffect(() => {
+    if (!user?.username) return;
+    fetch('/api/update-colors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user.username, backgroundColor, textColor })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setUser(u => u ? { ...u, backgroundColor, textColor } : u);
+        }
+      });
+  }, [backgroundColor, textColor, user?.username]);
+
+  // Save font and timezone changes to backend for logged-in user
+  React.useEffect(() => {
+    if (!user?.username) return;
+    fetch('/api/update-profile-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user.username, font, timezone })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setUser(u => u ? { ...u, font, timezone } : u);
+        }
+      });
+  }, [font, timezone, user?.username]);
   // Notifications
   const [notifPrefs, setNotifPrefs] = useState(null);
   const [notifHistory, setNotifHistory] = useState([]);
@@ -127,6 +158,15 @@ export default function ProfilePage({ user, setUser, onLogout }) {
         borderRight: '1px solid #eee',
         gap: 10
       }}>
+        {/* User avatar */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 18, width: '100%' }}>
+          <img
+            src={user?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.username || 'U')}&background=fff&color=23272f&size=64`}
+            alt="User avatar"
+            style={{ width: 48, height: 48, borderRadius: '50%', marginBottom: 6, border: `2px solid ${textColor}` }}
+          />
+          {sidebarExpanded && <div style={{ fontWeight: 600, fontSize: 16, color: textColor }}>{user?.username}</div>}
+        </div>
         <button
           onClick={() => setSidebarExpanded(e => !e)}
           style={{ background: 'none', border: 'none', color: textColor, fontSize: 22, marginBottom: 18, cursor: 'pointer', alignSelf: sidebarExpanded ? 'flex-end' : 'center' }}
@@ -165,10 +205,10 @@ export default function ProfilePage({ user, setUser, onLogout }) {
           }}
         >{sidebarExpanded ? 'Security' : '🔒'}</button>
         <button
-          onClick={() => setActiveTab('bookmarks')}
+          onClick={() => setActiveTab('account')}
           style={{
-            background: activeTab === 'bookmarks' ? textColor : 'none',
-            color: activeTab === 'bookmarks' ? backgroundColor : textColor,
+            background: activeTab === 'account' ? textColor : 'none',
+            color: activeTab === 'account' ? backgroundColor : textColor,
             border: 'none',
             borderRadius: 6,
             fontWeight: 600,
@@ -179,7 +219,7 @@ export default function ProfilePage({ user, setUser, onLogout }) {
             cursor: 'pointer',
             textAlign: sidebarExpanded ? 'left' : 'center',
           }}
-        >{sidebarExpanded ? 'Bookmarks' : '🔖'}</button>
+        >{sidebarExpanded ? 'Account' : '�'}</button>
         <button
           onClick={() => setActiveTab('notifications')}
           style={{
@@ -201,11 +241,21 @@ export default function ProfilePage({ user, setUser, onLogout }) {
       {/* Main content */}
       <main style={{ flex: 1, padding: '32px 0 32px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', background: backgroundColor, color: textColor }}>
         {/* Bookmarks Tab */}
-        {activeTab === "bookmarks" && <BookmarksTab user={user} />}
+        {/* Account Tab: Bookmarks, comments, replies, top voted books */}
+        {activeTab === "account" && (
+          <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32 }}>
+            <h3>Account Overview</h3>
+            {/* Bookmarks */}
+            <BookmarksTab user={user} />
+            {/* TODO: Comments, replies, top voted books */}
+            <div style={{ marginTop: 32, color: '#888', fontStyle: 'italic', fontSize: 15 }}>
+              Comments, replies, and top voted books coming soon...
+            </div>
+          </div>
+        )}
 
         {/* Notifications Tab */}
         {activeTab === "notifications" && (
-          // ...existing code for notifications tab...
           <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, display: 'flex', flexDirection: 'column', gap: 32 }}>
             <h3>Notification Preferences</h3>
             {notifPrefs ? (
@@ -285,7 +335,7 @@ export default function ProfilePage({ user, setUser, onLogout }) {
               {/* DEV ONLY: Remove this button before production! */}
               <button
                 type="button"
-                style={{ marginBottom: 12, padding: '6px 14px', borderRadius: 5, background: '#eee', color: '#c00', border: '1px solid #c00', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}
+                style={{ marginBottom: 12, padding: '6px 14px', borderRadius: 5, background: textColor, color: backgroundColor, border: `1px solid ${textColor}`, fontWeight: 600, cursor: 'pointer', fontSize: 14 }}
                 onClick={async () => {
                   if (!user?.username) return;
                   const res = await fetch('/api/seed-notifications', {
@@ -302,7 +352,7 @@ export default function ProfilePage({ user, setUser, onLogout }) {
               ) : (
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: 220, overflowY: 'auto' }}>
                   {notifHistory.map((n, i) => (
-                    <li key={i} style={{ padding: '10px 0', borderBottom: '1px solid #eee', color: n.read ? '#888' : textColor, background: n.read ? '#fafafa' : '#fff' }}>
+                    <li key={i} style={{ padding: '10px 0', borderBottom: `1px solid ${textColor}`, color: n.read ? '#888' : textColor, background: n.read ? stepColor(backgroundColor, 'sidebar', 2) : backgroundColor }}>
                       <div style={{ fontWeight: n.read ? 400 : 600 }}>{n.title || n.type}</div>
                       <div style={{ fontSize: 13 }}>{n.body}</div>
                       <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{n.timestamp}</div>
@@ -354,6 +404,9 @@ export default function ProfilePage({ user, setUser, onLogout }) {
                 ))}
               </select>
             </div>
+            <div style={{ color: '#888', fontSize: 13, marginTop: 8 }}>
+              Changes are saved automatically.
+            </div>
           </div>
         )}
 
@@ -394,7 +447,7 @@ export default function ProfilePage({ user, setUser, onLogout }) {
               </form>
               {secondaryEmailMsg && <div style={{ color: secondaryEmailMsg.includes('added') ? 'green' : 'red', marginBottom: 8 }}>{secondaryEmailMsg}</div>}
               <ul style={{ listStyle: 'none', padding: 0 }}>
-                {user.secondaryEmails && user.secondaryEmails.length > 0 ? user.secondaryEmails.map(email => (
+                {user && user.secondaryEmails && user.secondaryEmails.length > 0 ? user.secondaryEmails.map(email => (
                   <li key={email} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                     <span>{email}</span>
                     <button
