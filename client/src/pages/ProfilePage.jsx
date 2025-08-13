@@ -177,6 +177,132 @@ export default function ProfilePage({ user, setUser, onLogout }) {
     }
   }, [activeTab, user?.username]);
 
+  function UserCommentsSection({ user, textColor, containerBg, containerText }) {
+  const [comments, setComments] = useState([]);
+  const [books, setBooks] = useState([]);
+  React.useEffect(() => {
+    if (!user?.username) return;
+    fetch(`/api/user-comments?username=${user.username}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.comments)) setComments(data.comments);
+        else setComments([]);
+      });
+  }, [user?.username]);
+  React.useEffect(() => {
+    const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
+    if (!folderId) return;
+    fetch(`/list-pdfs/${folderId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.pdfs && Array.isArray(data.pdfs)) setBooks(data.pdfs);
+        else setBooks([]);
+      });
+  }, []);
+  function getBookName(id) {
+    const book = books.find(b => b.id === id);
+    return book ? book.name : id;
+  }
+  return (
+    <div style={{
+      marginTop: 24,
+      background: containerBg,
+      color: containerText,
+      borderRadius: 8,
+      padding: '18px 16px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+    }}>
+      <h4 style={{ color: containerText }}>Your Comments & Replies</h4>
+      {comments.length === 0 ? (
+        <div style={{ color: '#888' }}>No comments yet.</div>
+      ) : (
+        <ul style={{ listStyle: 'none', padding: 0 }}>
+          {comments.map(c => (
+            <li key={c.id} style={{
+              marginBottom: 10,
+              background: stepColor(containerBg, 'dark', c.parent_id ? 1 : 0, 1),
+              color: containerText,
+              borderRadius: 6,
+              padding: '6px 10px'
+            }}>
+              <div>
+                <a href={`/read/${c.book_id}`} style={{ color: containerText, fontWeight: 600 }}>
+                  {getBookName(c.book_id)}
+                </a>
+                {c.parent_id && <span style={{ color: '#888', marginLeft: 8 }}>(Reply)</span>}
+              </div>
+              <div style={{ color: containerText }}>{c.text}</div>
+              <div style={{ fontSize: 12, color: '#888' }}>
+                {new Date(c.timestamp).toLocaleString()} {c.edited && <span>(edited)</span>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
+  const [votes, setVotes] = useState([]);
+  const [books, setBooks] = useState([]);
+  React.useEffect(() => {
+    if (!user?.username) return;
+    fetch(`/api/user-voted-books?username=${user.username}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.voted_books)) setVotes(data.voted_books.slice(0, 10));
+        else setVotes([]);
+      });
+  }, [user?.username]);
+  React.useEffect(() => {
+    const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
+    if (!folderId) return;
+    fetch(`/list-pdfs/${folderId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.pdfs && Array.isArray(data.pdfs)) setBooks(data.pdfs);
+        else setBooks([]);
+      });
+  }, []);
+  function getBookName(id) {
+    const book = books.find(b => b.id === id);
+    return book ? book.name : id;
+  }
+  return (
+    <div style={{
+      marginTop: 24,
+      background: containerBg,
+      color: containerText,
+      borderRadius: 8,
+      padding: '18px 16px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+    }}>
+      <h4 style={{ color: containerText }}>Top Voted Books</h4>
+      {votes.length === 0 ? (
+        <div style={{ color: '#888' }}>No votes yet.</div>
+      ) : (
+        <ul style={{ listStyle: 'none', padding: 0 }}>
+          {votes.map(v => (
+            <li key={v.book_id} style={{
+              marginBottom: 10,
+              background: stepColor(containerBg, 'dark', 0, 1),
+              color: containerText,
+              borderRadius: 6,
+              padding: '6px 10px'
+            }}>
+              <a href={`/read/${v.book_id}`} style={{ color: containerText, fontWeight: 600 }}>
+                {getBookName(v.book_id)}
+              </a>
+              <span style={{ marginLeft: 8, color: '#888' }}>Your rating: {v.value}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
   // --- Render ---
   return (
     <div style={{ display: 'flex', minHeight: '80vh' }}>
@@ -297,10 +423,20 @@ export default function ProfilePage({ user, setUser, onLogout }) {
             </div>
             {/* Bookmarks */}
             <BookmarksTab user={user} />
-            {/* TODO: Comments, replies, top voted books */}
-            <div style={{ marginTop: 32, color: '#888', fontStyle: 'italic', fontSize: 15 }}>
-              Comments, replies, and top voted books coming soon...
-            </div>
+            {/* Comments & Replies */}
+            <UserCommentsSection
+              user={user}
+              textColor={textColor}
+              containerBg={stepColor(backgroundColor, 'container', 1)}
+              containerText={textColor}
+            />
+            {/* Top Voted Books */}
+            <UserTopVotedBooks
+              user={user}
+              textColor={textColor}
+              containerBg={stepColor(backgroundColor, 'container', 1)}
+              containerText={textColor}
+            />
           </div>
         )}
 

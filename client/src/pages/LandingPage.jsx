@@ -86,8 +86,6 @@ export default function LandingPage() {
     centerPadding: '40px',
     swipeToSlide: true,
     arrows: true, // keep this true to show arrows
-    nextArrow: <NextArrow />, // only your custom arrow
-    prevArrow: <PrevArrow />, // only your custom arrow
     responsive: [
       { breakpoint: 900, settings: { slidesToShow: 2 } },
       { breakpoint: 600, settings: { slidesToShow: 1 } },

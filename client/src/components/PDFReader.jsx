@@ -340,20 +340,98 @@ export default function PDFReader() {
                 rows={2}
                 style={{ width: '100%', marginTop: 6, borderRadius: 4 }}
               />
-              <button onClick={() => handleEditComment(comment.id)} style={{ marginRight: 8 }}>Save</button>
-              <button onClick={() => { setEditId(null); setEditText(""); }}>Cancel</button>
+              <button
+                onClick={() => handleEditComment(comment.id)}
+                style={{
+                  background: containerBg,
+                  color: containerText,
+                  border: `1px solid ${containerText}`,
+                  borderRadius: 4,
+                  padding: '4px 10px',
+                  marginRight: 8,
+                  cursor: 'pointer'
+                }}
+              >Save</button>
+              <button
+                onClick={() => { setEditId(null); setEditText(""); }}
+                style={{
+                  background: containerBg,
+                  color: containerText,
+                  border: `1px solid ${containerText}`,
+                  borderRadius: 4,
+                  padding: '4px 10px',
+                  cursor: 'pointer'
+                }}
+              >Cancel</button>
             </div>
           ) : (
             <div style={{ margin: '8px 0' }}>{comment.text}</div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button onClick={() => handleVoteComment(comment.id, 1)} style={{ color: '#0070f3' }}>▲ {comment.upvotes}</button>
-            <button onClick={() => handleVoteComment(comment.id, -1)} style={{ color: '#c00' }}>▼ {comment.downvotes}</button>
-            <button onClick={() => setReplyTo(comment.id)} style={{ color: '#888' }}>Reply</button>
+            <button
+              onClick={() => handleVoteComment(comment.id, 1)}
+              style={{
+                background: containerBg,
+                color: containerText,
+                border: '1px solid #0070f3',
+                borderRadius: 4,
+                padding: '4px 10px',
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                textDecorationColor: '#0070f3'
+              }}
+            >▲ {comment.upvotes}</button>
+            <button
+              onClick={() => handleVoteComment(comment.id, -1)}
+              style={{
+                background: containerBg,
+                color: containerText,
+                border: '1px solid #c00',
+                borderRadius: 4,
+                padding: '4px 10px',
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                textDecorationColor: '#c00'
+              }}
+            >▼ {comment.downvotes}</button>
+            <button
+              onClick={() => setReplyTo(comment.id)}
+              style={{
+                background: containerBg,
+                color: containerText,
+                border: `1px solid ${containerText}`,
+                borderRadius: 4,
+                padding: '4px 10px',
+                cursor: 'pointer'
+              }}
+            >Reply</button>
             {user && user.username === comment.username && (
               <>
-                <button onClick={() => { setEditId(comment.id); setEditText(comment.text); }} style={{ color: '#888' }}>Edit</button>
-                <button onClick={() => handleDeleteComment(comment.id)} style={{ color: '#c00' }}>Delete</button>
+                <button
+                  onClick={() => { setEditId(comment.id); setEditText(comment.text); }}
+                  style={{
+                    background: containerBg,
+                    color: containerText,
+                    border: `1px solid ${containerText}`,
+                    borderRadius: 4,
+                    padding: '4px 10px',
+                    marginRight: 8,
+                    cursor: 'pointer'
+                  }}
+                >Edit</button>
+                <button
+                  onClick={() => handleDeleteComment(comment.id)}
+                  style={{
+                    background: containerBg,
+                    color: containerText,
+                    border: '1px solid #c00',
+                    borderRadius: 4,
+                    padding: '4px 10px',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    textDecorationColor: '#c00'
+                  }}
+                >Delete</button>
               </>
             )}
           </div>
@@ -387,11 +465,33 @@ export default function PDFReader() {
                 style={{ width: '100%', borderRadius: 4 }}
                 placeholder={replyTo ? "Write a reply..." : "Write a comment..."}
               />
-              <button onClick={handleAddComment} style={{ marginTop: 6 }}>
+              <button
+                onClick={handleAddComment}
+                style={{
+                  background: containerBg,
+                  color: containerText,
+                  border: `1px solid ${containerText}`,
+                  borderRadius: 4,
+                  padding: '4px 10px',
+                  marginTop: 6,
+                  cursor: 'pointer'
+                }}
+              >
                 {replyTo ? "Reply" : "Comment"}
               </button>
               {replyTo && (
-                <button onClick={() => { setReplyTo(null); setNewComment(""); }} style={{ marginLeft: 8 }}>
+                <button
+                  onClick={() => { setReplyTo(null); setNewComment(""); }}
+                  style={{
+                    background: containerBg,
+                    color: containerText,
+                    border: `1px solid ${containerText}`,
+                    borderRadius: 4,
+                    padding: '4px 10px',
+                    marginLeft: 8,
+                    cursor: 'pointer'
+                  }}
+                >
                   Cancel Reply
                 </button>
               )}

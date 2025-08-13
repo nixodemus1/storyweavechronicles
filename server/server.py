@@ -729,9 +729,11 @@ def get_comments():
         return jsonify({'success': False, 'message': 'Book ID required.'}), 400
     comments = Comment.query.filter_by(book_id=book_id).order_by(Comment.timestamp.asc()).all()
     # Build nested replies
-    comment_map = {c.id: c for c in comments if not c.deleted}
+    comment_map = {}
     tree = []
-    for c in comment_map.values():
+    for c in comments:
+        if c.deleted:
+            continue
         item = {
             'id': c.id,
             'book_id': c.book_id,
@@ -745,8 +747,10 @@ def get_comments():
             'deleted': c.deleted,
             'replies': []
         }
-        if c.parent_id and c.parent_id in comment_map:
-            comment_map[c.parent_id].replies.append(item)
+        comment_map[c.id] = item
+    for item in comment_map.values():
+        if item['parent_id'] and item['parent_id'] in comment_map:
+            comment_map[item['parent_id']]['replies'].append(item)
         else:
             tree.append(item)
     return jsonify({'success': True, 'comments': tree})
