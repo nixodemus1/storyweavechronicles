@@ -172,11 +172,33 @@ export default function App() {
           className={theme === "dark" ? "dark-mode" : "light-mode"}
           style={{ color: textColor, background: backgroundColor, minHeight: "100vh", fontFamily: font || undefined }}
         >
-          <header className="header" style={{ position: 'relative', background: headerContainerColor, color: textColor, width: '100vw' }}>
+          <header
+  className="header"
+  style={{
+    position: 'relative',
+    background: headerContainerColor,
+    color: textColor,
+    width: '100%', // ensures header fits the parent
+    boxSizing: 'border-box', // includes padding in width
+    padding: '0 32px',
+    minHeight: 80,
+    display: 'flex',
+    alignItems: 'center',
+    overflow: 'hidden' // prevents content from spilling out
+  }}
+>
             <Link
               to="/"
               className="logo"
-              style={{ marginRight: 'auto', textDecoration: 'none', color: textColor, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}
+              style={{
+                marginRight: 'auto',
+                textDecoration: 'none',
+                color: textColor,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16
+              }}
               title="Go to landing page"
             >
               {/* Swap Logo1/Logo2/Logo3 below to try different SVGs */}
@@ -213,33 +235,22 @@ export default function App() {
                   <path fill={textColor} opacity="1.000000" stroke="none" d="M71.396744,296.151917 C70.424171,286.031097 74.842697,279.650848 83.071175,278.720520 C90.248482,277.909058 96.390182,282.062714 98.145874,288.915527 C99.908272,295.794495 96.501266,302.626190 90.013458,305.222534 C83.461800,307.844421 76.341911,305.404022 72.745239,299.264587 C72.245155,298.410950 71.928001,297.450104 71.396744,296.151917 z"/>
                 </svg>
               </div>
-              <span style={{ fontWeight: 700, fontSize: 22, letterSpacing: 1 }}>StoryWeave Chronicles</span>
+              <span style={{ fontWeight: 700, fontSize: 24, letterSpacing: 1 }}>
+                StoryWeave Chronicles
+              </span>
             </Link>
-            <label style={{ marginRight: 8 }}>
-              <span style={{ fontSize: '0.9rem', marginRight: 4 }}>Text</span>
-              <input
-                type="color"
-                value={textColor}
-                onChange={e => setTextColor(e.target.value)}
-                style={{ verticalAlign: 'middle', marginRight: 12 }}
-                title="Pick text color"
-              />
-            </label>
-            <label style={{ marginRight: 16 }}>
-              <span style={{ fontSize: '0.9rem', marginRight: 4 }}>BG</span>
-              <input
-                type="color"
-                value={backgroundColor}
-                onChange={e => setBackgroundColor(e.target.value)}
-                style={{ verticalAlign: 'middle', marginRight: 8 }}
-                title="Pick background color"
-              />
-            </label>
             <button
               className="theme-toggle-btn"
               title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               onClick={toggleTheme}
-              style={{ marginRight: 16, fontSize: '1.5rem', background: 'none', border: 'none', cursor: 'pointer' }}
+              style={{
+                marginRight: 16,
+                fontSize: '1.7rem',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '8px'
+              }}
             >
               {theme === "dark" ? "🌙" : "☀️"}
             </button>
@@ -247,7 +258,13 @@ export default function App() {
               <Link
                 to="/profile"
                 className="user-profile-header"
-                style={{ display: 'flex', alignItems: 'center', marginLeft: 8, textDecoration: 'none', color: textColor }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  marginLeft: 8,
+                  textDecoration: 'none',
+                  color: textColor
+                }}
                 title="View profile"
               >
                 <div
@@ -260,15 +277,16 @@ export default function App() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    marginRight: 8,
+                    marginRight: 0,
                     fontWeight: 700,
                     fontSize: 18,
                     border: '1.5px solid #888',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
                   }}
                 >
                   {user.username ? user.username[0].toUpperCase() : "?"}
                 </div>
-                <span style={{ fontWeight: 600 }}>{user.username || user.email}</span>
+                {/* Username removed for cleaner look */}
               </Link>
             ) : (
               <Link
