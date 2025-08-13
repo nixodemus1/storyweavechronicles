@@ -63,11 +63,25 @@ export default function PDFReader() {
         .then(res => res.json())
         .then(data => {
           if (data.success && Array.isArray(data.bookmarks)) {
-            setIsBookmarked(data.bookmarks.includes(id));
+            // Find bookmark meta for this book
+            const bm = data.bookmarks.find(b => b.id === id);
+            setIsBookmarked(!!bm);
+            if (bm && bm.last_page) setCurrentPage(bm.last_page);
           }
         });
     }
   }, [user, id]);
+
+  // Track last page update
+  useEffect(() => {
+    if (user && user.username && id && currentPage) {
+      fetch('/api/update-bookmark-meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, book_id: id, last_page: currentPage })
+      });
+    }
+  }, [user, id, currentPage]);
 
   // Book title (prefer metadata, fallback to pdfData or ID)
   const bookTitle = bookMeta?.name || pdfData?.title || pdfData?.name || `Book ${id}`;
@@ -112,6 +126,8 @@ export default function PDFReader() {
       setBookmarkMsg(data.message || "Failed to remove bookmark.");
     }
   };
+
+  console.log("PDFReader user:", user);
 
   if (!pdfData) {
     return <div className={`pdf-reader-loading ${theme}-mode`} style={{ background: backgroundColor, color: textColor, minHeight: '100vh' }}>Loading PDF...</div>;

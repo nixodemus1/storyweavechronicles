@@ -9,6 +9,7 @@ import io
 import os
 import base64
 import hashlib
+import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -22,6 +23,9 @@ TOKEN_FILE = 'server/token.json'
 
 # In-memory user store for prototyping (username: {email, password, backgroundColor, textColor, bookmarks})
 users = {}
+
+def _now():
+    return datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
 
 # Helper to check for duplicate emails
 def email_exists(email):
@@ -50,7 +54,6 @@ def get_drive_service():
     return build('drive', 'v3', credentials=creds)
 
 # --- Notification Utility ---
-import datetime
 def add_notification(user, type_, title, body):
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     user.setdefault('notificationHistory', []).append({
@@ -77,16 +80,6 @@ def add_notification(user, type_, title, body):
 #
 # 4. Welcome message (call after user registration)
 # add_notification(new_user, 'welcome', 'Welcome!', 'Thanks for joining Storyweave Chronicles!')
-
-
-@app.route("/", defaults={"path": ""})
-@app.route("/<path:path>")
-def serve_react(path):
-    if path != "" and os.path.exists(f"../client/dist/{path}"):
-        return send_from_directory("../client/dist", path)
-    else:
-        return send_from_directory("../client/dist", "index.html")
-
 
 @app.route('/authorize')
 def authorize():
@@ -283,20 +276,46 @@ def login():
     user = users.get(identifier)
     # If not found, try to find by email
     if not user:
-        for u in users.values():
+        for uname, u in users.items():
             if u.get('email') == identifier:
                 user = u
+                identifier = uname
                 break
+    # --- BEGIN: DELETE THIS BLOCK WHEN USING SQL ---
+    # If still not found, auto-register user for dev convenience
+    if not user:
+        # Use email as username if possible
+        email = identifier if '@' in identifier else None
+        username = identifier if '@' not in identifier else None
+        if not username:
+            username = email.split('@')[0] if email else 'user'
+        # If email is missing, try to extract from identifier or leave blank
+        if not email and '@' in username:
+            email = username
+        users[username] = {
+            'email': email or '',
+            'password': hash_password(password),
+            'backgroundColor': '#ffffff',
+            'textColor': '#000000',
+            'bookmarks': [],
+            'secondaryEmails': [],
+            'notificationPrefs': {
+                'muteAll': False,
+                'newBooks': True,
+                'updates': True,
+                'announcements': True,
+                'channels': ['primary']
+            },
+            'notificationHistory': []
+        }
+        add_notification(users[username], 'welcome', 'Welcome!', 'Thanks for joining Storyweave Chronicles!')
+        user = users[username]
+        identifier = username
+    # --- END: DELETE THIS BLOCK WHEN USING SQL ---
     if not user or user['password'] != hash_password(password):
         return jsonify({'success': False, 'message': 'Invalid username/email or password.'}), 401
     # Return color preferences as part of login response
-    # Find the username (key) if login was by email
-    found_username = identifier if user == users.get(identifier) else None
-    if not found_username:
-        for uname, u in users.items():
-            if u is user:
-                found_username = uname
-                break
+    found_username = identifier
     return jsonify({
         'success': True,
         'message': 'Login successful.',
@@ -482,10 +501,13 @@ def drive_webhook():
     return '', 200
 
 # --- Enhanced Bookmarks Endpoints ---
-import datetime
-
-def _now():
-    return datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+@app.route('/api/get-bookmarks', methods=['GET'])
+def get_bookmarks():
+    username = request.args.get('username')
+    user = users.get(username)
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    return jsonify({'success': True, 'bookmarks': user.get('bookmarks', [])})
 
 @app.route('/api/add-bookmark', methods=['POST'])
 def add_bookmark():
@@ -505,12 +527,9 @@ def add_bookmark():
         if bm['id'] == book_id:
             return jsonify({'success': True, 'message': 'Already bookmarked.', 'bookmarks': user['bookmarks']})
     # Add new bookmark
-    user['bookmarks'].append({
-        'id': book_id,
-        'last_updated': _now(),
-        'unread': False,
-        'last_page': 1
-    })
+    import datetime
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    user['bookmarks'].append({'id': book_id, 'last_page': 1, 'last_updated': now, 'unread': False})
     return jsonify({'success': True, 'message': 'Bookmarked.', 'bookmarks': user['bookmarks']})
 
 @app.route('/api/remove-bookmark', methods=['POST'])
@@ -518,21 +537,34 @@ def remove_bookmark():
     data = request.get_json()
     username = data.get('username')
     book_id = data.get('book_id')
-    if not username or not book_id:
-        return jsonify({'success': False, 'message': 'Username and book_id required.'}), 400
     user = users.get(username)
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
-    user['bookmarks'] = [bm for bm in user.get('bookmarks', []) if bm['id'] != book_id]
+    if not book_id:
+        return jsonify({'success': False, 'message': 'Book ID missing.'}), 400
+    if 'bookmarks' not in user:
+        user['bookmarks'] = []
+    before = len(user['bookmarks'])
+    user['bookmarks'] = [bm for bm in user['bookmarks'] if bm['id'] != book_id]
+    after = len(user['bookmarks'])
+    if before == after:
+        return jsonify({'success': False, 'message': 'Bookmark not found.', 'bookmarks': user['bookmarks']})
     return jsonify({'success': True, 'message': 'Bookmark removed.', 'bookmarks': user['bookmarks']})
-
-@app.route('/api/get-bookmarks', methods=['POST'])
-def get_bookmarks():
+# Endpoint to set/change primary email
+@app.route('/api/set-primary-email', methods=['POST'])
+def set_primary_email():
     data = request.get_json()
     username = data.get('username')
-    if not username:
-        return jsonify({'success': False, 'message': 'Username required.'}), 400
+    email = data.get('email')
     user = users.get(username)
+    if not user or not email:
+        return jsonify({'success': False, 'message': 'User or email missing.'}), 400
+    # Check for duplicate email
+    for uname, u in users.items():
+        if uname != username and u.get('email') == email:
+            return jsonify({'success': False, 'message': 'Email already registered to another account.'}), 400
+    user['email'] = email
+    return jsonify({'success': True, 'message': 'Primary email updated.', 'email': email})
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
     return jsonify({'success': True, 'bookmarks': user.get('bookmarks', [])})
@@ -557,10 +589,48 @@ def update_bookmark_meta():
                 bm['last_page'] = last_page
             if unread is not None:
                 bm['unread'] = unread
+            import datetime
+            bm['last_updated'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
             updated = True
     if not updated:
         return jsonify({'success': False, 'message': 'Bookmark not found.'}), 404
     return jsonify({'success': True, 'message': 'Bookmark updated.', 'bookmarks': user['bookmarks']})
+
+# Get user profile by username
+@app.route('/api/get-user', methods=['POST'])
+def get_user():
+    data = request.get_json()
+    username = data.get('username')
+    user = users.get(username)
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    # If primary email is blank, use first secondary email if available
+    email = user.get('email')
+    if not email:
+        secondary = user.get('secondaryEmails', [])
+        if secondary and len(secondary) > 0:
+            email = secondary[0]
+    return jsonify({
+        'success': True,
+        'username': username,
+        'email': email,
+        'backgroundColor': user.get('backgroundColor', '#ffffff'),
+        'textColor': user.get('textColor', '#000000'),
+        'bookmarks': user.get('bookmarks', []),
+        'secondaryEmails': user.get('secondaryEmails', []),
+        'font': user.get('font', ''),
+        'timezone': user.get('timezone', 'UTC'),
+        'notificationPrefs': user.get('notificationPrefs', {}),
+        'notificationHistory': user.get('notificationHistory', [])
+    })
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_react(path):
+    if path != "" and os.path.exists(f"../client/dist/{path}"):
+        return send_from_directory("../client/dist", path)
+    else:
+        return send_from_directory("../client/dist", "index.html")
 
 if __name__ == '__main__':
     app.run(debug=True)

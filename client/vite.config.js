@@ -29,7 +29,8 @@ export default defineConfig({
       '/api/add-bookmark': 'http://localhost:5000',
       '/api/remove-bookmark': 'http://localhost:5000',
       '/api/get-bookmarks': 'http://localhost:5000',
-  '/api/update-bookmark-meta': 'http://localhost:5000',
+      '/api/update-bookmark-meta': 'http://localhost:5000',
+      '/api/get-user': 'http://localhost:5000'
     }
   }
 })

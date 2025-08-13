@@ -82,9 +82,9 @@ function BookmarksTab({ user }) {
                   boxShadow: book.unread ? '0 0 4px #c00' : 'none',
                 }}
               >
-                <span style={{ fontWeight: 600, color: textColor }}>{book.name}</span>
+                  <a href={`/read/${book.id}`} style={{ fontWeight: 600, color: textColor, textDecoration: 'underline' }}>{book.name}</a>
                 <span style={{ fontSize: 13, color: '#888' }}>
-                  Last updated: {book.last_updated}
+                  Last updated: {book.last_updated ? book.last_updated : 'Never'}
                 </span>
                 <span style={{ fontSize: 13, color: '#888' }}>
                   Last page read: {book.last_page}
@@ -92,7 +92,7 @@ function BookmarksTab({ user }) {
                 {book.unread && (
                   <span style={{ color: '#c00', fontWeight: 700, fontSize: 13 }}>Unread update!</span>
                 )}
-                <a href={`/read/${book.id}`} style={{ color: '#0070f3', textDecoration: 'underline', fontSize: 15 }}>Read</a>
+                  {/* Removed separate Read link, title is now the link */}
               </li>
             ))}
           </ul>
@@ -108,6 +108,7 @@ export default function ProfilePage({ user, setUser, onLogout }) {
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [sidebarManual, setSidebarManual] = useState(false); // track manual toggle
   const { backgroundColor, textColor, setBackgroundColor, setTextColor, font, setFont } = useContext(ThemeContext);
+  
   // Save color changes to backend for logged-in user
   React.useEffect(() => {
     if (!user?.username) return;
@@ -291,6 +292,9 @@ export default function ProfilePage({ user, setUser, onLogout }) {
         {activeTab === "account" && (
           <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32 }}>
             <h3>Account Overview</h3>
+            <div style={{ marginBottom: 12, color: '#555', fontSize: 15 }}>
+              <strong>Primary Email:</strong> {user?.email || <span style={{ color: '#c00' }}>No email found</span>}
+            </div>
             {/* Bookmarks */}
             <BookmarksTab user={user} />
             {/* TODO: Comments, replies, top voted books */}

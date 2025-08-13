@@ -14,13 +14,43 @@ import Logo3 from "./assets/file (3).svg";
 
 export default function App() {
   const [theme, setTheme] = useState("light");
-  const [textColor, setTextColor] = useState("#23272f");
-  const [backgroundColor, setBackgroundColor] = useState("#f5f6fa");
+  const [backgroundColor, setBackgroundColor] = useState(() => {
+    try {
+      return localStorage.getItem('backgroundColor') || "#f5f6fa";
+    } catch {
+      return "#f5f6fa";
+    }
+  });
+  const [textColor, setTextColor] = useState(() => {
+    try {
+      return localStorage.getItem('textColor') || "#23272f";
+    } catch {
+      return "#23272f";
+    }
+  });
   const [font, setFont] = useState("");
-  const [user, setUser] = useState(null); // { username, email, ... }
+  // Persist user in localStorage
+  const [user, setUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
 
+  // Save user to localStorage whenever it changes
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('user');
+    }
+  }, [user]);
   // Save color changes to backend for logged-in user
   useEffect(() => {
+    localStorage.setItem('backgroundColor', backgroundColor);
+    localStorage.setItem('textColor', textColor);
     if (user && user.username) {
       fetch("/api/update-colors", {
         method: "POST",
@@ -50,20 +80,55 @@ export default function App() {
   // AuthWrapper handles navigation after login/register
   function AuthWrapper(props) {
     const navigate = useNavigate();
-    function handleAuth(data) {
+    async function handleAuth(data) {
       // Always use backend's saved color values after login/register
       setBackgroundColor(data.backgroundColor || "#f5f6fa");
       setTextColor(data.textColor || "#23272f");
+      // Fetch full user profile to ensure email is present
+      let userProfile = data;
+      if (data.username) {
+        try {
+          const res = await fetch('/api/get-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: data.username })
+          });
+          const profile = await res.json();
+          if (profile.success) userProfile = profile;
+        } catch (e) {console.error(e)}
+      }
       setUser({
-        username: data.username,
-        email: data.email,
-        secondaryEmails: data.secondaryEmails || [],
-        // add other fields as needed
+        username: userProfile.username,
+        email: userProfile.email,
+        secondaryEmails: userProfile.secondaryEmails || [],
+        backgroundColor: userProfile.backgroundColor,
+        textColor: userProfile.textColor,
+        font: userProfile.font,
+        timezone: userProfile.timezone,
+        bookmarks: userProfile.bookmarks || [],
+        notificationPrefs: userProfile.notificationPrefs || {},
+        notificationHistory: userProfile.notificationHistory || [],
       });
       navigate("/");
     }
     return <LoginRegisterPage onAuth={handleAuth} {...props} />;
   }
+  // On mount, if user exists but email is missing, fetch user profile
+  useEffect(() => {
+    if (user && user.username && !user.email) {
+      fetch('/api/get-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username })
+      })
+        .then(res => res.json())
+        .then(profile => {
+          if (profile.success) {
+            setUser(u => ({ ...u, ...profile }));
+          }
+        });
+    }
+  }, [user]);
 
   // Compute container color for header
   const headerContainerColor = stepColor(
@@ -73,7 +138,10 @@ export default function App() {
   );
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, textColor, setTextColor, backgroundColor, setBackgroundColor, font, setFont }}>
+    <ThemeContext.Provider value={{
+      theme, toggleTheme, textColor, setTextColor, backgroundColor, setBackgroundColor,
+      font, setFont, user, setUser
+    }}>
       <Router>
         <div
           className={theme === "dark" ? "dark-mode" : "light-mode"}
