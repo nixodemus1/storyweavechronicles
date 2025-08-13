@@ -70,7 +70,7 @@ export default function LandingPage() {
         setTopNewest(parsed.slice(0, 10));
         setTopVoted(parsed.slice().sort(() => 0.5 - Math.random()).slice(0, 10));
         usedCache = true;
-      } catch {}
+      } catch {return}
     }
 
     fetch(`/list-pdfs/${folderId}`)
