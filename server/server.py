@@ -290,14 +290,31 @@ def list_pdfs(folder_id):
                     story_id = extract_story_id_from_pdf(file_content)
                 except Exception:
                     story_id = None
-                book = Book(
-                    drive_id=f['id'],
-                    title=f.get('name', 'Untitled'),
-                    external_story_id=story_id,
-                    version_history=json.dumps([{'created': f.get('createdTime')}])
-                )
-                db.session.add(book)
-                db.session.commit()
+                # Truncate external_story_id if too long
+                if story_id and isinstance(story_id, str) and len(story_id) > 128:
+                    story_id = ""
+                try:
+                    book = Book(
+                        drive_id=f['id'],
+                        title=f.get('name', 'Untitled'),
+                        external_story_id=story_id,
+                        version_history=json.dumps([{'created': f.get('createdTime')}])
+                    )
+                    db.session.add(book)
+                    db.session.commit()
+                except Exception as db_exc:
+                    # If error is string too long, set external_story_id to blank and retry
+                    if "value too long for type character varying(128)" in str(db_exc):
+                        book = Book(
+                            drive_id=f['id'],
+                            title=f.get('name', 'Untitled'),
+                            external_story_id="",
+                            version_history=json.dumps([{'created': f.get('createdTime')}])
+                        )
+                        db.session.add(book)
+                        db.session.commit()
+                    else:
+                        raise db_exc
             # Always provide createdTime and modifiedTime for frontend fallback
             created_time = None
             modified_time = None
