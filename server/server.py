@@ -6,9 +6,9 @@ from flask_cors import CORS
 from flask_mail import Mail, Message
 import fitz  # PyMuPDF
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 import io
 import os
 import base64
@@ -20,7 +20,6 @@ load_dotenv()
 import logging
 
 app = Flask(__name__)
-basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = (
     f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
     f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
@@ -34,6 +33,19 @@ app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
 CORS(app)
 mail = Mail(app)
+
+service_account_info = {
+    "type": "service_account",
+    "project_id": os.getenv("GOOGLE_PROJECT_ID"),
+    "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
+    "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
+    "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
+    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+    "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
+    "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
+    "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_CERT_URI"),
+    "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL"),
+}
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
@@ -133,19 +145,10 @@ def get_drive_service():
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
     if not creds or not creds.valid:
-        # Use InstalledAppFlow with .env values
-        flow = InstalledAppFlow.from_client_config({
-            "installed": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "project_id": os.getenv('GOOGLE_PROJECT_ID'),
-                "auth_uri": auth_uri,
-                "token_uri": token_uri,
-                "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
-                "redirect_uris": redirect_uris
-            }
-        }, SCOPES)
-        creds = flow.run_local_server(port=0)
+        creds = service_account.Credentials.from_service_account_info(
+            service_account_info,
+            scopes=SCOPES
+        )
         with open(TOKEN_FILE, 'w') as token:
             token.write(creds.to_json())
     return build('drive', 'v3', credentials=creds)
@@ -263,24 +266,10 @@ def send_emergency_email():
 
 @app.route('/authorize')
 def authorize():
-    client_id = os.getenv('GOOGLE_CLIENT_ID')
-    client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
-    token_uri = os.getenv('GOOGLE_TOKEN_URI')
-    auth_uri = os.getenv('GOOGLE_AUTH_URI')
-    auth_provider_x509_cert_url = os.getenv('GOOGLE_AUTH_CERT_URI')
-    redirect_uris = [os.getenv('GOOGLE_REDIRECT_URI')]
-    flow = InstalledAppFlow.from_client_config({
-        "installed": {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "project_id": os.getenv('GOOGLE_PROJECT_ID'),
-            "auth_uri": auth_uri,
-            "token_uri": token_uri,
-            "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
-            "redirect_uris": redirect_uris
-        }
-    }, SCOPES)
-    creds = flow.run_local_server(port=0)
+    creds = service_account.Credentials.from_service_account_info(
+        service_account_info,
+        scopes=SCOPES
+    )
     with open(TOKEN_FILE, 'w') as token:
         token.write(creds.to_json())
     return redirect("/")
