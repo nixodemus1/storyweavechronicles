@@ -45,8 +45,8 @@ class Book(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     # Relationships
-    comments = db.relationship('Comment', backref='book', lazy=True)
-    votes = db.relationship('Vote', backref='book', lazy=True)
+    comments = db.relationship('Comment', backref='book', lazy=True, foreign_keys='Comment.book_id')
+    votes = db.relationship('Vote', backref='book', lazy=True, foreign_keys='Vote.book_id')
 
 # SQLAlchemy User model
 class User(db.Model):
@@ -69,13 +69,13 @@ class User(db.Model):
 class Vote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), nullable=False)
-    book_id = db.Column(db.String(128), nullable=False)
+    book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
     value = db.Column(db.Integer, nullable=False)  # 1-5 stars
     timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    book_id = db.Column(db.String(128), nullable=False)
+    book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
     username = db.Column(db.String(80), nullable=False)
     parent_id = db.Column(db.Integer, nullable=True)  # null for top-level
     text = db.Column(db.Text, nullable=False)
@@ -310,10 +310,29 @@ def list_pdfs(folder_id):
                 )
                 db.session.add(book)
                 db.session.commit()
+            # Always provide createdTime and modifiedTime for frontend fallback
+            created_time = None
+            modified_time = None
+            # Try to get from version_history if present
+            try:
+                history = json.loads(book.version_history) if book.version_history else []
+                if history and isinstance(history, list):
+                    created_time = history[0].get('created')
+            except Exception:
+                pass
+            # Fallbacks
+            if not created_time:
+                created_time = book.created_at.isoformat() if book.created_at else None
+            if book.updated_at:
+                modified_time = book.updated_at.isoformat()
+            else:
+                modified_time = created_time
             books.append({
                 'id': book.drive_id,
                 'title': book.title,
                 'external_story_id': book.external_story_id,
+                'createdTime': created_time,
+                'modifiedTime': modified_time,
                 'created_at': book.created_at.isoformat(),
                 'updated_at': book.updated_at.isoformat() if book.updated_at else None
             })

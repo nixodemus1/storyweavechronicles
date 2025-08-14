@@ -199,7 +199,7 @@ export default function PDFReader() {
     // Add state to cache user color info
     const [userColors, setUserColors] = useState({});
 
-    // Fetch comments
+    // Fetch comments (only on mount or bookId change)
     useEffect(() => {
       setLoading(true);
       fetch(`/api/get-comments?book_id=${bookId}`)
@@ -211,6 +211,19 @@ export default function PDFReader() {
           setLoading(false);
         });
     }, [bookId]);
+
+    // Helper to refresh comments (used after add/edit/delete)
+    const refreshComments = () => {
+      setLoading(true);
+      fetch(`/api/get-comments?book_id=${bookId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.comments)) {
+            setComments(data.comments);
+          }
+          setLoading(false);
+        });
+    };
 
     // Fetch color info for all unique usernames in comments
     useEffect(() => {
@@ -240,7 +253,7 @@ export default function PDFReader() {
           return updated;
         });
       });
-    }, [comments]);
+    }, [comments, userColors]);
 
     // Add comment or reply
     const handleAddComment = async () => {
@@ -264,14 +277,7 @@ export default function PDFReader() {
         setNewComment("");
         setReplyTo(null);
         setMsg("");
-        // Refresh comments
-        fetch(`/api/get-comments?book_id=${bookId}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.success && Array.isArray(data.comments)) {
-              setComments(data.comments);
-            }
-          });
+        refreshComments();
       } else {
         setMsg(data.message || "Failed to add comment.");
       }
@@ -293,14 +299,7 @@ export default function PDFReader() {
       if (data.success) {
         setEditId(null);
         setEditText("");
-        // Refresh comments
-        fetch(`/api/get-comments?book_id=${bookId}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.success && Array.isArray(data.comments)) {
-              setComments(data.comments);
-            }
-          });
+        refreshComments();
       } else {
         setMsg(data.message || "Failed to edit comment.");
       }
@@ -318,14 +317,7 @@ export default function PDFReader() {
       });
       const data = await res.json();
       if (data.success) {
-        // Refresh comments
-        fetch(`/api/get-comments?book_id=${bookId}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.success && Array.isArray(data.comments)) {
-              setComments(data.comments);
-            }
-          });
+        refreshComments();
       } else {
         setMsg(data.message || "Failed to delete comment.");
       }
@@ -338,14 +330,7 @@ export default function PDFReader() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ comment_id: commentId, value })
       });
-      // Refresh comments
-      fetch(`/api/get-comments?book_id=${bookId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && Array.isArray(data.comments)) {
-            setComments(data.comments);
-          }
-        });
+      refreshComments();
     };
 
     // Avatar component

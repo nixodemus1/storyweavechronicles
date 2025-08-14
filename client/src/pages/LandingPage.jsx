@@ -13,6 +13,71 @@ export default function LandingPage() {
   const [topVoted, setTopVoted] = useState([]);
   const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
 
+  // --- Search bar state and logic ---
+  const [searchInput, setSearchInput] = useState("");
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [autocompleteResults, setAutocompleteResults] = useState([]);
+
+  // Update autocomplete results as user types
+  useEffect(() => {
+    if (!searchInput.trim()) {
+      setAutocompleteResults([]);
+      return;
+    }
+    // Partial and prefix match, case-insensitive
+    const results = pdfs.filter(pdf =>
+      pdf.title && (
+        pdf.title.toLowerCase().includes(searchInput.toLowerCase()) ||
+        pdf.title.toLowerCase().startsWith(searchInput.toLowerCase())
+      )
+    );
+    setAutocompleteResults(results.slice(0, 8)); // limit to 8 results
+  }, [searchInput, pdfs]);
+
+  // Handle search submit (Enter key or search button)
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    if (!searchInput.trim()) return;
+    // Exact match
+    const exactMatches = pdfs.filter(pdf =>
+      pdf.title && pdf.title.toLowerCase() === searchInput.toLowerCase()
+    );
+    if (exactMatches.length === 1) {
+      navigate(`/read/${exactMatches[0].id}`);
+      return;
+    }
+    // Prefix match
+    const prefixMatches = pdfs.filter(pdf =>
+      pdf.title && pdf.title.toLowerCase().startsWith(searchInput.toLowerCase())
+    );
+    if (prefixMatches.length === 1) {
+      navigate(`/read/${prefixMatches[0].id}`);
+      return;
+    }
+    // Partial match
+    const partialMatches = pdfs.filter(pdf =>
+      pdf.title && pdf.title.toLowerCase().includes(searchInput.toLowerCase())
+    );
+    if (partialMatches.length === 1) {
+      navigate(`/read/${partialMatches[0].id}`);
+      return;
+    }
+    // Multiple matches: go to search results page
+    navigate(`/search?query=${encodeURIComponent(searchInput)}`);
+  };
+
+  // Handle autocomplete click
+  const handleAutocompleteClick = (pdf) => {
+    setSearchInput("");
+    setShowAutocomplete(false);
+    navigate(`/read/${pdf.id}`);
+  };
+
+  // Hide autocomplete on blur (with delay for click)
+  const handleBlur = () => {
+    setTimeout(() => setShowAutocomplete(false), 120);
+  };
+
   // Compute container background and text color variants automatically for contrast
   // Use smart stepColor utility for container backgrounds
   function getContainerBg(bg, theme, step = 1) {
@@ -22,58 +87,17 @@ export default function LandingPage() {
     const direction = lum < 0.5 ? 1 : -1;
     return stepColor(bg, theme, step, direction);
   }
+
+  const containerBg = getContainerBg(backgroundColor, theme, 1);
+  const containerText = getContainerText(containerBg, textColor);
+  // Secondary container (top-10) color: one more step lighter (or darker)
+  const secondaryBg = getContainerBg(backgroundColor, theme, 2);
   function getContainerText(containerBg, rootText) {
     // If containerBg is too close to rootText, invert
     // Otherwise, use rootText
     // For simplicity, just use rootText for now
     return rootText;
   }
-
-  const containerBg = getContainerBg(backgroundColor, theme, 1);
-  const containerText = getContainerText(containerBg, textColor);
-  // Secondary container (top-10) color: one more step lighter (or darker)
-  const secondaryBg = getContainerBg(backgroundColor, theme, 2);
-
-  // --- Move arrow components inside LandingPage ---
-  const NextArrow = ({ currentSlide, slideCount, ...props }) => (
-    <div
-      {...props}
-      style={{
-        width: 40,
-        height: 40,
-        borderRadius: '50%',
-        background: containerBg,
-        color: containerText,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 32,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
-        cursor: 'pointer',
-        zIndex: 2
-      }}
-    >▶</div>
-  );
-
-  const PrevArrow = ({ currentSlide, slideCount, ...props }) => (
-    <div
-      {...props}
-      style={{
-        width: 40,
-        height: 40,
-        borderRadius: '50%',
-        background: containerBg,
-        color: containerText,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 32,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
-        cursor: 'pointer',
-        zIndex: 2
-      }}
-    >◀</div>
-  );
 
   // Carousel settings
   const settings = {
@@ -85,37 +109,15 @@ export default function LandingPage() {
     centerMode: true,
     centerPadding: '40px',
     swipeToSlide: true,
-    arrows: true, // keep this true to show arrows
     responsive: [
       { breakpoint: 900, settings: { slidesToShow: 2 } },
       { breakpoint: 600, settings: { slidesToShow: 1 } },
     ],
-    appendDots: dots => (
-      <ul style={{
-        background: containerBg,
-        borderRadius: 8,
-        padding: '8px 0',
-        margin: 0
-      }}>{dots}</ul>
-    ),
-    customPaging: (i) => (
-      <button
-        type="button"
-        style={{
-          width: 16,
-          height: 16,
-          borderRadius: '50%',
-          background: containerText,
-          border: `2px solid ${containerBg}`,
-          margin: '0 4px',
-          opacity: 0.7
-        }}
-      />
-    ),
   };
 
   useEffect(() => {
     if (!folderId) return;
+    console.log("folderId:", folderId);
     // Helper to compute a hash of the file list for change detection
     function computeHash(pdfs) {
       if (!pdfs || !Array.isArray(pdfs)) return '';
@@ -140,6 +142,7 @@ export default function LandingPage() {
     fetch(`/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
+        console.log('PDFs response:', data);
         if (data.pdfs) {
           // Sort newest first
           const sorted = data.pdfs.slice().sort((a, b) => {
@@ -161,32 +164,63 @@ export default function LandingPage() {
       .catch(err => console.error("Error fetching PDFs:", err));
   }, [folderId]);
 
-  useEffect(() => {
-    if (!folderId) return;
-    // ...existing code for newest...
-    fetch(`/api/top-voted-books`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && Array.isArray(data.books)) {
-          setTopVoted(data.books);
-        }
-      })
-      .catch(err => console.error("Error fetching top voted books:", err));
-  }, [folderId]);
-
   return (
     <div
       className={`landing-page ${theme}-mode`}
       style={{ background: backgroundColor, color: textColor, minHeight: '100vh' }}
     >
   {/* ...no container color pickers, only header pickers remain... */}
-      <div className="searchbar-container">
-        <input
-          type="text"
-          className="searchbar-input"
-          placeholder="Search books (coming soon)"
-          disabled
-        />
+      {/* Search bar with autocomplete */}
+      <div className="searchbar-container" style={{ position: 'relative', zIndex: 10 }}>
+        <form onSubmit={handleSearchSubmit} autoComplete="off">
+          <input
+            type="text"
+            className="searchbar-input"
+            placeholder="Search books by title..."
+            value={searchInput}
+            onChange={e => {
+              setSearchInput(e.target.value);
+              setShowAutocomplete(true);
+            }}
+            onFocus={() => setShowAutocomplete(true)}
+            onBlur={handleBlur}
+            style={{ width: '100%', padding: '10px 14px', borderRadius: 6, fontSize: 18, border: '1.5px solid #bbb' }}
+          />
+        </form>
+        {showAutocomplete && autocompleteResults.length > 0 && (
+          <div className="autocomplete-dropdown" style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            background: containerBg,
+            color: containerText,
+            border: `1px solid #bbb`,
+            borderRadius: 6,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            maxHeight: 320,
+            overflowY: 'auto',
+            marginTop: 2,
+            zIndex: 20
+          }}>
+            {autocompleteResults.map(pdf => (
+              <div
+                key={pdf.id}
+                className="autocomplete-item"
+                style={{
+                  padding: '10px 16px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid #eee',
+                  fontSize: 17
+                }}
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => handleAutocompleteClick(pdf)}
+              >
+                {pdf.title}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <div className="carousel-container">
         <Slider {...settings}
@@ -195,13 +229,13 @@ export default function LandingPage() {
         >
           {pdfs
             .slice(0, 20)
-            .filter(pdf => pdf && pdf.id && pdf.name)
+            .filter(pdf => pdf && pdf.id && pdf.title)
             .map((pdf) => (
               <div
                 key={pdf.id}
                 className="carousel-item"
                 style={{ cursor: 'pointer', background: containerBg, color: containerText }}
-                title={`Read ${pdf.name}`}
+                title={`Read ${pdf.title}`}
                 onMouseDown={() => { window._carouselDragged = false; }}
                 onMouseMove={() => { window._carouselDragged = true; }}
                 onMouseUp={() => {
@@ -219,7 +253,7 @@ export default function LandingPage() {
               >
                 <img
                   src={`/pdf-cover/${pdf.id}`}
-                  alt={pdf.name}
+                  alt={pdf.title}
                   className="book-cover"
                   onError={e => {
                     e.target.onerror = null;
@@ -236,7 +270,7 @@ export default function LandingPage() {
                     marginTop: 8
                   }}
                 >
-                  {pdf.name}
+                  {pdf.title}
                 </div>
               </div>
             ))}
@@ -257,7 +291,7 @@ export default function LandingPage() {
                     style={{ color: textColor }}
                     onClick={() => navigate(`/read/${pdf.id}`)}
                   >
-                    {pdf.name}
+                    {pdf.title}
                   </button>
                 </li>
               ))}
@@ -273,7 +307,7 @@ export default function LandingPage() {
                     style={{ color: textColor }}
                     onClick={() => navigate(`/read/${pdf.id}`)}
                   >
-                    {pdf.name}
+                    {pdf.title}
                   </button>
                 </li>
               ))}

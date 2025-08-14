@@ -5,6 +5,7 @@ import { ThemeContext } from "./themeContext";
 import { BrowserRouter as Router, Routes, Route, useNavigate, Link } from "react-router-dom";
 
 import LandingPage from "./pages/LandingPage";
+import SearchResults from "./pages/SearchResults.jsx";
 import BooksViewer from "./components/BooksViewer";
 import PDFReader from "./components/PDFReader";
 import LoginRegisterPage from "./pages/LoginRegisterPage";
@@ -558,6 +559,7 @@ export default function App() {
           </header>
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/search" element={<SearchResults />} />
             <Route path="/view-pdf/:id" element={<BooksViewer />} />
             <Route path="/read/:id" element={<PDFReader />} />
             <Route path="/login" element={<AuthWrapper />} />
