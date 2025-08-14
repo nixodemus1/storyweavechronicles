@@ -149,8 +149,6 @@ def get_drive_service():
             service_account_info,
             scopes=SCOPES
         )
-        with open(TOKEN_FILE, 'w') as token:
-            token.write(creds.to_json())
     return build('drive', 'v3', credentials=creds)
 
 def send_notification_email(user, subject, body):
@@ -270,8 +268,6 @@ def authorize():
         service_account_info,
         scopes=SCOPES
     )
-    with open(TOKEN_FILE, 'w') as token:
-        token.write(creds.to_json())
     return redirect("/")
 
 
