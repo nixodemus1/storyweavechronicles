@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { stepColor } from "./utils/colorUtils";
 import { ThemeContext } from "./themeContext";
 import { BrowserRouter as Router, Routes, Route, useNavigate, Link } from "react-router-dom";
@@ -11,6 +12,94 @@ import ProfilePage from "./pages/ProfilePage";
 import Logo1 from "./assets/file (1).svg";
 import Logo2 from "./assets/file (2).svg";
 import Logo3 from "./assets/file (3).svg";
+
+function NotificationDropdown({ open, anchorRef, onClose, notifications, headerContainerColor, textColor, handleNotificationClick }) {
+  if (!open) return null;
+  const rect = anchorRef?.current?.getBoundingClientRect();
+  const style = rect
+    ? {
+        position: "fixed",
+        left: Math.max(rect.right - 400, 8),
+        top: rect.bottom + 8,
+        minWidth: 320,
+        maxWidth: 400,
+        background: headerContainerColor,
+        color: textColor,
+        borderRadius: 8,
+        boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+        zIndex: 9999,
+        padding: "12px 0"
+      }
+    : {};
+  const visibleNotifications = notifications.filter(n => !n.clicked);
+  return createPortal(
+    <div style={style}>
+      <div style={{ fontWeight: 700, fontSize: 16, padding: "0 16px 8px 16px" }}>Notifications</div>
+      {visibleNotifications.length === 0 ? (
+        <div style={{ color: "#888", padding: "8px 16px" }}>No notifications.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, maxHeight: 260, overflowY: "auto" }}>
+          {visibleNotifications.slice(0, 10).map((n, i) => (
+            <li
+              key={i}
+              style={{
+                position: 'relative',
+                padding: "10px 16px",
+                borderBottom: `1px solid ${textColor}`,
+                color: n.read ? "#888" : textColor,
+                background: headerContainerColor,
+                fontWeight: n.read ? 400 : 600,
+                cursor: n.link ? "pointer" : "default",
+                textDecoration: n.link ? "underline" : "none"
+              }}
+              onClick={n.link ? () => handleNotificationClick(n) : undefined}
+              title={n.link ? "Click to view" : undefined}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>{n.title || n.type}</span>
+                {!n.link && (
+                  <button
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: textColor,
+                      fontWeight: 700,
+                      fontSize: 16,
+                      cursor: 'pointer',
+                      marginLeft: 8
+                    }}
+                    title="Dismiss notification"
+                    onClick={e => {
+                      e.stopPropagation();
+                      handleNotificationClick(n);
+                    }}
+                  >×</button>
+                )}
+              </div>
+              <div style={{ fontSize: 13 }}>{n.body}</div>
+              <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{n.timestamp}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button
+        style={{
+          margin: "8px 16px",
+          padding: "6px 14px",
+          borderRadius: 5,
+          background: textColor,
+          color: headerContainerColor,
+          border: "none",
+          fontWeight: 600,
+          cursor: "pointer",
+          fontSize: 14
+        }}
+        onClick={onClose}
+      >Close</button>
+    </div>,
+    document.body
+  );
+}
 
 export default function App() {
   const [theme, setTheme] = useState("light");
@@ -38,6 +127,10 @@ export default function App() {
       return null;
     }
   });
+  const [notifications, setNotifications] = useState([]);
+  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
+  const bellRef = useRef();
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   // Save user to localStorage whenever it changes
   useEffect(() => {
@@ -155,12 +248,110 @@ export default function App() {
     }
   }, [user?.username]);
 
+  // Fetch notifications when user changes or on interval
+  useEffect(() => {
+    if (user?.username) {
+      fetch('/api/notification-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.history)) setNotifications(data.history);
+          else setNotifications([]);
+        });
+    }
+  }, [user?.username]);
+
+  // Mark all as read when dropdown opens
+  function handleOpenDropdown() {
+    setNotifDropdownOpen(true);
+  }
+
+  // Close dropdown and mark notifications as read
+  function handleCloseDropdown() {
+    setNotifDropdownOpen(false);
+    // Mark all unread as read in backend
+    if (user?.username) {
+      const unread = notifications.filter(n => !n.read && !n.clicked);
+      if (unread.length > 0) {
+        fetch('/api/mark-notifications-read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user.username })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && Array.isArray(data.history)) setNotifications(data.history);
+          });
+      }
+    }
+  }
+
+  // Refresh notifications function
+  function refreshNotifications() {
+    if (user?.username) {
+      fetch('/api/notification-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, dropdownOnly: true })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.history)) setNotifications(data.history);
+          else setNotifications([]);
+        });
+    }
+  }
+
   // Compute container color for header
   const headerContainerColor = stepColor(
     backgroundColor,
     theme === "dark" ? "dark" : "light",
     1
   );
+
+  // Handle notification click - marks as read and navigates if link exists
+  function handleNotificationClick(n) {
+    if (user?.username) {
+      // Mark as read
+      fetch('/api/mark-notification-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, timestamp: n.timestamp })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.history)) {
+            setNotifications(data.history);
+          }
+        });
+      // Dismiss from dropdown
+      fetch('/api/dismiss-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, timestamp: n.timestamp })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.history)) {
+            // Only update dropdown notifications
+            refreshNotifications();
+          }
+        });
+    }
+    // Remove notification from dropdown immediately for better UX
+    setNotifications(prev => prev.map(notif =>
+      notif.timestamp === n.timestamp ? { ...notif, clicked: true } : notif
+    ));
+    if (n.link) window.location.href = n.link;
+  }
+
+  useEffect(() => {
+    const interval = setInterval(refreshNotifications, 5000); // every 5 seconds
+    return () => clearInterval(interval);
+  }, [user?.username]);
 
   return (
     <ThemeContext.Provider value={{
@@ -172,6 +363,15 @@ export default function App() {
           className={theme === "dark" ? "dark-mode" : "light-mode"}
           style={{ color: textColor, background: backgroundColor, minHeight: "100vh", fontFamily: font || undefined }}
         >
+          <NotificationDropdown
+            open={notifDropdownOpen}
+            anchorRef={bellRef}
+            onClose={handleCloseDropdown}
+            notifications={notifications}
+            headerContainerColor={headerContainerColor}
+            textColor={textColor}
+            handleNotificationClick={handleNotificationClick}
+          />
           <header
   className="header"
   style={{
@@ -254,6 +454,50 @@ export default function App() {
             >
               {theme === "dark" ? "🌙" : "☀️"}
             </button>
+            {/* Notifications button and dropdown */}
+<div style={{ position: 'relative', marginRight: 16 }}>
+  <button
+    ref={bellRef}
+    style={{
+      background: 'none',
+      border: 'none',
+      cursor: 'pointer',
+      fontSize: '1.7rem',
+      position: 'relative',
+      padding: '8px'
+    }}
+    title="Notifications"
+    onClick={handleOpenDropdown} // <-- use the new function
+  >
+    <span role="img" aria-label="bell">🔔</span>
+    {unreadCount > 0 && (
+      <span style={{
+        position: 'absolute',
+        top: 2,
+        right: 2,
+        background: '#c00',
+        color: '#fff',
+        borderRadius: '50%',
+        fontSize: 12,
+        width: 18,
+        height: 18,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontWeight: 700
+      }}>{unreadCount}</span>
+    )}
+  </button>
+  <NotificationDropdown
+    open={notifDropdownOpen}
+    anchorRef={bellRef}
+    onClose={handleCloseDropdown}
+    notifications={notifications}
+    headerContainerColor={headerContainerColor}
+    textColor={textColor}
+    handleNotificationClick={handleNotificationClick}
+  />
+</div>
             {user ? (
               <Link
                 to="/profile"
@@ -317,22 +561,29 @@ export default function App() {
             <Route path="/view-pdf/:id" element={<BooksViewer />} />
             <Route path="/read/:id" element={<PDFReader />} />
             <Route path="/login" element={<AuthWrapper />} />
-            <Route path="/profile" element={<ProfilePage user={user} setUser={setUser} onLogout={async () => {
-              // Save color changes before logout
-              if (user && user.username) {
-                await fetch("/api/update-colors", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    username: user.username,
-                    backgroundColor,
-                    textColor,
-                  }),
-                });
-              }
-              setUser(null);
-              window.location.href = "/";
-            }} />} />
+            <Route path="/profile" element={
+  <ProfilePage
+    user={user}
+    setUser={setUser}
+    onLogout={async () => {
+      // Save color changes before logout
+      if (user && user.username) {
+        await fetch("/api/update-colors", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: user.username,
+            backgroundColor,
+            textColor,
+          }),
+        });
+      }
+      setUser(null);
+      window.location.href = "/";
+    }}
+    refreshNotifications={refreshNotifications}
+  />
+} />
           </Routes>
         </div>
       </Router>

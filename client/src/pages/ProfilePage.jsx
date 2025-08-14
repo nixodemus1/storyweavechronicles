@@ -102,7 +102,7 @@ function BookmarksTab({ user }) {
   );
 }
 
-export default function ProfilePage({ user, setUser, onLogout }) {
+export default function ProfilePage({ user, setUser, onLogout, refreshNotifications }) {
   const [activeTab, setActiveTab] = useState("settings");
   const [timezone, setTimezone] = useState(user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
@@ -518,21 +518,6 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
 
             <div style={{ marginTop: 32 }}>
               <h3>Notification History</h3>
-              {/* DEV ONLY: Remove this button before production! */}
-              <button
-                type="button"
-                style={{ marginBottom: 12, padding: '6px 14px', borderRadius: 5, background: textColor, color: backgroundColor, border: `1px solid ${textColor}`, fontWeight: 600, cursor: 'pointer', fontSize: 14 }}
-                onClick={async () => {
-                  if (!user?.username) return;
-                  const res = await fetch('/api/seed-notifications', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: user.username })
-                  });
-                  const data = await res.json();
-                  if (data.success) setNotifHistory(data.history);
-                }}
-              >Seed Notifications (dev only)</button>
               {notifHistory.length === 0 ? (
                 <div style={{ color: '#888', fontSize: 15 }}>No notifications yet.</div>
               ) : (

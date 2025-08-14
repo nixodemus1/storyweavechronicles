@@ -44,6 +44,8 @@ export default defineConfig({
       '/api/get-comment-votes': 'http://localhost:5000',
       '/api/user-comments': 'http://localhost:5000',
       '/api/moderate-comment': 'http://localhost:5000',
+      '/api/mark-notifications-read': 'http://localhost:5000',
+      '/api/dismiss-notification': 'http://localhost:5000',
     }
   }
 })

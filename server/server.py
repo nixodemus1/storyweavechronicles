@@ -122,7 +122,7 @@ def send_notification_email(user, subject, body):
         print(f"Failed to send email to {user.email}: {e}")
 
 # --- Notification Utility ---
-def add_notification(user, type_, title, body):
+def add_notification(user, type_, title, body, link=None):
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     history = json.loads(user.notification_history) if user.notification_history else []
     history.append({
@@ -130,18 +130,34 @@ def add_notification(user, type_, title, body):
         'title': title,
         'body': body,
         'timestamp': now,
-        'read': False
+        'read': False,
+        'link': link
     })
     user.notification_history = json.dumps(history)
     db.session.commit()
-    # Send email if user wants immediate notifications
     prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
     if prefs.get('emailFrequency', 'immediate') == 'immediate':
         send_notification_email(user, title, body)
 
 @app.route('/authorize')
 def authorize():
-    flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+    client_id = os.getenv('GOOGLE_CLIENT_ID')
+    client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
+    token_uri = os.getenv('GOOGLE_TOKEN_URI')
+    auth_uri = os.getenv('GOOGLE_AUTH_URI')
+    auth_provider_x509_cert_url = os.getenv('GOOGLE_AUTH_CERT_URI')
+    redirect_uris = [os.getenv('GOOGLE_REDIRECT_URI')]
+    flow = InstalledAppFlow.from_client_config({
+        "installed": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "project_id": os.getenv('GOOGLE_PROJECT_ID'),
+            "auth_uri": auth_uri,
+            "token_uri": token_uri,
+            "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
+            "redirect_uris": redirect_uris
+        }
+    }, SCOPES)
     creds = flow.run_local_server(port=0)
     with open(TOKEN_FILE, 'w') as token:
         token.write(creds.to_json())
@@ -277,6 +293,30 @@ def get_notification_prefs():
         db.session.commit()
     return jsonify({'success': True, 'prefs': prefs})
 
+@app.route('/api/notify-reply', methods=['POST'])
+def notify_reply():
+    data = request.get_json()
+    book_id = data.get('book_id')
+    comment_id = data.get('comment_id')
+    message = data.get('message', 'Someone replied to your comment!')
+    # Find the parent comment
+    parent_comment = Comment.query.get(comment_id)
+    if not parent_comment or parent_comment.deleted:
+        return jsonify({'success': False, 'message': 'Parent comment not found.'}), 404
+    parent_username = parent_comment.username
+    user = User.query.filter_by(username=parent_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    # Add notification with link to the reply
+    add_notification(
+        user,
+        'reply',
+        'New Reply!',
+        message,
+        link=f'/read/{book_id}?comment={comment_id}'
+    )
+    return jsonify({'success': True, 'message': f'Reply notification sent to {parent_username}.'})
+
 @app.route('/api/update-notification-prefs', methods=['POST'])
 def update_notification_prefs():
     data = request.get_json()
@@ -293,10 +333,13 @@ def update_notification_prefs():
 def notification_history():
     data = request.get_json()
     username = data.get('username')
+    dropdown_only = data.get('dropdownOnly', False)
     user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
     history = json.loads(user.notification_history) if user.notification_history else []
+    if dropdown_only:
+        history = [n for n in history if not n.get('dismissed')]
     return jsonify({'success': True, 'history': history})
 
 # Update font and timezone for user
@@ -453,32 +496,16 @@ def delete_account():
     db.session.commit()
     return jsonify({'success': True, 'message': 'Account deleted.'})
 
-@app.route('/api/seed-notifications', methods=['POST'])
-def seed_notifications():
-    data = request.get_json()
-    username = data.get('username')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-    history = [
-        {'type': 'newBook', 'title': 'New Book Added!', 'body': 'Check out "The Lost Tome" in your library.', 'timestamp': now, 'read': False},
-        {'type': 'update', 'title': 'App Update', 'body': 'We have improved the reading experience.', 'timestamp': now, 'read': True},
-        {'type': 'announcement', 'title': 'Welcome!', 'body': 'Thanks for joining Storyweave Chronicles.', 'timestamp': now, 'read': True}
-    ]
-    user.notification_history = json.dumps(history)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Notifications seeded.', 'history': history})
-
 @app.route('/api/notify-new-book', methods=['POST'])
 def notify_new_book():
     data = request.get_json()
+    book_id = data.get('book_id')
     book_title = data.get('book_title', 'Untitled Book')
     users = User.query.all()
     for user in users:
         prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
         if not prefs.get('muteAll', False) and prefs.get('newBooks', True):
-            add_notification(user, 'newBook', 'New Book Added!', f'A new book "{book_title}" is now available in the library.')
+            add_notification(user, 'newBook', 'New Book Added!', f'A new book "{book_title}" is now available in the library.', link=f'/read/{book_id}')
     return jsonify({'success': True, 'message': f'Notification sent for new book: {book_title}.'})
 
 @app.route('/api/notify-book-update', methods=['POST'])
@@ -492,7 +519,7 @@ def notify_book_update():
         bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
         prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
         if any(bm['id'] == book_id for bm in bookmarks) and not prefs.get('muteAll', False) and prefs.get('updates', True):
-            add_notification(user, 'bookUpdate', 'Book Updated!', f'"{book_title}" in your favorites has been updated.')
+            add_notification(user, 'bookUpdate', 'Book Updated!', f'"{book_title}" in your favorites has been updated.', link=f'/read/{book_id}')
             count += 1
     return jsonify({'success': True, 'message': f'Notification sent to {count} users for book update.'})
 
@@ -883,6 +910,38 @@ def get_user_meta():
         'text_color': user.text_color or '#fff'
     })
 
+@app.route('/api/mark-notifications-read', methods=['POST'])
+def mark_notifications_read():
+    data = request.get_json()
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    history = json.loads(user.notification_history) if user.notification_history else []
+    for n in history:
+        n['read'] = True
+    user.notification_history = json.dumps(history)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Notifications marked as read.', 'history': history})
+
+@app.route('/api/dismiss-notification', methods=['POST'])
+def dismiss_notification():
+    data = request.get_json()
+    username = data.get('username')
+    timestamp = data.get('timestamp')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    history = json.loads(user.notification_history) if user.notification_history else []
+    found = False
+    for n in history:
+        if n.get('timestamp') == timestamp:
+            n['dismissed'] = True
+            found = True
+    user.notification_history = json.dumps(history)
+    db.session.commit()
+    return jsonify({'success': found, 'message': 'Notification dismissed.' if found else 'Notification not found.', 'history': history})
+
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
@@ -890,6 +949,6 @@ def serve_react(path):
         return send_from_directory("../client/dist", path)
     else:
         return send_from_directory("../client/dist", "index.html")
-
+    
 if __name__ == '__main__':
     app.run(debug=True)
