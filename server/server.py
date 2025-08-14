@@ -1173,4 +1173,4 @@ if __name__ == '__main__':
     scheduler.add_job(lambda: send_scheduled_emails('weekly'), 'cron', day_of_week='mon', hour=8)
     scheduler.add_job(lambda: send_scheduled_emails('monthly'), 'cron', day=1, hour=8)
     scheduler.start()
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
