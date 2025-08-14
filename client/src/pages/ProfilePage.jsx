@@ -3,15 +3,6 @@ import React, { useContext, useState } from "react";
 import { ThemeContext } from "../themeContext";
 import { stepColor, getLuminance } from "../utils/colorUtils";
 
-// Optional: FONT_OPTIONS if needed elsewhere
-// const FONT_OPTIONS = [
-//   { label: "Default", value: "" },
-//   { label: "Serif", value: "serif" },
-//   { label: "Sans-serif", value: "sans-serif" },
-//   { label: "Monospace", value: "monospace" },
-//   { label: "OpenDyslexic", value: "opendyslexic, sans-serif" },
-// ];
-
 function BookmarksTab({ user }) {
   const [bookmarks, setBookmarks] = useState([]);
   const [books, setBooks] = useState([]);
@@ -102,13 +93,174 @@ function BookmarksTab({ user }) {
   );
 }
 
+  // --- AdminTab component ---
+const AdminTab = React.memo(({ user }) => {
+  // Admin Promotion/Removal State
+  const [targetUsername, setTargetUsername] = useState("");
+  const [adminActionMsg, setAdminActionMsg] = useState("");
+
+  // Emergency Email State (local)
+  const [adminSubject, setAdminSubject] = useState("");
+  const [adminMessage, setAdminMessage] = useState("");
+  const [adminRecipientType, setAdminRecipientType] = useState("all");
+  const [adminRecipientValue, setAdminRecipientValue] = useState("");
+  const [adminStatus, setAdminStatus] = useState("");
+
+  // Promote user to admin
+  async function handleMakeAdmin(e) {
+    e.preventDefault();
+    setAdminActionMsg("");
+    if (!targetUsername) {
+      setAdminActionMsg("Enter a username.");
+      return;
+    }
+    const res = await fetch("/api/admin/make-admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminUsername: user?.username, targetUsername })
+    });
+    const data = await res.json();
+    setAdminActionMsg(data.message || (data.success ? "Success" : "Error"));
+  }
+
+  // Remove admin rights
+  async function handleRemoveAdmin(e) {
+    e.preventDefault();
+    setAdminActionMsg("");
+    if (!targetUsername) {
+      setAdminActionMsg("Enter a username.");
+      return;
+    }
+    const res = await fetch("/api/admin/remove-admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminUsername: user?.username, targetUsername })
+    });
+    const data = await res.json();
+    setAdminActionMsg(data.message || (data.success ? "Success" : "Error"));
+  }
+
+  // Emergency email handler (local)
+  async function handleSendEmergencyEmail(e) {
+    e.preventDefault();
+    setAdminStatus("");
+    if (!adminSubject || !adminMessage) {
+      setAdminStatus("Subject and message required.");
+      return;
+    }
+    let recipient = adminRecipientType === "all" ? "all" : adminRecipientValue;
+    const res = await fetch("/api/admin/send-emergency-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        adminUsername: user?.username,
+        subject: adminSubject,
+        message: adminMessage,
+        recipient
+      })
+    });
+    const data = await res.json();
+    setAdminStatus(data.message || (data.success ? "Success" : "Error"));
+  }
+
+  return (
+    <div style={{ maxWidth: 400 }}>
+      <h3>Admin Controls</h3>
+      {/* Promote/Remove Admin */}
+      <form style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+        <label>
+          Username to promote/remove:
+          <input
+            type="text"
+            value={targetUsername}
+            onChange={e => setTargetUsername(e.target.value)}
+            style={{ marginLeft: 8, padding: "6px 12px", fontSize: 15 }}
+            placeholder="Target username"
+          />
+        </label>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            type="button"
+            onClick={handleMakeAdmin}
+            style={{ padding: "8px 16px", borderRadius: 6, background: "#007bff", color: "#fff", border: "none", fontWeight: 600, fontSize: 15, cursor: "pointer" }}
+          >Promote to Admin</button>
+          <button
+            type="button"
+            onClick={handleRemoveAdmin}
+            style={{ padding: "8px 16px", borderRadius: 6, background: "#c00", color: "#fff", border: "none", fontWeight: 600, fontSize: 15, cursor: "pointer" }}
+          >Remove Admin</button>
+        </div>
+        {adminActionMsg && <div style={{ color: adminActionMsg.includes("Success") ? "green" : "red", marginTop: 8 }}>{adminActionMsg}</div>}
+      </form>
+      {/* Emergency Email Controls */}
+      <form style={{ display: "flex", flexDirection: "column", gap: 12 }} onSubmit={handleSendEmergencyEmail}>
+        <h4>Send Emergency Email</h4>
+        <label>
+          Subject:
+          <input
+            type="text"
+            value={adminSubject}
+            onChange={e => setAdminSubject(e.target.value)}
+            style={{ marginLeft: 8, padding: "6px 12px", fontSize: 15 }}
+            placeholder="Email subject"
+          />
+        </label>
+        <label>
+          Message:
+          <textarea
+            value={adminMessage}
+            onChange={e => setAdminMessage(e.target.value)}
+            style={{ marginLeft: 8, padding: "6px 12px", fontSize: 15, minHeight: 60 }}
+            placeholder="Email message"
+          />
+        </label>
+        <label>
+          Recipient:
+          <select
+            value={adminRecipientType}
+            onChange={e => setAdminRecipientType(e.target.value)}
+            style={{ marginLeft: 8, padding: "6px 12px", fontSize: 15 }}
+          >
+            <option value="all">All Users</option>
+            <option value="username">By Username</option>
+            <option value="email">By Email</option>
+          </select>
+        </label>
+        {(adminRecipientType === "username" || adminRecipientType === "email") && (
+          <input
+            type="text"
+            value={adminRecipientValue}
+            onChange={e => setAdminRecipientValue(e.target.value)}
+            style={{ marginLeft: 8, padding: "6px 12px", fontSize: 15 }}
+            placeholder={adminRecipientType === "username" ? "Recipient username" : "Recipient email"}
+          />
+        )}
+        <button
+          type="submit"
+          style={{ padding: "8px 16px", borderRadius: 6, background: "#28a745", color: "#fff", border: "none", fontWeight: 600, fontSize: 15, cursor: "pointer" }}
+        >Send Emergency Email</button>
+        {adminStatus && <div style={{ color: adminStatus.includes("Success") ? "green" : "red", marginTop: 8 }}>{adminStatus}</div>}
+      </form>
+    </div>
+  );
+});
+
 export default function ProfilePage({ user, setUser, onLogout, refreshNotifications }) {
+  // ...existing code...
+  const [emailFrequency, setEmailFrequency] = useState("immediate");
+  const EMAIL_FREQUENCY_OPTIONS = [
+    { value: "immediate", label: "Immediate" },
+    { value: "daily", label: "Daily" },
+    { value: "weekly", label: "Weekly" },
+    { value: "monthly", label: "Monthly" }
+  ];
   const [activeTab, setActiveTab] = useState("settings");
   const [timezone, setTimezone] = useState(user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [sidebarManual, setSidebarManual] = useState(false); // track manual toggle
   const { backgroundColor, textColor, setBackgroundColor, setTextColor, font, setFont } = useContext(ThemeContext);
-  
+  const isAdmin = user?.is_admin == true || user?.is_admin === 1;
+
   // Save color changes to backend for logged-in user
   React.useEffect(() => {
     if (!user?.username) return;
@@ -156,7 +308,6 @@ export default function ProfilePage({ user, setUser, onLogout, refreshNotificati
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordMessage, setPasswordMessage] = useState("");
-
   // Load notification prefs/history when tab is opened
   React.useEffect(() => {
     if (activeTab === "notifications" && user?.username) {
@@ -166,7 +317,12 @@ export default function ProfilePage({ user, setUser, onLogout, refreshNotificati
         body: JSON.stringify({ username: user.username })
       })
         .then(res => res.json())
-        .then(data => { if (data.success) setNotifPrefs(data.prefs); });
+        .then(data => {
+          if (data.success && data.prefs) {
+            setNotifPrefs(data.prefs);
+            setEmailFrequency(data.prefs.emailFrequency || "immediate");
+          }
+        });
       fetch('/api/notification-history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -304,6 +460,45 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
 }
 
   // --- Render ---
+  function NotificationPrefsTab() {
+    if (!notifPrefs) return <div>Loading...</div>;
+    return (
+      <div style={{ maxWidth: 400 }}>
+        <h3>Notification Preferences</h3>
+        {/* ...other notification preference controls... */}
+        <div style={{ margin: "18px 0" }}>
+          <label htmlFor="email-frequency" style={{ fontWeight: 600 }}>Email Frequency:</label>
+          <select
+            id="email-frequency"
+            value={emailFrequency}
+            onChange={e => {
+              setEmailFrequency(e.target.value);
+              // Save to backend
+              const newPrefs = { ...notifPrefs, emailFrequency: e.target.value };
+              setNotifPrefs(newPrefs);
+              fetch("/api/update-notification-prefs", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: user.username, prefs: newPrefs })
+              })
+                .then(res => res.json())
+                .then(data => {
+                  if (data.success) setNotifMsg("Email frequency updated.");
+                  else setNotifMsg("Failed to update email frequency.");
+                });
+            }}
+            style={{ marginLeft: 12, padding: "6px 12px", fontSize: 15 }}
+          >
+            {EMAIL_FREQUENCY_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          {notifMsg && <div style={{ color: "#c00", marginTop: 8 }}>{notifMsg}</div>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', minHeight: '80vh' }}>
       {/* Sidebar */}
@@ -409,6 +604,24 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
             textAlign: sidebarExpanded ? 'left' : 'center',
           }}
         >{sidebarExpanded ? 'Notifications' : '🔔'}</button>
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab('admin')}
+            style={{
+              background: activeTab === 'admin' ? textColor : 'none',
+              color: activeTab === 'admin' ? backgroundColor : textColor,
+              border: 'none',
+              borderRadius: 6,
+              fontWeight: 600,
+              fontSize: 15,
+              padding: sidebarExpanded ? '10px 18px' : '10px 0',
+              width: '100%',
+              marginBottom: 4,
+              cursor: 'pointer',
+              textAlign: sidebarExpanded ? 'left' : 'center',
+            }}
+          >{sidebarExpanded ? 'Admin' : '🛡️'}</button>
+        )}
       </aside>
 
       {/* Main content */}
@@ -444,6 +657,36 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
         {activeTab === "notifications" && (
           <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, display: 'flex', flexDirection: 'column', gap: 32 }}>
             <h3>Notification Preferences</h3>
+            {/* Email Frequency Dropdown */}
+            <div style={{ margin: "18px 0" }}>
+              <label htmlFor="email-frequency" style={{ fontWeight: 600 }}>Email Frequency:</label>
+              <select
+                id="email-frequency"
+                value={emailFrequency}
+                onChange={e => {
+                  setEmailFrequency(e.target.value);
+                  // Save to backend
+                  const newPrefs = { ...notifPrefs, emailFrequency: e.target.value };
+                  setNotifPrefs(newPrefs);
+                  fetch("/api/update-notification-prefs", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username: user.username, prefs: newPrefs })
+                  })
+                    .then(res => res.json())
+                    .then(data => {
+                      if (data.success) setNotifMsg("Email frequency updated.");
+                      else setNotifMsg("Failed to update email frequency.");
+                    });
+                }}
+                style={{ marginLeft: 12, padding: "6px 12px", fontSize: 15 }}
+              >
+                {EMAIL_FREQUENCY_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              {notifMsg && <div style={{ color: "#c00", marginTop: 8 }}>{notifMsg}</div>}
+            </div>
             {notifPrefs ? (
               <form
                 onSubmit={async e => {
@@ -739,6 +982,11 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
               {deleteMsg && <div style={{ color: deleteMsg.includes('deleted') ? 'green' : 'red', marginTop: 6 }}>{deleteMsg}</div>}
             </div>
           </div>
+        )}
+
+        {/* --- Admin Emergency Email --- */}
+        {activeTab === "admin" && isAdmin && (
+          <AdminTab user={user} />
         )}
 
         {/* Log Out button */}

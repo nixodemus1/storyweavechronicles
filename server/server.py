@@ -1,3 +1,5 @@
+from apscheduler.schedulers.background import BackgroundScheduler
+import time
 from flask import Flask, jsonify, send_file, redirect, send_from_directory, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -15,6 +17,7 @@ import datetime
 import json
 from dotenv import load_dotenv
 load_dotenv()
+import logging
 
 app = Flask(__name__)
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -28,6 +31,22 @@ app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
 CORS(app)
 mail = Mail(app)
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+#SQLAlchemy book model
+class Book(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    drive_id = db.Column(db.String(128), unique=True, nullable=False)  # Google Drive file ID
+    title = db.Column(db.String(256), nullable=False)
+    external_story_id = db.Column(db.String(128), nullable=True)  # e.g. 'goodreads 2504839'
+    version_history = db.Column(db.Text, nullable=True)  # JSON string of version info
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    # Relationships
+    comments = db.relationship('Comment', backref='book', lazy=True)
+    votes = db.relationship('Vote', backref='book', lazy=True)
 
 # SQLAlchemy User model
 class User(db.Model):
@@ -73,8 +92,25 @@ with app.app_context():
 # Google Drive API scope
 SCOPES = [os.getenv('SCOPES', 'https://www.googleapis.com/auth/drive.readonly')]
 
+
 # Credential storage
 TOKEN_FILE = 'server/token.json'
+
+# --- Story ID Extraction Utility ---
+def extract_story_id_from_pdf(file_content):
+    """
+    Given a PDF file (as bytes or BytesIO), extract the bottom-most line of text from page 1.
+    Returns the story ID string, or None if not found.
+    """
+    doc = fitz.open(stream=file_content, filetype="pdf")
+    page = doc.load_page(0)
+    blocks = page.get_text("blocks")  # returns list of (x0, y0, x1, y1, text, block_no, block_type)
+    # Find block with largest y1 (lowest on page)
+    if not blocks:
+        return None
+    bottom_block = max(blocks, key=lambda b: b[3])
+    story_id = bottom_block[4].strip() if bottom_block and bottom_block[4] else None
+    return story_id
 
 def hash_password(password):
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
@@ -113,13 +149,15 @@ def get_drive_service():
 
 def send_notification_email(user, subject, body):
     if not user.email:
+        logging.warning(f"User {user.id} has no email address. Skipping email send.")
         return
     msg = Message(subject, sender=app.config['MAIL_USERNAME'], recipients=[user.email])
     msg.body = body
     try:
         mail.send(msg)
+        logging.info(f"Sent email to {user.email} with subject '{subject}'")
     except Exception as e:
-        print(f"Failed to send email to {user.email}: {e}")
+        logging.error(f"Failed to send email to {user.email}: {e}")
 
 # --- Notification Utility ---
 def add_notification(user, type_, title, body, link=None):
@@ -138,6 +176,87 @@ def add_notification(user, type_, title, body, link=None):
     prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
     if prefs.get('emailFrequency', 'immediate') == 'immediate':
         send_notification_email(user, title, body)
+
+# --- Admin Utility ---
+def is_admin(username):
+    user = User.query.filter_by(username=username).first()
+    return user and user.is_admin
+
+# Make a user admin (admin-only)
+@app.route('/api/admin/make-admin', methods=['POST'])
+def make_admin():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    target_username = data.get('targetUsername')
+    if not is_admin(admin_username):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    user = User.query.filter_by(username=target_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+    user.is_admin = True
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'User {target_username} is now an admin.'})
+
+# Remove admin rights (admin-only)
+@app.route('/api/admin/remove-admin', methods=['POST'])
+def remove_admin():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    target_username = data.get('targetUsername')
+    if not is_admin(admin_username):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    user = User.query.filter_by(username=target_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+    user.is_admin = False
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'User {target_username} is no longer an admin.'})
+
+# Bootstrap first admin if none exist
+@app.route('/api/admin/bootstrap-admin', methods=['POST'])
+def bootstrap_admin():
+    data = request.get_json()
+    target_username = data.get('targetUsername')
+    admin_count = User.query.filter_by(is_admin=True).count()
+    if admin_count > 0:
+        return jsonify({'success': False, 'message': 'Admins already exist. Use make-admin endpoint.'}), 403
+    user = User.query.filter_by(username=target_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+    user.is_admin = True
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'User {target_username} is now the first admin.'})
+
+@app.route('/api/admin/send-emergency-email', methods=['POST'])
+def send_emergency_email():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    subject = data.get('subject')
+    message = data.get('message')
+    recipient = data.get('recipient')  # 'all', username, or email
+    if not is_admin(admin_username):
+        logging.warning(f"Unauthorized emergency email attempt by {admin_username}")
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    if not subject or not message:
+        return jsonify({'success': False, 'message': 'Subject and message required.'}), 400
+    sent_count = 0
+    if recipient == 'all':
+        users = User.query.filter(User.email.isnot(None)).all()
+        for user in users:
+            send_notification_email(user, subject, message)
+            sent_count += 1
+        logging.info(f"Admin {admin_username} sent emergency email to ALL users. Subject: {subject}")
+    else:
+        user = None
+        if recipient:
+            user = User.query.filter((User.username==recipient)|(User.email==recipient)).first()
+        if user and user.email:
+            send_notification_email(user, subject, message)
+            sent_count = 1
+            logging.info(f"Admin {admin_username} sent emergency email to {user.username} ({user.email}). Subject: {subject}")
+        else:
+            return jsonify({'success': False, 'message': 'Recipient not found or has no email.'}), 404
+    return jsonify({'success': True, 'message': f'Emergency email sent to {sent_count} user(s).'})
 
 @app.route('/authorize')
 def authorize():
@@ -163,6 +282,7 @@ def authorize():
         token.write(creds.to_json())
     return redirect("/")
 
+
 @app.route('/list-pdfs/<folder_id>')
 def list_pdfs(folder_id):
     try:
@@ -170,7 +290,34 @@ def list_pdfs(folder_id):
         query = f"'{folder_id}' in parents and mimeType='application/pdf'"
         results = service.files().list(q=query, fields="files(id, name, createdTime)").execute()
         files = results.get('files', [])
-        return jsonify(pdfs=files)
+        books = []
+        for f in files:
+            # Check if book already exists in DB
+            book = Book.query.filter_by(drive_id=f['id']).first()
+            if not book:
+                # Download PDF to extract story ID
+                try:
+                    request = service.files().get_media(fileId=f['id'])
+                    file_content = io.BytesIO(request.execute())
+                    story_id = extract_story_id_from_pdf(file_content)
+                except Exception:
+                    story_id = None
+                book = Book(
+                    drive_id=f['id'],
+                    title=f.get('name', 'Untitled'),
+                    external_story_id=story_id,
+                    version_history=json.dumps([{'created': f.get('createdTime')}])
+                )
+                db.session.add(book)
+                db.session.commit()
+            books.append({
+                'id': book.drive_id,
+                'title': book.title,
+                'external_story_id': book.external_story_id,
+                'created_at': book.created_at.isoformat(),
+                'updated_at': book.updated_at.isoformat() if book.updated_at else None
+            })
+        return jsonify(pdfs=books)
     except Exception as e:
         return jsonify(error=str(e)), 500
 
@@ -383,7 +530,8 @@ def login():
         'font': user.font or '',
         'timezone': user.timezone or 'UTC',
         'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
-        'notificationHistory': json.loads(user.notification_history) if user.notification_history else []
+        'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
+        'is_admin': user.is_admin
     })
 
 @app.route('/api/register', methods=['POST'])
@@ -421,7 +569,7 @@ def register():
     )
     db.session.add(user)
     db.session.commit()
-    return jsonify({'success': True, 'message': 'Registration successful.', 'username': username, 'email': email})
+    return jsonify({'success': True, 'message': 'Registration successful.', 'username': username, 'email': email, 'is_admin': user.is_admin})
 
 @app.route('/api/change-password', methods=['POST'])
 def change_password():
@@ -540,13 +688,22 @@ def drive_webhook():
     changed = request.headers.get('X-Goog-Changed')
     print(f"[Drive Webhook] Channel: {channel_id}, Resource: {resource_id}, State: {resource_state}, Changed: {changed}")
     if resource_state == 'update':
-        # Find book title from Drive
+        # Update Book version history in DB
         try:
             service = get_drive_service()
-            file_metadata = service.files().get(fileId=resource_id, fields='name').execute()
+            file_metadata = service.files().get(fileId=resource_id, fields='name, modifiedTime').execute()
             book_title = file_metadata.get('name', 'A book in your favorites')
-        except Exception:
-            book_title = 'A book in your favorites'
+            modified_time = file_metadata.get('modifiedTime', datetime.datetime.utcnow().isoformat())
+            book = Book.query.filter_by(drive_id=resource_id).first()
+            if book:
+                # Update version history
+                history = json.loads(book.version_history) if book.version_history else []
+                history.append({'modified': modified_time})
+                book.version_history = json.dumps(history)
+                book.updated_at = datetime.datetime.utcnow()
+                db.session.commit()
+        except Exception as e:
+            print(f"[Drive Webhook] Error updating book version history: {e}")
         # Notify users who bookmarked this book
         notify_data = {'book_id': resource_id, 'book_title': book_title}
         with app.test_request_context(json=notify_data):
@@ -686,7 +843,8 @@ def get_user():
         'font': user.font or '',
         'timezone': user.timezone or 'UTC',
         'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
-        'notificationHistory': json.loads(user.notification_history) if user.notification_history else []
+        'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
+        'is_admin': user.is_admin
     })
 
 @app.route('/api/vote-book', methods=['POST'])
@@ -951,4 +1109,46 @@ def serve_react(path):
         return send_from_directory("../client/dist", "index.html")
     
 if __name__ == '__main__':
+    # Start APScheduler for email notifications
+    def send_scheduled_emails(frequency):
+            with app.app_context():
+                users = User.query.all()
+                for user in users:
+                    prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+                    if prefs.get('emailFrequency', 'immediate') == frequency and user.email:
+                        history = json.loads(user.notification_history) if user.notification_history else []
+                        # Only send unread notifications for this period
+                        unread = [n for n in history if not n.get('read')]
+                        if unread:
+                            subject = f"Your {frequency.capitalize()} StoryWeave Notifications"
+                            body_lines = [
+                                f"Hi {user.username or user.email},",
+                                "",
+                                f"Here are your recent notifications ({frequency}):",
+                                ""
+                            ]
+                            for n in unread:
+                                line = f"- [{n.get('type', 'Notification')}] {n.get('title', '')}: {n.get('body', '')}"
+                                if n.get('timestamp'):
+                                    line += f" (at {n['timestamp']})"
+                                if n.get('link'):
+                                    line += f" [View]({n['link']})"
+                                body_lines.append(line)
+                            body_lines.append("")
+                            body_lines.append("Thank you for being part of StoryWeave Chronicles!")
+                            body = "\n".join(body_lines)
+                            send_notification_email(user, subject, body)
+                            logging.info(f"Sent {len(unread)} notifications to {user.email} for {frequency} summary.")
+                            # Optionally mark as read after sending
+                            for n in history:
+                                if not n.get('read'):
+                                    n['read'] = True
+                            user.notification_history = json.dumps(history)
+                            db.session.commit()
+
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(lambda: send_scheduled_emails('daily'), 'cron', hour=8)
+    scheduler.add_job(lambda: send_scheduled_emails('weekly'), 'cron', day_of_week='mon', hour=8)
+    scheduler.add_job(lambda: send_scheduled_emails('monthly'), 'cron', day=1, hour=8)
+    scheduler.start()
     app.run(debug=True)

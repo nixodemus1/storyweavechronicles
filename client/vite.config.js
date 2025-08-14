@@ -38,6 +38,8 @@ export default defineConfig({
       '/api/user-voted-books': 'http://localhost:5000',
       '/api/add-comment': 'http://localhost:5000',
       '/api/edit-comment': 'http://localhost:5000',
+      '/api/admin/remove-admin': 'http://localhost:5000',
+      '/api/admin/bootstrap-admin': 'http://localhost:5000',
       '/api/delete-comment': 'http://localhost:5000',
       '/api/get-comments': 'http://localhost:5000',
       '/api/vote-comment': 'http://localhost:5000',
@@ -46,6 +48,8 @@ export default defineConfig({
       '/api/moderate-comment': 'http://localhost:5000',
       '/api/mark-notifications-read': 'http://localhost:5000',
       '/api/dismiss-notification': 'http://localhost:5000',
+      '/api/admin/send-emergency-email': 'http://localhost:5000',
+      '/api/admin/make-admin': 'http://localhost:5000',
     }
   }
 })

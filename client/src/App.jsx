@@ -316,7 +316,7 @@ export default function App() {
   function handleNotificationClick(n) {
     if (user?.username) {
       // Mark as read
-      fetch('/api/mark-notification-read', {
+  fetch('/api/mark-notifications-read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username, timestamp: n.timestamp })
