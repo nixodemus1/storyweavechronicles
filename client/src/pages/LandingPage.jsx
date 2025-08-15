@@ -253,7 +253,7 @@ export default function LandingPage() {
                 }}
               >
                 <img
-                  src={`/pdf-cover/${pdf.id}`}
+                  src={`${import.meta.env.VITE_HOST_URL}/pdf-cover/${pdf.id}`}
                   alt={pdf.title}
                   className="book-cover"
                   onError={e => {
