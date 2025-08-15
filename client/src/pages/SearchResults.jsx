@@ -114,12 +114,12 @@ export default function SearchResults() {
             {sortedResults.map(pdf => (
               <li key={pdf.id} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: containerBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
                 <img
-                  src={`/pdf-cover/${pdf.id}`}
+                  src={`${API_BASE_URL}/pdf-cover/${pdf.id}`}
                   alt={pdf.title}
                   style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                   onError={e => {
                     e.target.onerror = null;
-                    e.target.src = 'https://via.placeholder.com/60x90?text=No+Cover';
+                    e.target.src = '/no-cover.png';
                   }}
                 />
                 <div style={{ flex: 1 }}>

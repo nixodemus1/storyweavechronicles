@@ -587,7 +587,7 @@ export default function PDFReader() {
         {page.images && page.images.length > 0 && (
           <div className="pdf-reader-images">
             {page.images.map((src, idx) => (
-              <img key={idx} src={src} alt={`Page ${page.page} Image ${idx + 1}`} />
+              <img key={idx} src={src.startsWith('/pdf-cover/') ? `${API_BASE_URL}${src}` : src} alt={`Page ${page.page} Image ${idx + 1}`} />
             ))}
           </div>
         )}
