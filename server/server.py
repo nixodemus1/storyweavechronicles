@@ -512,11 +512,21 @@ def notification_history():
     dropdown_only = data.get('dropdownOnly', False)
     user = User.query.filter_by(username=username).first()
     if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    history = json.loads(user.notification_history) if user.notification_history else []
+        # If user not found, return empty history (do not 404)
+        return jsonify({'success': False, 'history': []})
+    history = []
+    try:
+        history = json.loads(user.notification_history) if user.notification_history else []
+    except Exception:
+        history = []
     if dropdown_only:
         history = [n for n in history if not n.get('dismissed')]
     return jsonify({'success': True, 'history': history})
+
+# Add a GET handler to return JSON error
+@app.route('/api/notification-history', methods=['GET'])
+def notification_history_get():
+    return jsonify({'success': False, 'message': 'Use POST for this endpoint.'}), 405
 
 # Update font and timezone for user
 @app.route('/api/update-profile-settings', methods=['POST'])
@@ -1090,7 +1100,13 @@ def get_user_meta():
     username = request.args.get('username')
     user = User.query.filter_by(username=username).first()
     if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
+        # Always return valid JSON, even for missing users
+        return jsonify({
+            'success': False,
+            'background_color': '#232323',
+            'text_color': '#fff',
+            'message': 'User not found.'
+        })
     return jsonify({
         'success': True,
         'background_color': user.background_color or '#232323',
@@ -1132,10 +1148,9 @@ def dismiss_notification():
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
-    if path != "" and os.path.exists(f"../client/dist/{path}"):
-        return send_from_directory("../client/dist", path)
-    else:
-        return send_from_directory("../client/dist", "index.html")
+    # If the request is for an API route, return JSON 404
+    if path.startswith("api/"):
+        return jsonify({"success": False, "message": "API endpoint not found."}), 404
     
 if __name__ == '__main__':
     # Start APScheduler for email notifications

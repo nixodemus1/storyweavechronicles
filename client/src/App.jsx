@@ -251,20 +251,27 @@ export default function App() {
   }, [user?.username]);
 
   // Fetch notifications when user changes or on interval
-  useEffect(() => {
-    if (user?.username) {
-      fetch(`${API_BASE_URL}/api/notification-history`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && Array.isArray(data.history)) setNotifications(data.history);
-          else setNotifications([]);
-        });
-    }
-  }, [user?.username]);
+    useEffect(() => {
+      if (!user?.username) return;
+      let isMounted = true;
+      // Fetch notifications only, do NOT update user or global state
+      const fetchNotifications = () => {
+        fetch(`${API_BASE_URL}/api/notification-history?username=${user.username}`)
+          .then(res => res.json())
+          .then(data => {
+            if (isMounted && data.success && Array.isArray(data.history)) {
+              setNotifications(data.history);
+            }
+          });
+      };
+      fetchNotifications();
+      // Optionally poll every X seconds (e.g., 60s)
+      const interval = setInterval(fetchNotifications, 60000);
+      return () => {
+        isMounted = false;
+        clearInterval(interval);
+      };
+    }, [user?.username]);
 
   // Mark all as read when dropdown opens
   function handleOpenDropdown() {

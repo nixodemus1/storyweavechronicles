@@ -189,7 +189,7 @@ export default function PDFReader() {
   };
 
   // Comments section
-  function CommentsSection({ bookId, user, containerBg, containerText }) {
+  const CommentsSection = React.memo(function CommentsSection({ bookId, user, containerBg, containerText }) {
     const [comments, setComments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [newComment, setNewComment] = useState("");
@@ -215,7 +215,7 @@ export default function PDFReader() {
     }, [bookId]);
 
     // Helper to refresh comments (used after add/edit/delete)
-    const refreshComments = () => {
+    const refreshComments = React.useCallback(() => {
       setLoading(true);
       fetch(`${API_BASE_URL}/api/get-comments?book_id=${bookId}`)
         .then(res => res.json())
@@ -225,7 +225,7 @@ export default function PDFReader() {
           }
           setLoading(false);
         });
-    };
+    }, [bookId]);
 
     // Fetch color info for all unique usernames in comments
     useEffect(() => {
@@ -239,12 +239,17 @@ export default function PDFReader() {
       Promise.all(
         toFetch.map(username =>
           fetch(`${API_BASE_URL}/api/get-user-meta?username=${encodeURIComponent(username)}`)
-            .then(res => res.json())
-            .then(data => ({
-              username,
-              backgroundColor: data.success ? data.background_color : undefined,
-              textColor: data.success ? data.text_color : undefined
-            }))
+            .then(res => {
+              if (!res.ok) {
+                // Use default colors if not found
+                return { username, backgroundColor: "#232323", textColor: "#fff" };
+              }
+              return res.json().then(data => ({
+                username,
+                backgroundColor: data.success ? data.background_color : "#232323",
+                textColor: data.success ? data.text_color : "#fff"
+              }));
+            })
         )
       ).then(results => {
         setUserColors(prev => {
@@ -550,7 +555,7 @@ export default function PDFReader() {
         )}
       </div>
     );
-  }
+  });
 
   if (!pdfData) {
     return <div className={`pdf-reader-loading ${theme}-mode`} style={{ background: backgroundColor, color: textColor, minHeight: '100vh' }}>Loading PDF...</div>;

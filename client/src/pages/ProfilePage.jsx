@@ -5,7 +5,7 @@ import { stepColor, getLuminance } from "../utils/colorUtils";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
-function BookmarksTab({ user }) {
+const BookmarksTab = React.memo(function BookmarksTab({ user }) {
   const [bookmarks, setBookmarks] = useState([]);
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +93,7 @@ function BookmarksTab({ user }) {
       )}
     </div>
   );
-}
+});
 
   // --- AdminTab component ---
 const AdminTab = React.memo(({ user }) => {
@@ -313,153 +313,146 @@ export default function ProfilePage({ user, setUser, onLogout, refreshNotificati
   // Load notification prefs/history when tab is opened
   React.useEffect(() => {
     if (activeTab === "notifications" && user?.username) {
-      fetch(`${API_BASE_URL}/api/notification-prefs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username })
-      })
+      fetch(`${API_BASE_URL}/api/notification-prefs?username=${user.username}`)
         .then(res => res.json())
         .then(data => {
-          if (data.success && data.prefs) {
-            setNotifPrefs(data.prefs);
-            setEmailFrequency(data.prefs.emailFrequency || "immediate");
-          }
+          if (data.success) setNotifPrefs(data.prefs);
         });
-      fetch(`${API_BASE_URL}/api/notification-history`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username })
-      })
+      fetch(`${API_BASE_URL}/api/notification-history?username=${user.username}`)
         .then(res => res.json())
-        .then(data => { if (data.success) setNotifHistory(data.history); });
+        .then(data => {
+          if (data.success && Array.isArray(data.history)) setNotifHistory(data.history);
+          else setNotifHistory([]);
+        });
     }
+    // Do NOT update user or parent state here
   }, [activeTab, user?.username]);
 
-  function UserCommentsSection({ user, textColor, containerBg, containerText }) {
-  const [comments, setComments] = useState([]);
-  const [books, setBooks] = useState([]);
-  React.useEffect(() => {
-    if (!user?.username) return;
-    fetch(`${API_BASE_URL}/api/user-comments?username=${user.username}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && Array.isArray(data.comments)) setComments(data.comments);
-        else setComments([]);
-      });
-  }, [user?.username]);
-  React.useEffect(() => {
-    const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
-    if (!folderId) return;
-    fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.pdfs && Array.isArray(data.pdfs)) setBooks(data.pdfs);
-        else setBooks([]);
-      });
-  }, []);
-  function getBookName(id) {
-    const book = books.find(b => b.id === id);
-    return book ? book.name : id;
-  }
-  return (
-    <div style={{
-      marginTop: 24,
-      background: containerBg,
-      color: containerText,
-      borderRadius: 8,
-      padding: '18px 16px',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
-    }}>
-      <h4 style={{ color: containerText }}>Your Comments & Replies</h4>
-      {comments.length === 0 ? (
-        <div style={{ color: '#888' }}>No comments yet.</div>
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {comments.map(c => (
-            <li key={c.id} style={{
-              marginBottom: 10,
-              background: stepColor(containerBg, 'dark', c.parent_id ? 1 : 0, 1),
-              color: containerText,
-              borderRadius: 6,
-              padding: '6px 10px'
-            }}>
-              <div>
-                <a href={`/read/${c.book_id}`} style={{ color: containerText, fontWeight: 600 }}>
-                  {getBookName(c.book_id)}
-                </a>
-                {c.parent_id && <span style={{ color: '#888', marginLeft: 8 }}>(Reply)</span>}
-              </div>
-              <div style={{ color: containerText }}>{c.text}</div>
-              <div style={{ fontSize: 12, color: '#888' }}>
-                {new Date(c.timestamp).toLocaleString()} {c.edited && <span>(edited)</span>}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
+  const UserCommentsSection = React.memo(function UserCommentsSection({ user, textColor, containerBg, containerText }) {
+    const [comments, setComments] = useState([]);
+    const [books, setBooks] = useState([]);
+    React.useEffect(() => {
+      if (!user?.username) return;
+      fetch(`${API_BASE_URL}/api/user-comments?username=${user.username}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.comments)) setComments(data.comments);
+          else setComments([]);
+        });
+    }, [user?.username]);
+    React.useEffect(() => {
+      const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
+      if (!folderId) return;
+      fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.pdfs && Array.isArray(data.pdfs)) setBooks(data.pdfs);
+          else setBooks([]);
+        });
+    }, []);
+    function getBookName(id) {
+      const book = books.find(b => b.id === id);
+      return book ? book.name : id;
+    }
+    return (
+      <div style={{
+        marginTop: 24,
+        background: containerBg,
+        color: containerText,
+        borderRadius: 8,
+        padding: '18px 16px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+      }}>
+        <h4 style={{ color: containerText }}>Your Comments & Replies</h4>
+        {comments.length === 0 ? (
+          <div style={{ color: '#888' }}>No comments yet.</div>
+        ) : (
+          <ul style={{ listStyle: 'none', padding: 0 }}>
+            {comments.map(c => (
+              <li key={c.id} style={{
+                marginBottom: 10,
+                background: stepColor(containerBg, 'dark', c.parent_id ? 1 : 0, 1),
+                color: containerText,
+                borderRadius: 6,
+                padding: '6px 10px'
+              }}>
+                <div>
+                  <a href={`/read/${c.book_id}`} style={{ color: containerText, fontWeight: 600 }}>
+                    {getBookName(c.book_id)}
+                  </a>
+                  {c.parent_id && <span style={{ color: '#888', marginLeft: 8 }}>(Reply)</span>}
+                </div>
+                <div style={{ color: containerText }}>{c.text}</div>
+                <div style={{ fontSize: 12, color: '#888' }}>
+                  {new Date(c.timestamp).toLocaleString()} {c.edited && <span>(edited)</span>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  });
 
-function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
-  const [votes, setVotes] = useState([]);
-  const [books, setBooks] = useState([]);
-  React.useEffect(() => {
-    if (!user?.username) return;
-    fetch(`${API_BASE_URL}/api/user-voted-books?username=${user.username}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && Array.isArray(data.voted_books)) setVotes(data.voted_books.slice(0, 10));
-        else setVotes([]);
-      });
-  }, [user?.username]);
-  React.useEffect(() => {
-    const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
-    if (!folderId) return;
-    fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.pdfs && Array.isArray(data.pdfs)) setBooks(data.pdfs);
-        else setBooks([]);
-      });
-  }, []);
-  function getBookName(id) {
-    const book = books.find(b => b.id === id);
-    return book ? book.name : id;
+  function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
+    const [votes, setVotes] = useState([]);
+    const [books, setBooks] = useState([]);
+    React.useEffect(() => {
+      if (!user?.username) return;
+      fetch(`${API_BASE_URL}/api/user-voted-books?username=${user.username}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.voted_books)) setVotes(data.voted_books.slice(0, 10));
+          else setVotes([]);
+        });
+    }, [user?.username]);
+    React.useEffect(() => {
+      const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
+      if (!folderId) return;
+      fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.pdfs && Array.isArray(data.pdfs)) setBooks(data.pdfs);
+          else setBooks([]);
+        });
+    }, []);
+    function getBookName(id) {
+      const book = books.find(b => b.id === id);
+      return book ? book.name : id;
+    }
+    return (
+      <div style={{
+        marginTop: 24,
+        background: containerBg,
+        color: containerText,
+        borderRadius: 8,
+        padding: '18px 16px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+      }}>
+        <h4 style={{ color: containerText }}>Top Voted Books</h4>
+        {votes.length === 0 ? (
+          <div style={{ color: '#888' }}>No votes yet.</div>
+        ) : (
+          <ul style={{ listStyle: 'none', padding: 0 }}>
+            {votes.map(v => (
+              <li key={v.book_id} style={{
+                marginBottom: 10,
+                background: stepColor(containerBg, 'dark', 0, 1),
+                color: containerText,
+                borderRadius: 6,
+                padding: '6px 10px'
+              }}>
+                <a href={`/read/${v.book_id}`} style={{ color: containerText, fontWeight: 600 }}>
+                  {getBookName(v.book_id)}
+                </a>
+                <span style={{ marginLeft: 8, color: '#888' }}>Your rating: {v.value}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
   }
-  return (
-    <div style={{
-      marginTop: 24,
-      background: containerBg,
-      color: containerText,
-      borderRadius: 8,
-      padding: '18px 16px',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
-    }}>
-      <h4 style={{ color: containerText }}>Top Voted Books</h4>
-      {votes.length === 0 ? (
-        <div style={{ color: '#888' }}>No votes yet.</div>
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {votes.map(v => (
-            <li key={v.book_id} style={{
-              marginBottom: 10,
-              background: stepColor(containerBg, 'dark', 0, 1),
-              color: containerText,
-              borderRadius: 6,
-              padding: '6px 10px'
-            }}>
-              <a href={`/read/${v.book_id}`} style={{ color: containerText, fontWeight: 600 }}>
-                {getBookName(v.book_id)}
-              </a>
-              <span style={{ marginLeft: 8, color: '#888' }}>Your rating: {v.value}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
 
   // --- Render ---
   function NotificationPrefsTab() {
