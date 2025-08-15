@@ -258,7 +258,7 @@ export default function LandingPage() {
                   className="book-cover"
                   onError={e => {
                     e.target.onerror = null;
-                    e.target.src = 'https://via.placeholder.com/180x260?text=No+Cover';
+                    e.target.src = '/no-cover.png';
                   }}
                 />
                 <div

@@ -373,13 +373,18 @@ def pdf_cover(file_id):
         service = get_drive_service()
         request = service.files().get_media(fileId=file_id)
         file_content = io.BytesIO(request.execute())
-        doc = fitz.open(stream=file_content, filetype="pdf")
-        page = doc.load_page(0)
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-        img_bytes = io.BytesIO(pix.tobytes("png"))
-        return send_file(img_bytes, mimetype="image/png")
+        try:
+            doc = fitz.open(stream=file_content, filetype="pdf")
+            page = doc.load_page(0)
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            img_bytes = io.BytesIO(pix.tobytes("png"))
+            return send_file(img_bytes, mimetype="image/png")
+        except Exception:
+            # Not a valid PDF or cannot generate cover
+            return send_file(os.path.join('..', 'client', 'public', 'no-cover.png'), mimetype="image/png"), 404
     except Exception as e:
-        return jsonify(error=str(e)), 500
+        # File not found or cannot access
+        return send_file(os.path.join('..', 'client', 'public', 'no-cover.png'), mimetype="image/png"), 404
     
 @app.route('/api/pdf-text/<file_id>')
 def pdf_text(file_id):
