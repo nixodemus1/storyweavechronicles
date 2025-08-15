@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
 import { stepColor, getLuminance } from "../utils/colorUtils";
 
+const API_BASE_URL = import.meta.env.VITE_HOST_URL;
+
 export default function SearchResults() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -23,7 +25,7 @@ export default function SearchResults() {
   useEffect(() => {
     if (!query) return;
     setLoading(true);
-    fetch(`/list-pdfs/${import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID}`)
+    fetch(`${API_BASE_URL}/list-pdfs/${import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID}`)
       .then(res => res.json())
       .then(data => {
         let filtered = [];
@@ -41,7 +43,7 @@ export default function SearchResults() {
       });
     // Fetch bookmarks if user is logged in
     if (user && user.username) {
-      fetch('/api/get-bookmarks', {
+      fetch(`${API_BASE_URL}/api/get-bookmarks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username })

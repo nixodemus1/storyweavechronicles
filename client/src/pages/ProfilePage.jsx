@@ -3,6 +3,8 @@ import React, { useContext, useState } from "react";
 import { ThemeContext } from "../themeContext";
 import { stepColor, getLuminance } from "../utils/colorUtils";
 
+const API_BASE_URL = import.meta.env.VITE_HOST_URL;
+
 function BookmarksTab({ user }) {
   const [bookmarks, setBookmarks] = useState([]);
   const [books, setBooks] = useState([]);
@@ -12,7 +14,7 @@ function BookmarksTab({ user }) {
   React.useEffect(() => {
     if (!user?.username) return;
     setLoading(true);
-    fetch('/api/get-bookmarks', {
+    fetch(`${API_BASE_URL}/api/get-bookmarks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user.username })
@@ -30,7 +32,7 @@ function BookmarksTab({ user }) {
   React.useEffect(() => {
     const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
     if (!folderId) return;
-    fetch(`/list-pdfs/${folderId}`)
+    fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
         if (data.pdfs && Array.isArray(data.pdfs)) setBooks(data.pdfs);
@@ -114,7 +116,7 @@ const AdminTab = React.memo(({ user }) => {
       setAdminActionMsg("Enter a username.");
       return;
     }
-    const res = await fetch("/api/admin/make-admin", {
+    const res = await fetch(`${API_BASE_URL}/api/admin/make-admin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ adminUsername: user?.username, targetUsername })
@@ -131,7 +133,7 @@ const AdminTab = React.memo(({ user }) => {
       setAdminActionMsg("Enter a username.");
       return;
     }
-    const res = await fetch("/api/admin/remove-admin", {
+    const res = await fetch(`${API_BASE_URL}/api/admin/remove-admin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ adminUsername: user?.username, targetUsername })
@@ -149,7 +151,7 @@ const AdminTab = React.memo(({ user }) => {
       return;
     }
     let recipient = adminRecipientType === "all" ? "all" : adminRecipientValue;
-    const res = await fetch("/api/admin/send-emergency-email", {
+    const res = await fetch(`${API_BASE_URL}/api/admin/send-emergency-email`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -264,7 +266,7 @@ export default function ProfilePage({ user, setUser, onLogout, refreshNotificati
   // Save color changes to backend for logged-in user
   React.useEffect(() => {
     if (!user?.username) return;
-    fetch('/api/update-colors', {
+    fetch(`${API_BASE_URL}/api/update-colors`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user.username, backgroundColor, textColor })
@@ -280,7 +282,7 @@ export default function ProfilePage({ user, setUser, onLogout, refreshNotificati
   // Save font and timezone changes to backend for logged-in user
   React.useEffect(() => {
     if (!user?.username) return;
-    fetch('/api/update-profile-settings', {
+    fetch(`${API_BASE_URL}/api/update-profile-settings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user.username, font, timezone })
@@ -311,7 +313,7 @@ export default function ProfilePage({ user, setUser, onLogout, refreshNotificati
   // Load notification prefs/history when tab is opened
   React.useEffect(() => {
     if (activeTab === "notifications" && user?.username) {
-      fetch('/api/notification-prefs', {
+      fetch(`${API_BASE_URL}/api/notification-prefs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username })
@@ -323,7 +325,7 @@ export default function ProfilePage({ user, setUser, onLogout, refreshNotificati
             setEmailFrequency(data.prefs.emailFrequency || "immediate");
           }
         });
-      fetch('/api/notification-history', {
+      fetch(`${API_BASE_URL}/api/notification-history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username })
@@ -338,7 +340,7 @@ export default function ProfilePage({ user, setUser, onLogout, refreshNotificati
   const [books, setBooks] = useState([]);
   React.useEffect(() => {
     if (!user?.username) return;
-    fetch(`/api/user-comments?username=${user.username}`)
+    fetch(`${API_BASE_URL}/api/user-comments?username=${user.username}`)
       .then(res => res.json())
       .then(data => {
         if (data.success && Array.isArray(data.comments)) setComments(data.comments);
@@ -348,7 +350,7 @@ export default function ProfilePage({ user, setUser, onLogout, refreshNotificati
   React.useEffect(() => {
     const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
     if (!folderId) return;
-    fetch(`/list-pdfs/${folderId}`)
+    fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
         if (data.pdfs && Array.isArray(data.pdfs)) setBooks(data.pdfs);
@@ -404,7 +406,7 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
   const [books, setBooks] = useState([]);
   React.useEffect(() => {
     if (!user?.username) return;
-    fetch(`/api/user-voted-books?username=${user.username}`)
+    fetch(`${API_BASE_URL}/api/user-voted-books?username=${user.username}`)
       .then(res => res.json())
       .then(data => {
         if (data.success && Array.isArray(data.voted_books)) setVotes(data.voted_books.slice(0, 10));
@@ -414,7 +416,7 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
   React.useEffect(() => {
     const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
     if (!folderId) return;
-    fetch(`/list-pdfs/${folderId}`)
+    fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
         if (data.pdfs && Array.isArray(data.pdfs)) setBooks(data.pdfs);
@@ -476,7 +478,7 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
               // Save to backend
               const newPrefs = { ...notifPrefs, emailFrequency: e.target.value };
               setNotifPrefs(newPrefs);
-              fetch("/api/update-notification-prefs", {
+              fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ username: user.username, prefs: newPrefs })
@@ -668,7 +670,7 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
                   // Save to backend
                   const newPrefs = { ...notifPrefs, emailFrequency: e.target.value };
                   setNotifPrefs(newPrefs);
-                  fetch("/api/update-notification-prefs", {
+                  fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ username: user.username, prefs: newPrefs })
@@ -692,7 +694,7 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
                 onSubmit={async e => {
                   e.preventDefault();
                   setNotifMsg("");
-                  const res = await fetch('/api/update-notification-prefs', {
+                  const res = await fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username: user.username, prefs: notifPrefs })
@@ -838,7 +840,7 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
                   if (!newSecondaryEmail) return setSecondaryEmailMsg("Enter an email.");
                   // Always send both username and email
                   const payload = { username: user?.username || "", email: newSecondaryEmail };
-                  const res = await fetch('/api/add-secondary-email', {
+                  const res = await fetch(`${API_BASE_URL}/api/add-secondary-email`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -870,7 +872,7 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
                       type="button"
                       style={{ color: '#c00', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13 }}
                       onClick={async () => {
-                        const res = await fetch('/api/remove-secondary-email', {
+                        const res = await fetch(`${API_BASE_URL}/api/remove-secondary-email`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ username: user.username, email })
@@ -902,7 +904,7 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
                     setPasswordMessage("New passwords do not match.");
                     return;
                   }
-                  const res = await fetch('/api/change-password', {
+                  const res = await fetch(`${API_BASE_URL}/api/change-password`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username: user.username, currentPassword, newPassword })
@@ -954,7 +956,7 @@ function UserTopVotedBooks({ user, textColor, containerBg, containerText }) {
                     setDeleteMsg("Enter your password to confirm deletion.");
                     return;
                   }
-                  const res = await fetch('/api/delete-account', {
+                  const res = await fetch(`${API_BASE_URL}/api/delete-account`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username: user.username, password: deletePassword })

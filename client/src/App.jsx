@@ -13,6 +13,7 @@ import ProfilePage from "./pages/ProfilePage";
 import Logo1 from "./assets/file (1).svg";
 import Logo2 from "./assets/file (2).svg";
 import Logo3 from "./assets/file (3).svg";
+const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 function NotificationDropdown({ open, anchorRef, onClose, notifications, headerContainerColor, textColor, handleNotificationClick }) {
   if (!open) return null;
@@ -147,7 +148,7 @@ export default function App() {
     localStorage.setItem('backgroundColor', backgroundColor);
     localStorage.setItem('textColor', textColor);
     if (user && user.username && colorChangedByUser) {
-      fetch("/api/update-colors", {
+      fetch(`${API_BASE_URL}/api/update-colors`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -204,7 +205,7 @@ export default function App() {
       let userProfile = data;
       if (username) {
         try {
-          const res = await fetch('/api/get-user', {
+          const res = await fetch(`${API_BASE_URL}/api/get-user`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username })
@@ -232,7 +233,7 @@ export default function App() {
   // On mount, or when username changes, fetch and apply color preferences from backend
   useEffect(() => {
     if (user && user.username) {
-      fetch('/api/get-user', {
+      fetch(`${API_BASE_URL}/api/get-user`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username })
@@ -252,7 +253,7 @@ export default function App() {
   // Fetch notifications when user changes or on interval
   useEffect(() => {
     if (user?.username) {
-      fetch('/api/notification-history', {
+      fetch(`${API_BASE_URL}/api/notification-history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username })
@@ -277,7 +278,7 @@ export default function App() {
     if (user?.username) {
       const unread = notifications.filter(n => !n.read && !n.clicked);
       if (unread.length > 0) {
-        fetch('/api/mark-notifications-read', {
+        fetch(`${API_BASE_URL}/api/mark-notifications-read`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: user.username })
@@ -293,7 +294,7 @@ export default function App() {
   // Refresh notifications function
   function refreshNotifications() {
     if (user?.username) {
-      fetch('/api/notification-history', {
+      fetch(`${API_BASE_URL}/api/notification-history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username, dropdownOnly: true })
@@ -317,7 +318,7 @@ export default function App() {
   function handleNotificationClick(n) {
     if (user?.username) {
       // Mark as read
-  fetch('/api/mark-notifications-read', {
+  fetch(`${API_BASE_URL}/api/mark-notifications-read`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username, timestamp: n.timestamp })
@@ -329,7 +330,7 @@ export default function App() {
           }
         });
       // Dismiss from dropdown
-      fetch('/api/dismiss-notification', {
+      fetch(`${API_BASE_URL}/api/dismiss-notification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username, timestamp: n.timestamp })
@@ -570,7 +571,7 @@ export default function App() {
     onLogout={async () => {
       // Save color changes before logout
       if (user && user.username) {
-        await fetch("/api/update-colors", {
+        await fetch(`${API_BASE_URL}/api/update-colors`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

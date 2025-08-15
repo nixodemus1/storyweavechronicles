@@ -12,6 +12,7 @@ export default function LandingPage() {
   const [topNewest, setTopNewest] = useState([]);
   const [topVoted, setTopVoted] = useState([]);
   const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
+  const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
   // --- Search bar state and logic ---
   const [searchInput, setSearchInput] = useState("");
@@ -139,7 +140,7 @@ export default function LandingPage() {
       } catch {return}
     }
 
-    fetch(`/list-pdfs/${folderId}`)
+    fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
         console.log('PDFs response:', data);

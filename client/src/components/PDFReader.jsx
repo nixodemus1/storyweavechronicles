@@ -5,6 +5,8 @@ import { useTheme } from "../themeContext";
 import { stepColor, getLuminance } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
 
+const API_BASE_URL = import.meta.env.VITE_HOST_URL;
+
 export default function PDFReader() {
   const { id } = useParams(); // expecting route like /read/:id
   const [pdfData, setPdfData] = useState(null);
@@ -29,7 +31,7 @@ export default function PDFReader() {
 
   // Fetch PDF data with error handling for non-JSON responses
   useEffect(() => {
-    fetch(`/api/pdf-text/${id}`)
+    fetch(`${API_BASE_URL}/api/pdf-text/${id}`)
       .then(res => {
         if (!res.ok) {
           throw new Error(`Failed to fetch PDF: ${res.status}`);
@@ -50,7 +52,7 @@ export default function PDFReader() {
   useEffect(() => {
     const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
     if (!folderId) return;
-    fetch(`/list-pdfs/${folderId}`)
+    fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
         if (data.pdfs && Array.isArray(data.pdfs)) {
@@ -63,7 +65,7 @@ export default function PDFReader() {
   // Check if this book is bookmarked by the user
   useEffect(() => {
     if (user && user.username) {
-      fetch('/api/get-bookmarks', {
+      fetch(`${API_BASE_URL}/api/get-bookmarks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username })
@@ -90,7 +92,7 @@ export default function PDFReader() {
   // Track last page update only if book is bookmarked
   useEffect(() => {
     if (user && user.username && id && currentPage && isBookmarked) {
-      fetch('/api/update-bookmark-meta', {
+      fetch(`${API_BASE_URL}/api/update-bookmark-meta`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username, book_id: id, last_page: currentPage })
@@ -108,7 +110,7 @@ export default function PDFReader() {
   // Fetch user's vote for this book
   useEffect(() => {
     if (user && user.username && id) {
-      fetch(`/api/user-voted-books?username=${user.username}`)
+      fetch(`${API_BASE_URL}/api/user-voted-books?username=${user.username}`)
         .then(res => res.json())
         .then(data => {
           if (data.success && Array.isArray(data.voted_books)) {
@@ -122,7 +124,7 @@ export default function PDFReader() {
   // Fetch vote stats for this book
   useEffect(() => {
     if (id) {
-      fetch(`/api/book-votes?book_id=${id}`)
+      fetch(`${API_BASE_URL}/api/book-votes?book_id=${id}`)
         .then(res => res.json())
         .then(data => {
           if (data.success) setVoteStats({ average: data.average, count: data.count });
@@ -133,7 +135,7 @@ export default function PDFReader() {
   // Voting handler
   const handleVote = async (value) => {
     if (!user || !user.username) return;
-    const res = await fetch('/api/vote-book', {
+    const res = await fetch(`${API_BASE_URL}/api/vote-book`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user.username, book_id: id, value })
@@ -151,7 +153,7 @@ export default function PDFReader() {
       setBookmarkMsg("Please log in to bookmark.");
       return;
     }
-    const res = await fetch('/api/add-bookmark', {
+    const res = await fetch(`${API_BASE_URL}/api/add-bookmark`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user.username, book_id: id })
@@ -171,7 +173,7 @@ export default function PDFReader() {
       setBookmarkMsg("Please log in to remove bookmark.");
       return;
     }
-    const res = await fetch('/api/remove-bookmark', {
+    const res = await fetch(`${API_BASE_URL}/api/remove-bookmark`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user.username, book_id: id })
@@ -202,7 +204,7 @@ export default function PDFReader() {
     // Fetch comments (only on mount or bookId change)
     useEffect(() => {
       setLoading(true);
-      fetch(`/api/get-comments?book_id=${bookId}`)
+      fetch(`${API_BASE_URL}/api/get-comments?book_id=${bookId}`)
         .then(res => res.json())
         .then(data => {
           if (data.success && Array.isArray(data.comments)) {
@@ -215,7 +217,7 @@ export default function PDFReader() {
     // Helper to refresh comments (used after add/edit/delete)
     const refreshComments = () => {
       setLoading(true);
-      fetch(`/api/get-comments?book_id=${bookId}`)
+      fetch(`${API_BASE_URL}/api/get-comments?book_id=${bookId}`)
         .then(res => res.json())
         .then(data => {
           if (data.success && Array.isArray(data.comments)) {
@@ -236,7 +238,7 @@ export default function PDFReader() {
       if (!toFetch.length) return;
       Promise.all(
         toFetch.map(username =>
-          fetch(`/api/get-user-meta?username=${encodeURIComponent(username)}`)
+          fetch(`${API_BASE_URL}/api/get-user-meta?username=${encodeURIComponent(username)}`)
             .then(res => res.json())
             .then(data => ({
               username,
@@ -262,7 +264,7 @@ export default function PDFReader() {
         return;
       }
       if (!newComment.trim()) return;
-      const res = await fetch('/api/add-comment', {
+      const res = await fetch(`${API_BASE_URL}/api/add-comment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -286,7 +288,7 @@ export default function PDFReader() {
     // Edit comment
     const handleEditComment = async (commentId) => {
       if (!editText.trim()) return;
-      const res = await fetch('/api/edit-comment', {
+      const res = await fetch(`${API_BASE_URL}/api/edit-comment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -307,7 +309,7 @@ export default function PDFReader() {
 
     // Delete comment
     const handleDeleteComment = async (commentId) => {
-      const res = await fetch('/api/delete-comment', {
+      const res = await fetch(`${API_BASE_URL}/api/delete-comment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -325,7 +327,7 @@ export default function PDFReader() {
 
     // Vote comment
     const handleVoteComment = async (commentId, value) => {
-      await fetch('/api/vote-comment', {
+      await fetch(`${API_BASE_URL}/api/vote-comment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ comment_id: commentId, value })
