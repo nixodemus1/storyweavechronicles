@@ -20,7 +20,8 @@ export default function LoginRegisterPage({ onAuth }) {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const url = mode === "login" ? "/api/login" : "/api/register";
+    const baseUrl = import.meta.env.VITE_HOST_URL || "";
+    const url = baseUrl + (mode === "login" ? "/api/login" : "/api/register");
     const body = mode === "login"
       ? { username, password }
       : { username, email, password, backgroundColor: regBg, textColor: regText };
