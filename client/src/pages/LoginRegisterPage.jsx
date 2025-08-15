@@ -30,9 +30,17 @@ export default function LoginRegisterPage({ onAuth }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        // If JSON parsing fails, show status and response text
+        const text = await res.text();
+        setError(`HTTP ${res.status} ${res.statusText}. Response: ${text ? text : "(empty)"}`);
+        return;
+      }
       if (!data.success) {
-        setError(data.message || "Unknown error");
+        setError(data.message || `Unknown error (HTTP ${res.status})`);
       } else {
         setError("");
         if (onAuth) onAuth(data);
