@@ -5,10 +5,12 @@ import { stepColor } from "../utils/colorUtils";
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 const NotificationsTabContent = React.memo(function NotificationsTabContent({ user, setUser }) {
+
   const { backgroundColor, textColor, theme } = useContext(ThemeContext);
   const [prefs, setPrefs] = useState(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [emailChannels, setEmailChannels] = useState([]);
 
   React.useEffect(() => {
     if (!user?.username) return;
@@ -23,26 +25,61 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
         setPrefs(data.prefs || {});
         setLoading(false);
       });
-  }, [user?.username]);
+    // Gather all emails (primary + secondary)
+    const emails = [];
+    if (user?.email) emails.push({ label: 'Primary', value: user.email });
+    if (Array.isArray(user?.secondaryEmails)) {
+      user.secondaryEmails.forEach((e, i) => emails.push({ label: `Secondary ${i+1}`, value: e }));
+    }
+    setEmailChannels(emails);
+  }, [user?.username, user?.email, user?.secondaryEmails]);
 
   const containerBg = stepColor(backgroundColor, theme, 1);
 
   function handleChange(e) {
-    const { name, checked } = e.target;
-    setPrefs(prev => ({ ...prev, [name]: checked }));
-    setSaving(true);
-    fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username, [name]: checked })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, [name]: checked } } : u);
+    const { name, checked, value, type } = e.target;
+    if (type === 'checkbox' && name.startsWith('emailChannel_')) {
+      // Email channel selection
+      const email = value;
+      setPrefs(prev => {
+        const selected = prev.emailChannels || [];
+        let updated;
+        if (checked) {
+          updated = [...selected, email];
+        } else {
+          updated = selected.filter(e => e !== email);
         }
+        return { ...prev, emailChannels: updated };
+      });
+      setSaving(true);
+      fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, prefs: { ...prefs, emailChannels: checked ? [...(prefs.emailChannels || []), email] : (prefs.emailChannels || []).filter(e => e !== email) } })
       })
-      .finally(() => setSaving(false));
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, emailChannels: checked ? [...(prefs.emailChannels || []), email] : (prefs.emailChannels || []).filter(e => e !== email) } } : u);
+          }
+        })
+        .finally(() => setSaving(false));
+    } else {
+      setPrefs(prev => ({ ...prev, [name]: checked }));
+      setSaving(true);
+      fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, prefs: { ...prefs, [name]: checked } })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, [name]: checked } } : u);
+          }
+        })
+        .finally(() => setSaving(false));
+    }
   }
 
   return (
@@ -52,6 +89,38 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
         <div style={{ color: '#888' }}>Loading preferences...</div>
       ) : (
         <form style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {/* Email frequency dropdown */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: textColor, minWidth: 120 }}>Email frequency:</span>
+            <select
+              name="emailFrequency"
+              value={prefs?.emailFrequency || 'immediate'}
+              onChange={e => {
+                const value = e.target.value;
+                setPrefs(prev => ({ ...prev, emailFrequency: value }));
+                setSaving(true);
+                fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ username: user.username, prefs: { ...prefs, emailFrequency: value } })
+                })
+                  .then(res => res.json())
+                  .then(data => {
+                    if (data.success) {
+                      setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, emailFrequency: value } } : u);
+                    }
+                  })
+                  .finally(() => setSaving(false));
+              }}
+              style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc', fontSize: 15 }}
+            >
+              <option value="immediate">Immediate</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </label>
+          {/* Channel selection */}
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input
               type="checkbox"
@@ -61,6 +130,23 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
             />
             <span style={{ color: textColor }}>Email notifications</span>
           </label>
+          {prefs?.email && emailChannels.length > 0 && (
+            <div style={{ marginLeft: 24, marginTop: 2, marginBottom: 8 }}>
+              <div style={{ color: textColor, fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Send to:</div>
+              {emailChannels.map((e, idx) => (
+                <label key={e.value} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <input
+                    type="checkbox"
+                    name={`emailChannel_${idx}`}
+                    value={e.value}
+                    checked={Array.isArray(prefs?.emailChannels) ? prefs.emailChannels.includes(e.value) : false}
+                    onChange={handleChange}
+                  />
+                  <span style={{ color: textColor }}>{e.label}: {e.value}</span>
+                </label>
+              ))}
+            </div>
+          )}
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input
               type="checkbox"
@@ -79,6 +165,45 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
             />
             <span style={{ color: textColor }}>Newsletter</span>
           </label>
+          {/* Notification type opt-in/out */}
+          <hr style={{ margin: '12px 0', border: 'none', borderTop: '1px solid #ddd' }} />
+          <div style={{ fontWeight: 500, color: textColor, marginBottom: 4 }}>Notification Types</div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input
+              type="checkbox"
+              name="siteUpdates"
+              checked={!!prefs?.siteUpdates}
+              onChange={handleChange}
+            />
+            <span style={{ color: textColor }}>Site updates (global)</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input
+              type="checkbox"
+              name="newBook"
+              checked={!!prefs?.newBook}
+              onChange={handleChange}
+            />
+            <span style={{ color: textColor }}>New book announcements (global)</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input
+              type="checkbox"
+              name="bookmarkUpdates"
+              checked={!!prefs?.bookmarkUpdates}
+              onChange={handleChange}
+            />
+            <span style={{ color: textColor }}>Book updates from bookmarks</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input
+              type="checkbox"
+              name="replyNotifications"
+              checked={!!prefs?.replyNotifications}
+              onChange={handleChange}
+            />
+            <span style={{ color: textColor }}>Replies to your comments</span>
+          </label>
         </form>
       )}
       <div style={{ color: '#888', fontSize: 13, marginTop: 8 }}>
@@ -93,6 +218,9 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(null);
+  const [filterType, setFilterType] = useState('all');
+  const [filterDate, setFilterDate] = useState('');
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   React.useEffect(() => {
     if (!user?.username) return;
@@ -127,16 +255,95 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
       .finally(() => setDeleting(null));
   }
 
+  function handleMarkRead(id, read) {
+    fetch(`${API_BASE_URL}/api/mark-notification-read`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user.username, notificationId: id, read })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setNotifications(notifications => notifications.map(n => n.id === id ? { ...n, read } : n));
+        }
+      });
+  }
+
+  function handleBulkDismiss() {
+    setBulkLoading(true);
+    fetch(`${API_BASE_URL}/api/dismiss-all-notifications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user.username })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setNotifications([]);
+        }
+      })
+      .finally(() => setBulkLoading(false));
+  }
+
+  function handleBulkMarkRead() {
+    setBulkLoading(true);
+    fetch(`${API_BASE_URL}/api/mark-all-notifications-read`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user.username })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setNotifications(notifications => notifications.map(n => ({ ...n, read: true })));
+        }
+      })
+      .finally(() => setBulkLoading(false));
+  }
+
+  // Filtering logic
+  const filteredNotifications = notifications.filter(n => {
+    let typeMatch = filterType === 'all' || n.type === filterType;
+    let dateMatch = true;
+    if (filterDate) {
+      const notifDate = new Date(n.timestamp).toISOString().slice(0, 10);
+      dateMatch = notifDate === filterDate;
+    }
+    return typeMatch && dateMatch;
+  });
+
+  // Unique types for dropdown
+  const notificationTypes = Array.from(new Set(notifications.map(n => n.type))).filter(Boolean);
+
   return (
     <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
       <h3 style={{ color: textColor }}>Notification History</h3>
+      {/* Filter controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <label style={{ color: textColor, fontSize: 14 }}>
+          Type:
+          <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ marginLeft: 6, padding: '2px 8px', borderRadius: 4 }}>
+            <option value="all">All</option>
+            {notificationTypes.map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </label>
+        <label style={{ color: textColor, fontSize: 14 }}>
+          Date:
+          <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} style={{ marginLeft: 6, padding: '2px 8px', borderRadius: 4 }} />
+        </label>
+        {/* Bulk actions */}
+        <button onClick={handleBulkDismiss} disabled={bulkLoading || filteredNotifications.length === 0} style={{ background: '#eee', color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}>Dismiss All</button>
+        <button onClick={handleBulkMarkRead} disabled={bulkLoading || filteredNotifications.length === 0} style={{ background: '#eee', color: '#080', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}>Mark All as Read</button>
+      </div>
       {loading ? (
         <div style={{ color: '#888' }}>Loading notifications...</div>
-      ) : notifications.length === 0 ? (
+      ) : filteredNotifications.length === 0 ? (
         <div style={{ color: '#888' }}>No notifications yet.</div>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0 }}>
-          {notifications.map(n => (
+          {filteredNotifications.map(n => (
             <li key={n.id} style={{
               marginBottom: 12,
               background: stepColor(containerBg, 'dark', n.read ? 1 : 0, 1),
@@ -154,23 +361,19 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
                 <div style={{ fontSize: 13, color: '#888' }}>{n.body}</div>
                 <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{new Date(n.timestamp).toLocaleString()}</div>
               </div>
-              <button
-                onClick={() => handleDismiss(n.id)}
-                disabled={deleting === n.id}
-                style={{
-                  background: '#eee',
-                  color: '#c00',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: '4px 10px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  opacity: deleting === n.id ? 0.6 : 1
-                }}
-                title="Delete notification from history"
-              >
-                {deleting === n.id ? 'Deleting...' : 'Delete'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  onClick={() => handleMarkRead(n.id, !n.read)}
+                  style={{ background: n.read ? '#eee' : '#ffe0e0', color: n.read ? '#080' : '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}
+                  title={n.read ? 'Mark as Unread' : 'Mark as Read'}
+                >{n.read ? 'Mark Unread' : 'Mark Read'}</button>
+                <button
+                  onClick={() => handleDismiss(n.id)}
+                  disabled={deleting === n.id}
+                  style={{ background: '#eee', color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', opacity: deleting === n.id ? 0.6 : 1 }}
+                  title="Delete notification from history"
+                >{deleting === n.id ? 'Deleting...' : 'Delete'}</button>
+              </div>
             </li>
           ))}
         </ul>

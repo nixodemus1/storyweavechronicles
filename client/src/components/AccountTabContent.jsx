@@ -240,8 +240,29 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
 });
 
 const AccountTabContent = React.memo(function AccountTabContent({ user }) {
+  const { backgroundColor, theme } = useContext(ThemeContext);
+  const overviewBg = stepColor(backgroundColor, theme, 1);
   return (
     <>
+      {/* Account Overview: Primary and Secondary Emails */}
+      <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: overviewBg, borderRadius: 8, padding: '18px 16px' }}>
+        <h3 style={{ marginBottom: 10 }}>Account Overview</h3>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Primary Email:</strong> <span>{user?.email || 'Not set'}</span>
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Secondary Emails:</strong>
+          {Array.isArray(user?.secondaryEmails) && user.secondaryEmails.length > 0 ? (
+            <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
+              {user.secondaryEmails.map((email) => (
+                <li key={email} style={{ fontSize: 15 }}>{email}</li>
+              ))}
+            </ul>
+          ) : (
+            <span style={{ marginLeft: 8 }}>None</span>
+          )}
+        </div>
+      </div>
       <BookmarksTab user={user} />
       <UserCommentsSection user={user} />
       <UserTopVotedBooksTab user={user} />

@@ -14,6 +14,66 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
   const [success, setSuccess] = useState("");
   const navigate = useNavigate();
 
+  // Secondary email management
+  const [secondaryEmails, setSecondaryEmails] = useState(user?.secondaryEmails || []);
+  const [newSecondaryEmail, setNewSecondaryEmail] = useState("");
+  const [secondaryEmailError, setSecondaryEmailError] = useState("");
+  const [secondaryEmailSuccess, setSecondaryEmailSuccess] = useState("");
+
+  React.useEffect(() => {
+    setSecondaryEmails(user?.secondaryEmails || []);
+  }, [user?.secondaryEmails]);
+
+  function handleAddSecondaryEmail(e) {
+    e.preventDefault();
+    setSecondaryEmailError("");
+    setSecondaryEmailSuccess("");
+    if (!newSecondaryEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newSecondaryEmail)) {
+      setSecondaryEmailError("Please enter a valid email address.");
+      return;
+    }
+    setSaving(true);
+    fetch(`${API_BASE_URL}/api/add-secondary-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: user.username, email: newSecondaryEmail })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setSecondaryEmails(data.secondaryEmails);
+          setSecondaryEmailSuccess("Secondary email added.");
+          setNewSecondaryEmail("");
+          if (setUser) setUser(u => u ? { ...u, secondaryEmails: data.secondaryEmails } : u);
+        } else {
+          setSecondaryEmailError(data.message || "Failed to add secondary email.");
+        }
+      })
+      .finally(() => setSaving(false));
+  }
+
+  function handleRemoveSecondaryEmail(email) {
+    setSecondaryEmailError("");
+    setSecondaryEmailSuccess("");
+    setSaving(true);
+    fetch(`${API_BASE_URL}/api/remove-secondary-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: user.username, email })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setSecondaryEmails(data.secondaryEmails);
+          setSecondaryEmailSuccess("Secondary email removed.");
+          if (setUser) setUser(u => u ? { ...u, secondaryEmails: data.secondaryEmails } : u);
+        } else {
+          setSecondaryEmailError(data.message || "Failed to remove secondary email.");
+        }
+      })
+      .finally(() => setSaving(false));
+  }
+
   const containerBg = stepColor(backgroundColor, theme, 1);
 
   function handlePasswordChange(e) {
@@ -87,6 +147,46 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
   return (
     <div style={{ width: 400, maxWidth: "95vw", marginBottom: 32, background: containerBg, borderRadius: 8, padding: "18px 16px" }}>
       <h3 style={{ color: textColor }}>Security Settings</h3>
+      {/* Secondary Email Management */}
+      <div style={{ marginBottom: 24 }}>
+        <h4>Secondary Emails</h4>
+        {secondaryEmails && secondaryEmails.length > 0 ? (
+          <ul style={{ listStyle: 'none', padding: 0, marginBottom: 10 }}>
+            {secondaryEmails.map(email => (
+              <li key={email} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 15 }}>{email}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveSecondaryEmail(email)}
+                  style={{ background: '#eee', color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}
+                  disabled={saving}
+                  title="Remove secondary email"
+                >Remove</button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div style={{ color: '#888', marginBottom: 10 }}>No secondary emails added.</div>
+        )}
+        <form onSubmit={handleAddSecondaryEmail} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input
+            type="email"
+            value={newSecondaryEmail}
+            onChange={e => setNewSecondaryEmail(e.target.value)}
+            placeholder="Add secondary email"
+            style={{ padding: 6, borderRadius: 4, border: '1px solid #ccc', minWidth: 180 }}
+            disabled={saving}
+          />
+          <button
+            type="submit"
+            disabled={saving || !newSecondaryEmail}
+            style={{ background: '#222', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
+          >Add</button>
+        </form>
+        {secondaryEmailError && <div style={{ color: '#c00', marginTop: 8 }}>{secondaryEmailError}</div>}
+        {secondaryEmailSuccess && <div style={{ color: '#080', marginTop: 8 }}>{secondaryEmailSuccess}</div>}
+      </div>
+      {/* Password Change */}
       <form onSubmit={handleUpdatePassword} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
         <label style={{ color: textColor }}>
           New Password:
@@ -116,6 +216,7 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
           {saving ? "Saving..." : "Update Password"}
         </button>
       </form>
+      {/* Account Deletion */}
       <form onSubmit={handleDeleteAccount} style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 12 }}>
         <label style={{ color: textColor }}>
           Confirm Password to Delete Account:

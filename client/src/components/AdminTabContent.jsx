@@ -6,7 +6,9 @@ const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 const AdminTabContent = React.memo(function AdminTabContent({ user }) {
   const { backgroundColor, textColor, theme } = useContext(ThemeContext);
-  const [email, setEmail] = useState("");
+  // Emergency email state
+  const [recipientType, setRecipientType] = useState("all");
+  const [recipientValue, setRecipientValue] = useState("");
   const [emailMsg, setEmailMsg] = useState("");
   const [emailStatus, setEmailStatus] = useState("");
   const [adminUser, setAdminUser] = useState("");
@@ -20,15 +22,20 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
     e.preventDefault();
     setSaving(true);
     setEmailStatus("");
-    fetch(`${API_BASE_URL}/api/admin-send-email`, {
+    // Determine recipient value
+    let recipient = "all";
+    if (recipientType === "username" || recipientType === "email") {
+      recipient = recipientValue.trim();
+    }
+    fetch(`${API_BASE_URL}/api/admin/send-emergency-email`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ from: user.username, to: email, message: emailMsg })
+      body: JSON.stringify({ adminUsername: user.username, subject: "Emergency Message", message: emailMsg, recipient })
     })
       .then(res => res.json())
       .then(data => {
-        setEmailStatus(data.success ? "Email sent successfully." : data.error || "Failed to send email.");
-        setEmail("");
+        setEmailStatus(data.success ? "Email sent successfully." : data.message || "Failed to send email.");
+        setRecipientValue("");
         setEmailMsg("");
       })
       .finally(() => setSaving(false));
@@ -55,16 +62,30 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
     <div style={{ width: 400, maxWidth: "95vw", marginBottom: 32, background: containerBg, borderRadius: 8, padding: "18px 16px" }}>
       <h3 style={{ color: textColor }}>Admin Tools</h3>
       <form onSubmit={handleSendEmail} style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 28 }}>
-        <label style={{ color: textColor }}>
-          Emergency Email To:
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
+        <label style={{ color: textColor, fontWeight: 500, marginBottom: 2 }}>
+          Emergency Email Recipient:
+          <select
+            value={recipientType}
+            onChange={e => setRecipientType(e.target.value)}
             style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120 }}
-            required
-          />
+          >
+            <option value="all">All users</option>
+            <option value="username">Username</option>
+            <option value="email">Email</option>
+          </select>
         </label>
+        {(recipientType === "username" || recipientType === "email") && (
+          <label style={{ color: textColor }}>
+            {recipientType === "username" ? "Username:" : "Email:"}
+            <input
+              type={recipientType === "email" ? "email" : "text"}
+              value={recipientValue}
+              onChange={e => setRecipientValue(e.target.value)}
+              style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120 }}
+              required
+            />
+          </label>
+        )}
         <label style={{ color: textColor }}>
           Message:
           <textarea
