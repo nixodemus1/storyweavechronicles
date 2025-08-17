@@ -155,14 +155,12 @@ def extract_story_id_from_pdf(file_content):
     blocks = page.get_text("blocks")  # (x0, y0, x1, y1, text, block_no, block_type)
     # Filter out blocks with no text
     text_blocks = [b for b in blocks if b[4] and b[4].strip()]
-    if not text_blocks or len(text_blocks) < 2:
+    if not text_blocks:
         return None
     # Sort blocks by y0 (top to bottom)
     text_blocks.sort(key=lambda b: b[1])
-    # The first block is the title, the second is the external story ID
-    title_block = text_blocks[0]
-    id_block = text_blocks[1]
-    story_id = id_block[4].strip()
+    # The last block is the external story ID
+    story_id = text_blocks[-1][4].strip()
     return story_id
 
 def hash_password(password):
@@ -1241,7 +1239,15 @@ def serve_react(path):
     # If the request is for an API route, return JSON 404
     if path.startswith("api/"):
         return jsonify({"success": False, "message": "API endpoint not found."}), 404
-    
+
+    # Serve favicon.ico from client/public (or vite.svg if that's your favicon)
+    if path == "favicon.ico":
+        return send_from_directory("../client/public", "vite.svg")
+
+    # Serve other static files if needed (add more conditions here)
+
+    # Serve index.html for all other non-API routes
+    return send_from_directory("../client/public", "index.html")
 # --- GLOBAL BOOK METADATA ENDPOINT ---
 @app.route('/api/all-books', methods=['GET'])
 def all_books():
