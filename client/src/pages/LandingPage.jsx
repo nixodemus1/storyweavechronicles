@@ -5,6 +5,8 @@ const coverCache = {};
 function useCachedCovers(pdfs) {
   const [covers, setCovers] = React.useState({});
 
+  // LINT WARNING: covers is intentionally NOT included in the dependency array to avoid infinite loop and site freeze.
+  // This is safe because covers is managed by setCovers and not an external prop.
   React.useEffect(() => {
     let isMounted = true;
     // Revoke previous blob URLs before setting new covers
@@ -15,7 +17,7 @@ function useCachedCovers(pdfs) {
 
     const fetchCovers = async () => {
       const newCovers = {};
-      console.log('[useCachedCovers] Fetching covers for pdfs:', pdfs.map(p => p.id));
+      // console.log('[useCachedCovers] Fetching covers for pdfs:', pdfs.map(p => p.id));
       await Promise.all(
         pdfs.map(async (pdf) => {
           if (!pdf.id) return;
@@ -37,7 +39,7 @@ function useCachedCovers(pdfs) {
         })
       );
       if (isMounted) {
-        console.log('[useCachedCovers] Setting covers:', Object.keys(newCovers));
+        // console.log('[useCachedCovers] Setting covers:', Object.keys(newCovers));
         setCovers(newCovers);
       }
     };
@@ -73,34 +75,47 @@ function SearchBar({ pdfs, navigate }) {
       setAutocompleteResults([]);
       return;
     }
-    const results = pdfs.filter(pdf =>
-      pdf.title && (
-        pdf.title.toLowerCase().includes(searchInput.toLowerCase()) ||
-        pdf.title.toLowerCase().startsWith(searchInput.toLowerCase())
-      )
-    );
+    const q = searchInput.toLowerCase();
+    const results = pdfs.filter(pdf => {
+      const titleMatch = pdf.title && (
+        pdf.title.toLowerCase().includes(q) ||
+        pdf.title.toLowerCase().startsWith(q)
+      );
+      const extIdMatch = pdf.external_story_id && (
+        pdf.external_story_id.toLowerCase().includes(q) ||
+        pdf.external_story_id.toLowerCase().startsWith(q)
+      );
+      return titleMatch || extIdMatch;
+    });
     setAutocompleteResults(results.slice(0, 8));
   }, [searchInput, pdfs]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     if (!searchInput.trim()) return;
+    const q = searchInput.toLowerCase();
+    // Exact match on title or external_story_id
     const exactMatches = pdfs.filter(pdf =>
-      pdf.title && pdf.title.toLowerCase() === searchInput.toLowerCase()
+      (pdf.title && pdf.title.toLowerCase() === q) ||
+      (pdf.external_story_id && pdf.external_story_id.toLowerCase() === q)
     );
     if (exactMatches.length === 1) {
       navigate(`/read/${exactMatches[0].id}`);
       return;
     }
+    // Prefix match on title or external_story_id
     const prefixMatches = pdfs.filter(pdf =>
-      pdf.title && pdf.title.toLowerCase().startsWith(searchInput.toLowerCase())
+      (pdf.title && pdf.title.toLowerCase().startsWith(q)) ||
+      (pdf.external_story_id && pdf.external_story_id.toLowerCase().startsWith(q))
     );
     if (prefixMatches.length === 1) {
       navigate(`/read/${prefixMatches[0].id}`);
       return;
     }
+    // Partial match on title or external_story_id
     const partialMatches = pdfs.filter(pdf =>
-      pdf.title && pdf.title.toLowerCase().includes(searchInput.toLowerCase())
+      (pdf.title && pdf.title.toLowerCase().includes(q)) ||
+      (pdf.external_story_id && pdf.external_story_id.toLowerCase().includes(q))
     );
     if (partialMatches.length === 1) {
       navigate(`/read/${partialMatches[0].id}`);
@@ -187,7 +202,7 @@ function SearchBar({ pdfs, navigate }) {
 function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
   const pdfs20 = React.useMemo(() => pdfs.slice(0, 20), [pdfs]);
   const covers = useCachedCovers(pdfs20);
-  console.log('[CarouselSection] Rendering with covers:', covers);
+  // console.log('[CarouselSection] Rendering with covers:', covers);
   return (
     <SteppedContainer depth={depth} style={{ marginBottom: 32 }}>
       <div className="carousel-container">
@@ -211,7 +226,9 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
                 <SteppedContainer depth={depth + 2} className="book-title" style={{ padding: '0.25em 0.5em', borderRadius: 4, marginTop: 8 }}>
                   <button
                     style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', fontSize: 'inherit' }}
-                    onClick={() => navigate(`/read/${pdf.id}`)}
+                    onClick={() => {
+                      if (!window._carouselDragged) navigate(`/read/${pdf.id}`);
+                    }}
                     tabIndex={-1}
                     inert={false}
                   >

@@ -164,12 +164,9 @@ export default function PDFReader() {
         const commentBg = stepColor(backgroundColor, theme, 4 + depth);
         const buttonBg = stepColor(backgroundColor, theme, 5 + depth);
         const commentText = textColor;
-        let avatarBg = commentBg;
-        if (comment.userColor) {
-          avatarBg = comment.userColor;
-        } else {
-          avatarBg = stepColor(commentBg, theme, 1);
-        }
+  // Avatar uses comment's saved background and text color from backend
+  const avatarBg = comment.background_color || stepColor(commentBg, theme, 1);
+  const avatarTextColor = comment.text_color || textColor;
         // If comment is deleted, show placeholder text and hide actions
         const isDeleted = comment.deleted;
     const isAdmin = user?.is_admin;
@@ -188,7 +185,7 @@ export default function PDFReader() {
             alignItems: 'flex-start',
             gap: 12
           }}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: avatarBg, color: commentText, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 18, marginRight: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: avatarBg, color: avatarTextColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 18, marginRight: 10 }}>
               {comment.username ? comment.username[0].toUpperCase() : '?'}
             </div>
             <div style={{ flex: 1 }}>

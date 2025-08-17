@@ -2,6 +2,20 @@ import React, { useState, useContext } from "react";
 import { ThemeContext } from "../themeContext";
 import { stepColor, getLuminance } from "../utils/colorUtils";
 
+// Utility to normalize hex color to 6 digits
+function normalizeHex(hex) {
+  if (!hex) return '#222222';
+  if (/^#[0-9a-fA-F]{3}$/.test(hex)) {
+    // Expand shorthand hex to 6 digits
+    return '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    return hex.toLowerCase();
+  }
+  // Fallback to black if invalid
+  return '#222222';
+}
+
 
 export default function LoginRegisterPage({ onAuth }) {
   const { theme, backgroundColor, textColor } = useContext(ThemeContext);
@@ -12,9 +26,9 @@ export default function LoginRegisterPage({ onAuth }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // For registration, allow user to pick colors
-  const [regBg, setRegBg] = useState(backgroundColor);
-  const [regText, setRegText] = useState(textColor);
+  // For registration, allow user to pick colors (normalized)
+  const [regBg, setRegBg] = useState(normalizeHex(backgroundColor));
+  const [regText, setRegText] = useState(normalizeHex(textColor));
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -22,9 +36,12 @@ export default function LoginRegisterPage({ onAuth }) {
     setLoading(true);
     const baseUrl = import.meta.env.VITE_HOST_URL || "";
     const url = baseUrl + (mode === "login" ? "/api/login" : "/api/register");
+    // Always normalize colors before sending
+    const normBg = normalizeHex(regBg);
+    const normText = normalizeHex(regText);
     const body = mode === "login"
       ? { username, password }
-      : { username, email, password, backgroundColor: regBg, textColor: regText };
+      : { username, email, password, backgroundColor: normBg, textColor: normText };
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -127,11 +144,19 @@ export default function LoginRegisterPage({ onAuth }) {
           <div style={{ marginBottom: 16, display: "flex", gap: 16 }}>
             <label style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
               BG
-              <input type="color" value={regBg} onChange={e => setRegBg(e.target.value)} />
+              <input
+                type="color"
+                value={normalizeHex(regBg)}
+                onChange={e => setRegBg(normalizeHex(e.target.value))}
+              />
             </label>
             <label style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
               Text
-              <input type="color" value={regText} onChange={e => setRegText(e.target.value)} />
+              <input
+                type="color"
+                value={normalizeHex(regText)}
+                onChange={e => setRegText(normalizeHex(e.target.value))}
+              />
             </label>
           </div>
         )}

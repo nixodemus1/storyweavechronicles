@@ -15,6 +15,7 @@ export default defineConfig({
       '/api/login': 'http://localhost:5000',
       '/api/update-colors': 'http://localhost:5000',
       '/api/update-profile-settings': 'http://localhost:5000',
+      '/api/update-external-id': 'http://localhost:5000',
       '/api/change-password': 'http://localhost:5000',
       '/api/add-secondary-email': 'http://localhost:5000',
       '/api/remove-secondary-email': 'http://localhost:5000',

@@ -1,3 +1,4 @@
+#server/server.py
 from apscheduler.schedulers.background import BackgroundScheduler
 import time
 from flask import Flask, jsonify, send_file, redirect, send_from_directory, request
@@ -79,37 +80,6 @@ class User(db.Model):
     notification_history = db.Column(db.Text, nullable=True)  # JSON string
     is_admin = db.Column(db.Boolean, default=False)  # admin privileges
     banned = db.Column(db.Boolean, default=False)  # user ban status
-# --- Ban/Unban Endpoints ---
-@app.route('/api/admin/ban-user', methods=['POST'])
-def ban_user():
-    data = request.get_json()
-    admin_username = data.get('adminUsername')
-    target_username = data.get('targetUsername')
-    if not is_admin(admin_username):
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-    user = User.query.filter_by(username=target_username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
-    if user.is_admin:
-        return jsonify({'success': False, 'message': 'You cannot ban another admin.'}), 403
-    user.banned = True
-    db.session.commit()
-    return jsonify({'success': True, 'message': f'User {target_username} has been banned.'})
-
-@app.route('/api/admin/unban-user', methods=['POST'])
-def unban_user():
-    data = request.get_json()
-    admin_username = data.get('adminUsername')
-    target_username = data.get('targetUsername')
-    if not is_admin(admin_username):
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-    user = User.query.filter_by(username=target_username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
-    user.banned = False
-    db.session.commit()
-    return jsonify({'success': True, 'message': f'User {target_username} has been unbanned.'})
-
 
 # --- Voting Model ---
 class Vote(db.Model):
@@ -150,6 +120,7 @@ def extract_story_id_from_pdf(file_content):
     Given a PDF file (as bytes or BytesIO), extract the bottom-most line of text from page 1.
     Returns the story ID string, or None if not found.
     """
+    import re
     doc = fitz.open(stream=file_content, filetype="pdf")
     page = doc.load_page(0)
     blocks = page.get_text("blocks")  # (x0, y0, x1, y1, text, block_no, block_type)
@@ -157,11 +128,15 @@ def extract_story_id_from_pdf(file_content):
     text_blocks = [b for b in blocks if b[4] and b[4].strip()]
     if not text_blocks:
         return None
-    # Sort blocks by y0 (top to bottom)
-    text_blocks.sort(key=lambda b: b[1])
-    # The last block is the external story ID
-    story_id = text_blocks[-1][4].strip()
-    return story_id
+    # Regex: site name, optional colon, separator (space, dash, underscore), then number (at least 4 digits)
+    pattern = re.compile(r'\b([a-zA-Z0-9_]+):?[\s\-_](\d{4,})\b')
+    for block in text_blocks:
+        text = block[4].strip()
+        match = pattern.search(text)
+        if match:
+            # Return the full matched string (site + separator + id)
+            return match.group(0)
+    return None
 
 def hash_password(password):
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
@@ -306,6 +281,32 @@ def authorize():
     )
     return redirect("/")
 
+@app.route('/api/update-external-id', methods=['POST'])
+def update_external_id():
+    """
+    Update a book's external_story_id if a new PDF version contains a valid external ID and the current value is missing or blank.
+    Body: { "book_id": <drive_id>, "pdf_bytes": <base64-encoded PDF> }
+    """
+    import base64
+    data = request.get_json()
+    book_id = data.get('book_id')
+    pdf_bytes_b64 = data.get('pdf_bytes')
+    if not book_id or not pdf_bytes_b64:
+        return jsonify({'success': False, 'message': 'Missing book_id or pdf_bytes.'}), 400
+    book = Book.query.filter_by(drive_id=book_id).first()
+    if not book:
+        return jsonify({'success': False, 'message': 'Book not found.'}), 404
+    try:
+        pdf_bytes = base64.b64decode(pdf_bytes_b64)
+    except Exception:
+        return jsonify({'success': False, 'message': 'Invalid PDF bytes.'}), 400
+    new_external_id = extract_story_id_from_pdf(pdf_bytes)
+    # Only update if new_external_id is not None and current value is missing or blank
+    if new_external_id and (not book.external_story_id or not book.external_story_id.strip()):
+        book.external_story_id = new_external_id
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'External ID updated.', 'external_story_id': new_external_id})
+    return jsonify({'success': True, 'message': 'No update needed.', 'external_story_id': book.external_story_id})
 
 @app.route('/list-pdfs/<folder_id>')
 def list_pdfs(folder_id):
@@ -1306,6 +1307,37 @@ def user_voted_books():
                 'external_story_id': book.external_story_id
             })
     return jsonify({'success': True, 'voted_books': voted_books})
+
+# --- Ban/Unban Endpoints ---
+@app.route('/api/admin/ban-user', methods=['POST'])
+def ban_user():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    target_username = data.get('targetUsername')
+    if not is_admin(admin_username):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    user = User.query.filter_by(username=target_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+    if user.is_admin:
+        return jsonify({'success': False, 'message': 'You cannot ban another admin.'}), 403
+    user.banned = True
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'User {target_username} has been banned.'})
+
+@app.route('/api/admin/unban-user', methods=['POST'])
+def unban_user():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    target_username = data.get('targetUsername')
+    if not is_admin(admin_username):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    user = User.query.filter_by(username=target_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+    user.banned = False
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'User {target_username} has been unbanned.'})
 
 if __name__ == '__main__':
     # Start APScheduler for email notifications

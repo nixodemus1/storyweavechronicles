@@ -30,13 +30,19 @@ export default function SearchResults() {
       .then(data => {
         let filtered = [];
         if (data.pdfs && Array.isArray(data.pdfs)) {
-          // Partial and prefix match on title
-          filtered = data.pdfs.filter(pdf =>
-            pdf.title && (
-              pdf.title.toLowerCase().includes(query.toLowerCase()) ||
-              pdf.title.toLowerCase().startsWith(query.toLowerCase())
-            )
-          );
+          // Partial and prefix match on title OR external_story_id
+          filtered = data.pdfs.filter(pdf => {
+            const q = query.toLowerCase();
+            const titleMatch = pdf.title && (
+              pdf.title.toLowerCase().includes(q) ||
+              pdf.title.toLowerCase().startsWith(q)
+            );
+            const extIdMatch = pdf.external_story_id && (
+              pdf.external_story_id.toLowerCase().includes(q) ||
+              pdf.external_story_id.toLowerCase().startsWith(q)
+            );
+            return titleMatch || extIdMatch;
+          });
         }
         setResults(filtered);
         setLoading(false);

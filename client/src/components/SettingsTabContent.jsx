@@ -86,19 +86,49 @@ const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
     const newColor = e.target.value;
     setPendingBackgroundColor(newColor);
   };
-  const handleBackgroundColorBlur = (e) => {
+  const handleBackgroundColorBlur = async (e) => {
     const newColor = normalizeHex(e.target.value);
     setBackgroundColor(newColor);
-    saveTheme({ backgroundColor: newColor });
+    if (!user?.username) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/update-colors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, backgroundColor: newColor, textColor })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUser(u => u ? { ...u, backgroundColor: data.backgroundColor, textColor: data.textColor } : u);
+      }
+    } catch (err) {
+      console.log('Error updating colors:', err);
+    }
+    setSaving(false);
   };
   const handleTextColorChange = (e) => {
     const newColor = e.target.value;
     setPendingTextColor(newColor);
   };
-  const handleTextColorBlur = (e) => {
+  const handleTextColorBlur = async (e) => {
     const newColor = normalizeHex(e.target.value);
     setTextColor(newColor);
-    saveTheme({ textColor: newColor });
+    if (!user?.username) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/update-colors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, backgroundColor, textColor: newColor })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUser(u => u ? { ...u, backgroundColor: data.backgroundColor, textColor: data.textColor } : u);
+      }
+    } catch (err) {
+      console.log('Error updating colors:', err);
+    }
+    setSaving(false);
   };
   // Font change handler
   const handleFontChange = (e) => {
@@ -111,23 +141,6 @@ const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
     const newTz = e.target.value;
     setTimezone(newTz);
     saveProfile({ timezone: newTz });
-  };
-  // Save color changes to backend
-  const saveTheme = (changes) => {
-    if (!user?.username) return;
-    setSaving(true);
-    fetch(`${API_BASE_URL}/api/update-colors`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username, backgroundColor: changes.backgroundColor || backgroundColor, textColor: changes.textColor || textColor })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setUser(u => u ? { ...u, backgroundColor: changes.backgroundColor || backgroundColor, textColor: changes.textColor || textColor } : u);
-        }
-      })
-      .finally(() => setSaving(false));
   };
   // Save font/timezone changes to backend
   const saveProfile = (changes) => {
