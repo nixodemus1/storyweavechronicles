@@ -78,6 +78,37 @@ class User(db.Model):
     notification_prefs = db.Column(db.Text, nullable=True)  # JSON string
     notification_history = db.Column(db.Text, nullable=True)  # JSON string
     is_admin = db.Column(db.Boolean, default=False)  # admin privileges
+    banned = db.Column(db.Boolean, default=False)  # user ban status
+# --- Ban/Unban Endpoints ---
+@app.route('/api/admin/ban-user', methods=['POST'])
+def ban_user():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    target_username = data.get('targetUsername')
+    if not is_admin(admin_username):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    user = User.query.filter_by(username=target_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+    if user.is_admin:
+        return jsonify({'success': False, 'message': 'You cannot ban another admin.'}), 403
+    user.banned = True
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'User {target_username} has been banned.'})
+
+@app.route('/api/admin/unban-user', methods=['POST'])
+def unban_user():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    target_username = data.get('targetUsername')
+    if not is_admin(admin_username):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    user = User.query.filter_by(username=target_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+    user.banned = False
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'User {target_username} has been unbanned.'})
 
 
 # --- Voting Model ---
@@ -99,6 +130,8 @@ class Comment(db.Model):
     upvotes = db.Column(db.Integer, default=0)
     downvotes = db.Column(db.Integer, default=0)
     deleted = db.Column(db.Boolean, default=False)  # for moderation
+    background_color = db.Column(db.String(16), nullable=True)
+    text_color = db.Column(db.String(16), nullable=True)
 
 # Create tables if not exist
 with app.app_context():
@@ -446,6 +479,12 @@ def update_colors():
     if textColor:
         user.text_color = textColor
     db.session.commit()
+    # Update all comments by this user to match new colors
+    user_comments = Comment.query.filter_by(username=username).all()
+    for comment in user_comments:
+        comment.background_color = user.background_color
+        comment.text_color = user.text_color
+    db.session.commit()
     return jsonify({'success': True, 'message': 'Colors updated.', 'backgroundColor': user.background_color, 'textColor': user.text_color})
 
 @app.route('/api/notification-prefs', methods=['POST'])
@@ -558,6 +597,8 @@ def login():
         user = User.query.filter_by(email=identifier).first()
     if not user or user.password != hash_password(password):
         return jsonify({'success': False, 'message': 'Invalid username/email or password.'}), 401
+    if user.banned:
+        return jsonify({'success': False, 'message': 'Your account has been banned.'}), 403
     return jsonify({
         'success': True,
         'message': 'Login successful.',
@@ -779,7 +820,8 @@ def get_bookmarks():
         username = request.args.get('username')
     user = User.query.filter_by(username=username).first()
     if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
+        response = jsonify({'success': False, 'message': 'User not found.'})
+        return response, 404
     bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
     # Get last updated time for each bookmarked PDF from Google Drive
     try:
@@ -797,7 +839,8 @@ def get_bookmarks():
                 bm['last_updated'] = file_update_map.get(bm['id'], bm.get('last_updated'))
     except Exception as e:
         pass  # If Drive fails, fallback to stored last_updated
-    return jsonify({'success': True, 'bookmarks': bookmarks})
+    response = jsonify({'success': True, 'bookmarks': bookmarks})
+    return response
 
 @app.route('/api/add-bookmark', methods=['POST'])
 def add_bookmark():
@@ -967,14 +1010,17 @@ def top_voted_books():
 def user_top_voted_books():
     username = request.args.get('username')
     if not username:
-        return jsonify({'error': 'Missing username'}), 400
+        response = jsonify({'error': 'Missing username'})
+        return response, 400
     user = User.query.filter_by(username=username).first()
     if not user:
-        return jsonify({'error': 'User not found'}), 404
+        response = jsonify({'error': 'User not found'})
+        return response, 404
     # Get all votes by this user
     votes = Vote.query.filter_by(username=username).all()
     if not votes:
-        return jsonify({'books': []}), 200
+        response = jsonify({'books': []})
+        return response, 200
     # Get book info for each voted book
     book_ids = [v.book_id for v in votes]
     books = Book.query.filter(Book.drive_id.in_(book_ids)).all()
@@ -991,7 +1037,8 @@ def user_top_voted_books():
         })
     # Sort by vote value descending, then by title
     result.sort(key=lambda b: (-b['votes'] if b['votes'] is not None else 0, b['title']))
-    return jsonify({'books': result}), 200
+    response = jsonify({'books': result})
+    return response, 200
 
 @app.route('/api/add-comment', methods=['POST'])
 def add_comment():
@@ -1225,9 +1272,34 @@ def all_books():
                 'created_at': book.created_at.isoformat(),
                 'updated_at': book.updated_at.isoformat() if book.updated_at else None
             })
-        return jsonify(success=True, books=result)
+        response = jsonify(success=True, books=result)
+        return response
     except Exception as e:
-        return jsonify(success=False, error=str(e)), 500
+        response = jsonify(success=False, error=str(e))
+
+        return response, 500
+
+@app.route('/api/user-voted-books', methods=['GET'])
+def user_voted_books():
+    username = request.args.get('username')
+    if not username:
+        return jsonify({'success': False, 'message': 'Username required.'}), 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    votes = Vote.query.filter_by(username=username).all()
+    voted_books = []
+    for vote in votes:
+        book = Book.query.filter_by(drive_id=vote.book_id).first()
+        if book:
+            voted_books.append({
+                'book_id': book.drive_id,
+                'title': book.title,
+                'vote': vote.value,
+                'timestamp': vote.timestamp.strftime('%Y-%m-%d %H:%M'),
+                'external_story_id': book.external_story_id
+            })
+    return jsonify({'success': True, 'voted_books': voted_books})
 
 if __name__ == '__main__':
     # Start APScheduler for email notifications

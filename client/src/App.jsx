@@ -14,6 +14,28 @@ import ProfilePage from "./pages/ProfilePage";
 import { ContainerDepthProvider } from "./components/ContainerDepthContext.jsx";
 
 export default function App() {
+  // Login button component (must be inside Router context)
+  function LoginButton() {
+    const navigate = useNavigate();
+    return (
+      <button
+        style={{
+          background: headerButtonColor,
+          color: headerButtonTextColor,
+          border: 'none',
+          borderRadius: 8,
+          padding: '8px 18px',
+          fontWeight: 600,
+          fontSize: 16,
+          cursor: 'pointer',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+        }}
+        onClick={() => navigate('/login')}
+      >
+        Login
+      </button>
+    );
+  }
   // Track theme and user settings (declare all state hooks first)
   const [theme, setTheme] = useState("light");
   const [backgroundColor, setBackgroundColor] = useState("#fff");
@@ -69,61 +91,48 @@ export default function App() {
       if (typeof to === 'string') navigate(to);
     };
   }
-  // Header user avatar/login button
-  function HeaderUserButton() {
-    if (user) {
-      return (
-        <Link
-          to="/profile"
-          className="user-profile-header"
+  // Header avatar (shows if user exists)
+  function HeaderAvatar() {
+    return (
+      <Link
+        to="/profile"
+        className="user-profile-header"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          marginLeft: 8,
+          textDecoration: 'none',
+          color: textColor,
+          minWidth: 0,
+          maxWidth: 220,
+          flexShrink: 1
+        }}
+        title="View profile"
+      >
+        <div
           style={{
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            background: backgroundColor,
+            color: textColor,
             display: 'flex',
             alignItems: 'center',
-            marginLeft: 8,
-            textDecoration: 'none',
-            color: textColor,
-            minWidth: 0,
-            maxWidth: 220,
-            flexShrink: 1
+            justifyContent: 'center',
+            marginRight: 15,
+            marginTop: 4,
+            fontWeight: 700,
+            fontSize: 18,
+            border: '1.5px solid #888',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
           }}
-          title="View profile"
-          // dev only remember to delete later
-          onClick={() => { console.log('User object on avatar click:', user); }}
         >
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              background: backgroundColor,
-              color: textColor,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginRight: 15,
-              marginTop: 4,
-              fontWeight: 700,
-              fontSize: 18,
-              border: '1.5px solid #888',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-            }}
-          >
-            {user.username ? user.username[0].toUpperCase() : "?"}
-          </div>
-        </Link>
-      );
-    } else {
-      return (
-        <Link
-          to="/login"
-          className="login-btn"
-          style={{ marginLeft: 8 }}
-        >
-          Log In
-        </Link>
-      );
-    }
+          {user && user.username ? user.username[0].toUpperCase() : "?"}
+        </div>
+      </Link>
+    );
   }
+
 
   // Custom hook for notifications
   function useNotifications(user) {
@@ -467,23 +476,26 @@ export default function App() {
       <ContainerDepthProvider>
         <Router>
           <div style={{ background: backgroundColor, color: textColor, minHeight: '100vh', fontFamily: font || 'inherit' }} className={theme === "dark" ? "dark-mode" : "light-mode"}>
-            <header className="header" style={{ background: headerContainerColor, color: headerTextColor, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', minHeight: 64, zIndex: 10, position: 'relative' }}>
-              <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
-                <HeaderLogo />
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10, // Slightly tighter spacing
-                  height: 48, // Ensures vertical centering
-                  paddingRight: 0,
-                  marginRight: 32, // Move icons to the left for visibility
-                }}
-              >
-                <HeaderUserButton />
-                <ThemeToggleButton />
-                {user && <NotificationButton />}
+            <header className="header" style={{ background: headerContainerColor, color: headerTextColor, display: 'flex', justifyContent: 'center', minHeight: 64, zIndex: 10, position: 'relative' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', maxWidth: 2200, padding: '0 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <HeaderLogo />
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 20,
+                    height: 48,
+                    paddingRight: 0,
+                    marginRight: 0
+                  }}
+                >
+                  {!user && <LoginButton />}
+                  {user && <HeaderAvatar />}
+                  <ThemeToggleButton />
+                  {user && <NotificationButton />}
+                </div>
               </div>
             </header>
             <MainContent />

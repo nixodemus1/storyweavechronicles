@@ -1,0 +1,20 @@
+{
+    "sqltools.connections": [
+        {
+            "pgOptions": {
+                "ssl": {
+                    "rejectUnauthorized": true
+                }
+            },
+            "previewLimit": 50,
+            "server": "dpg-d2f474ripnbc739n71gg-a.oregon-postgres.render.com",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "storyweave_db",
+            "group": "postgres",
+            "database": "storyweave_db",
+            "username": "storyweave_db_user",
+            "password": "ghvevZJ2pTG64YUyjiSPeUjikdBWNtE8"
+        }
+    ]
+}

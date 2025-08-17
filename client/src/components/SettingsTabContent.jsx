@@ -27,12 +27,25 @@ const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
 
   // Only set default colors when theme changes AND colors are still at their defaults
   React.useEffect(() => {
+    // Only update if colors are at their defaults (not user-picked)
+    const defaultLightBg = '#fff';
+    const defaultLightText = '#222222';
+    const defaultDarkBg = '#222222';
+    const defaultDarkText = '#ffffff';
     if (theme === 'dark') {
-      if (backgroundColor === '#fff' || backgroundColor === '#ffffff') setBackgroundColor('#222222');
-      if (textColor === '#222' || textColor === '#222222') setTextColor('#ffffff');
+      if ((backgroundColor === defaultLightBg || backgroundColor === '#ffffff') && backgroundColor !== defaultDarkBg) {
+        setBackgroundColor(defaultDarkBg);
+      }
+      if ((textColor === defaultLightText || textColor === '#222' || textColor === '#222222') && textColor !== defaultDarkText) {
+        setTextColor(defaultDarkText);
+      }
     } else {
-      if (backgroundColor === '#222' || backgroundColor === '#222222') setBackgroundColor('#ffffff');
-      if (textColor === '#fff' || textColor === '#ffffff') setTextColor('#222222');
+      if ((backgroundColor === defaultDarkBg || backgroundColor === '#222') && backgroundColor !== defaultLightBg) {
+        setBackgroundColor(defaultLightBg);
+      }
+      if ((textColor === defaultDarkText || textColor === '#fff' || textColor === '#ffffff') && textColor !== defaultLightText) {
+        setTextColor(defaultLightText);
+      }
     }
   }, [theme, backgroundColor, textColor, setBackgroundColor, setTextColor]);
   // Sync local pending color state with context when context changes (e.g. theme switch)

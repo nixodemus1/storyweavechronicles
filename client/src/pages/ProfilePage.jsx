@@ -18,6 +18,11 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
     tabs.push({ key: 'admin', icon: '🛡️', label: 'Admin' });
   }
   const sidebarBg = stepColor(backgroundColor, 'sidebar', 1);
+  // Add redirect on logout
+  const handleLogout = () => {
+    setUser(null);
+    window.location.href = "/";
+  };
   return (
     <aside
       ref={sidebarRef}
@@ -36,13 +41,13 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
         padding: 0,
         borderRight: '1px solid #eee',
         gap: 0,
-  zIndex: 2, // Lower than header (header is 10)
+        zIndex: 2, // Lower than header (header is 10)
         boxSizing: 'border-box',
         boxShadow: '0 0 0 0', // Remove shadow so header is visually above
       }}
     >
-      {/* Spacer for header height (assume 64px), plus extra for avatar */}
-      <div style={{ height: 96, minHeight: 96, width: '100%' }} />
+  {/* Spacer for header height (assume 64px), plus extra for avatar. Increase height to move content down. */}
+  <div style={{ height: 120, minHeight: 120, width: '100%' }} />
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 28, width: '100%' }}>
         <div
           style={{
@@ -95,7 +100,7 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
       {/* Logout button, always visible and accessible */}
       <div style={{ flex: 1 }} />
       <button
-        onClick={() => setUser(null)}
+        onClick={handleLogout}
         style={{
           background: '#c00',
           color: '#fff',

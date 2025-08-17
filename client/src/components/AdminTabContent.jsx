@@ -15,6 +15,10 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
   const [adminAction, setAdminAction] = useState("give");
   const [adminStatus, setAdminStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  // Ban user state
+  const [banUser, setBanUser] = useState("");
+  const [banStatus, setBanStatus] = useState("");
+  const [banConfirm, setBanConfirm] = useState(false);
 
   const containerBg = stepColor(backgroundColor, theme, 1);
 
@@ -61,6 +65,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
   return (
     <div style={{ width: 400, maxWidth: "95vw", marginBottom: 32, background: containerBg, borderRadius: 8, padding: "18px 16px" }}>
       <h3 style={{ color: textColor }}>Admin Tools</h3>
+      {/* Emergency Email Form */}
       <form onSubmit={handleSendEmail} style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 28 }}>
         <label style={{ color: textColor, fontWeight: 500, marginBottom: 2 }}>
           Emergency Email Recipient:
@@ -104,7 +109,8 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
         </button>
         {emailStatus && <div style={{ color: emailStatus.includes("success") ? "#080" : "#c00", marginTop: 8 }}>{emailStatus}</div>}
       </form>
-      <form onSubmit={handleAdminAction} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Admin Rights Form */}
+      <form onSubmit={handleAdminAction} style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 28 }}>
         <label style={{ color: textColor }}>
           Username:
           <input
@@ -134,6 +140,62 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
         </button>
         {adminStatus && <div style={{ color: adminStatus.includes("granted") ? "#080" : adminStatus.includes("revoked") ? "#c00" : "#c00", marginTop: 8 }}>{adminStatus}</div>}
       </form>
+      {/* Ban User Form */}
+      <form onSubmit={e => { e.preventDefault(); setBanConfirm(true); }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <label style={{ color: textColor }}>
+          Username to Ban:
+          <input
+            type="text"
+            value={banUser}
+            onChange={e => setBanUser(e.target.value)}
+            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120 }}
+            required
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={saving || !banUser}
+          style={{ background: stepColor(containerBg, "dark", 1, 1), color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+        >
+          {saving ? "Processing..." : "Ban User"}
+        </button>
+        {banStatus && <div style={{ color: banStatus.includes("banned") ? "#080" : "#c00", marginTop: 8 }}>{banStatus}</div>}
+      </form>
+      {/* Confirmation Dialog */}
+      {banConfirm && (
+        <div style={{ position: "fixed", left: 0, top: 0, width: "100vw", height: "100vh", background: "#0008", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", color: "#222", borderRadius: 8, padding: "24px 32px", boxShadow: "0 4px 24px rgba(0,0,0,0.18)", minWidth: 320 }}>
+            <div style={{ marginBottom: 18, fontSize: 17 }}>
+              Are you sure you want to <b style={{ color: "#c00" }}>ban</b> user <b>{banUser}</b>?
+            </div>
+            <button
+              style={{ background: "#c00", color: "#fff", border: "none", borderRadius: 6, padding: "8px 18px", fontWeight: 600, marginRight: 12, cursor: "pointer" }}
+              onClick={async () => {
+                setSaving(true);
+                setBanStatus("");
+                setBanConfirm(false);
+                try {
+                  const res = await fetch(`${API_BASE_URL}/api/admin/ban-user`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ adminUsername: user.username, targetUsername: banUser })
+                  });
+                  const data = await res.json();
+                  setBanStatus(data.message || (data.success ? `User ${banUser} banned.` : "Failed to ban user."));
+                  setBanUser("");
+                } catch {
+                  setBanStatus("Failed to ban user.");
+                }
+                setSaving(false);
+              }}
+            >Yes, Ban</button>
+            <button
+              style={{ background: "#eee", color: "#222", border: "none", borderRadius: 6, padding: "8px 18px", fontWeight: 600, cursor: "pointer" }}
+              onClick={() => setBanConfirm(false)}
+            >Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

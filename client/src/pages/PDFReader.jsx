@@ -172,6 +172,9 @@ export default function PDFReader() {
         }
         // If comment is deleted, show placeholder text and hide actions
         const isDeleted = comment.deleted;
+    const isAdmin = user?.is_admin;
+          // Ban button only for admins, only for non-admin users
+          const showBanButton = isAdmin && !comment.deleted && !comment.is_admin && comment.username !== user?.username;
         return (
           <div key={comment.id} style={{
             background: commentBg,
@@ -242,6 +245,9 @@ export default function PDFReader() {
                       >Delete</button>
                     </>
                   )}
+                    {showBanButton && (
+                      <BanUserButton targetUsername={comment.username} />
+                    )}
                 </div>
               )}
               {comment.replies && comment.replies.length > 0 && renderComments(comment.replies, depth + 1)}
@@ -250,6 +256,45 @@ export default function PDFReader() {
         );
       });
     }
+      // Ban user button component
+      function BanUserButton({ targetUsername }) {
+        const [confirming, setConfirming] = useState(false);
+        const [banMsg, setBanMsg] = useState("");
+        const handleBan = async () => {
+          setBanMsg("");
+          setConfirming(false);
+          const res = await fetch(`${API_BASE_URL}/api/admin/ban-user`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ adminUsername: user.username, targetUsername })
+          });
+          const data = await res.json();
+          setBanMsg(data.message || (data.success ? "User banned." : "Failed to ban user."));
+        };
+        return (
+          <span style={{ position: "relative" }}>
+            <button
+              style={{ background: "#ffe0e0", color: "#c00", border: "1px solid #c00", borderRadius: 6, padding: "4px 10px", fontWeight: 600, cursor: "pointer" }}
+              onClick={() => setConfirming(true)}
+              title="Ban user"
+            >Ban User</button>
+            {confirming && (
+              <span style={{ position: "absolute", left: 0, top: 32, background: "#fff", color: "#222", border: "1px solid #c00", borderRadius: 6, padding: "10px 16px", zIndex: 10 }}>
+                <div style={{ marginBottom: 8 }}>Are you sure you want to ban <b>{targetUsername}</b>?</div>
+                <button
+                  style={{ background: "#c00", color: "#fff", border: "none", borderRadius: 4, padding: "6px 14px", fontWeight: 600, marginRight: 8, cursor: "pointer" }}
+                  onClick={handleBan}
+                >Yes, Ban</button>
+                <button
+                  style={{ background: "#eee", color: "#222", border: "none", borderRadius: 4, padding: "6px 14px", fontWeight: 600, cursor: "pointer" }}
+                  onClick={() => setConfirming(false)}
+                >Cancel</button>
+              </span>
+            )}
+            {banMsg && <span style={{ color: banMsg.includes("banned") ? "#080" : "#c00", marginLeft: 8 }}>{banMsg}</span>}
+          </span>
+        );
+      }
     const [comments, setComments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [newComment, setNewComment] = useState("");
