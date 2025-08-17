@@ -63,26 +63,15 @@ export default function App() {
     return () => { delete window.setUser; };
   }, [user]);
 
-  // Only sync theme/font/timezone from user object on initial login or username change
-  const prevUsernameRef = React.useRef();
+  // Sync context colors ONLY when user object changes (not on every theme change)
   useEffect(() => {
-    if (!user) {
-      // Reset to theme defaults if no user
-      setBackgroundColor(theme === "dark" ? "#232323" : "#fff");
-      setTextColor(theme === "dark" ? "#fff" : "#222");
-      setFont("");
-      setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
-      prevUsernameRef.current = undefined;
-      return;
-    }
-    if (prevUsernameRef.current !== user.username) {
+    if (user) {
       if (user.backgroundColor) setBackgroundColor(user.backgroundColor);
       if (user.textColor) setTextColor(user.textColor);
       if (user.font) setFont(user.font);
       if (user.timezone) setTimezone(user.timezone);
-      prevUsernameRef.current = user.username;
     }
-  }, [user, theme]);
+  }, [user]);
 
   // Navigation function for notification clicks
   function useAppNavigate() {
@@ -146,7 +135,7 @@ export default function App() {
       if (!user || !user.username) return;
       setLoading(true);
       try {
-        const res = await fetch('/api/notification-history', {
+        const res = await fetch('/api/get-notification-history', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: user.username })
@@ -184,14 +173,22 @@ export default function App() {
 
     // Dismiss notification
     const handleDismiss = async (id) => {
-      await fetch(`/api/dismiss-notification`, {
+      await fetch(`/api/delete-notification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, notification_id: id })
+        body: JSON.stringify({ username: user.username, notificationId: id })
       });
-      // Remove from local state
-      setNotifications(notifications.filter(n => n.id !== id));
-      lastIdsRef.current = notifications.filter(n => n.id !== id).map(n => n.id).sort();
+      // Refetch notifications from backend to update dropdown
+      const res = await fetch(`/api/get-notification-history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, dropdownOnly: true })
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.history)) {
+        setNotifications(data.history);
+        lastIdsRef.current = data.history.map(n => n.id).sort();
+      }
       // Update user profile notifications
       if (typeof window.setUser === 'function') {
         window.setUser(u => {
@@ -226,7 +223,7 @@ export default function App() {
   function NotificationButton() {
     const [showDropdown, setShowDropdown] = useState(false);
     const dropdownRef = useRef(null);
-    const { notifications, loading, hasUnread, fetchNotifications, handleDismiss, handleNotificationClick } = useNotifications(user);
+  const { notifications, loading, fetchNotifications, handleDismiss, handleNotificationClick } = useNotifications(user);
     const appNavigate = useAppNavigate();
 
     // Close dropdown on outside click
@@ -242,7 +239,20 @@ export default function App() {
       }
     }, [showDropdown]);
 
-    // Bell icon button
+    // Only show unread indicator if there are unread and not dismissed notifications
+    const hasActiveUnread = notifications.some(n => !n.dismissed && !n.read);
+    // Helper to generate a unique key for each notification
+    function getNotificationKey(n, idx) {
+      // Use id if present, else fallback to timestamp + idx
+      return n.id ? `${n.id}_${idx}` : `${n.timestamp}_${idx}`;
+    }
+    // Modified notification click handler: dismiss on link click
+    function handleNotificationClickAndDismiss(n, navigate) {
+      if (n.link) {
+        handleDismiss(n.id || n.timestamp);
+        navigate(n.link);
+      }
+    }
     return (
       <>
         <button
@@ -257,7 +267,7 @@ export default function App() {
             alignItems: 'center',
             justifyContent: 'center',
             position: 'relative',
-            color: hasUnread ? '#f5c518' : headerButtonTextColor,
+            color: hasActiveUnread ? '#f5c518' : headerButtonTextColor,
           }}
           onClick={() => {
             setShowDropdown(v => !v);
@@ -267,7 +277,7 @@ export default function App() {
           aria-label="Notifications"
         >
           <span role="img" aria-label="bell">🔔</span>
-          {hasUnread && (
+          {hasActiveUnread && (
             <span style={{ position: 'absolute', top: 4, right: 4, width: 10, height: 10, borderRadius: '50%', background: '#f5c518', border: '1px solid #fff' }}></span>
           )}
         </button>
@@ -309,18 +319,18 @@ export default function App() {
                 ) : notifications.length === 0 ? (
                   <div style={{ color: '#888', fontSize: 15 }}>No new notifications.</div>
                 ) : (
-                  notifications.map(n => (
-                    <div key={n.id} style={{ background: stepColor(headerButtonColor, theme, 1), color: headerButtonTextColor, borderRadius: 7, marginBottom: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  notifications.filter(n => !n.dismissed).map((n, idx) => (
+                    <div
+                      key={getNotificationKey(n, idx)}
+                      style={{ background: stepColor(headerButtonColor, theme, 1), color: headerButtonTextColor, borderRadius: 7, marginBottom: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                      onClick={() => n.link ? handleNotificationClickAndDismiss(n, appNavigate) : null}
+                    >
                       {n.link ? (
-                        <button
-                          style={{ flex: 1, marginRight: 10, background: 'none', border: 'none', color: headerButtonTextColor, textAlign: 'left', cursor: 'pointer', padding: 0 }}
-                          onClick={() => handleNotificationClick(n, appNavigate)}
-                          title={n.title || 'Notification'}
-                        >
+                        <div style={{ flex: 1, marginRight: 10, cursor: 'pointer' }}>
                           <div style={{ fontWeight: 600 }}>{n.title || 'Notification'}</div>
                           <div style={{ fontSize: 14 }}>{n.message}</div>
                           <div style={{ fontSize: 12, color: '#888' }}>{new Date(n.timestamp).toLocaleString()}</div>
-                        </button>
+                        </div>
                       ) : (
                         <div style={{ flex: 1, marginRight: 10 }}>
                           <div style={{ fontWeight: 600 }}>{n.title || 'Notification'}</div>
@@ -328,11 +338,16 @@ export default function App() {
                           <div style={{ fontSize: 12, color: '#888' }}>{new Date(n.timestamp).toLocaleString()}</div>
                         </div>
                       )}
-                      <button
-                        style={{ background: '#ffe0e0', color: '#c00', border: '1px solid #c00', borderRadius: 6, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', marginLeft: 8 }}
-                        onClick={() => handleDismiss(n.id)}
-                        title="Dismiss"
-                      >Dismiss</button>
+                      {!n.link && (
+                        <button
+                          style={{ background: '#ffe0e0', color: '#c00', border: '1px solid #c00', borderRadius: 6, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', marginLeft: 8 }}
+                          onClick={e => {
+                            e.stopPropagation();
+                            handleDismiss(n.id || n.timestamp);
+                          }}
+                          title="Dismiss"
+                        >Dismiss</button>
+                      )}
                     </div>
                   ))
                 )}
@@ -366,11 +381,29 @@ export default function App() {
 
   // Theme toggle button
   function ThemeToggleButton() {
-    function handleToggle() {
+    async function handleToggle() {
       const newTheme = theme === 'dark' ? 'light' : 'dark';
       setTheme(newTheme);
-      setBackgroundColor(newTheme === 'dark' ? '#232323' : '#fff');
-      setTextColor(newTheme === 'dark' ? '#fff' : '#222');
+      // Set strict defaults for theme
+      const newBg = newTheme === 'dark' ? '#232323' : '#fff';
+      const newText = newTheme === 'dark' ? '#fff' : '#222';
+      setBackgroundColor(newBg);
+      setTextColor(newText);
+      // If user is logged in, update user object and backend
+      if (user?.username) {
+        // Update user object immediately for instant UI feedback
+        setUser(u => u ? { ...u, backgroundColor: newBg, textColor: newText } : u);
+        // Sync to backend
+        try {
+          await fetch(import.meta.env.VITE_HOST_URL + '/api/update-colors', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user.username, backgroundColor: newBg, textColor: newText })
+          });
+        } catch (err) {
+          console.log('Error updating user colors:', err);
+        }
+      }
     }
     return (
       <button

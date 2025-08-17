@@ -99,7 +99,7 @@ const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
       });
       const data = await res.json();
       if (data.success) {
-        setUser(u => u ? { ...u, backgroundColor: data.backgroundColor, textColor: data.textColor } : u);
+        setUser(u => u ? { ...u, backgroundColor: newColor, textColor } : u);
       }
     } catch (err) {
       console.log('Error updating colors:', err);
@@ -123,7 +123,7 @@ const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
       });
       const data = await res.json();
       if (data.success) {
-        setUser(u => u ? { ...u, backgroundColor: data.backgroundColor, textColor: data.textColor } : u);
+        setUser(u => u ? { ...u, backgroundColor, textColor: newColor } : u);
       }
     } catch (err) {
       console.log('Error updating colors:', err);

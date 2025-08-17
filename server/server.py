@@ -249,16 +249,35 @@ def send_emergency_email():
     subject = data.get('subject')
     message = data.get('message')
     recipient = data.get('recipient')  # 'all', username, or email
+    import traceback
+    errors = []
+    sent_count = 0
+    # Log all mail config values for debugging
+    logging.info(f"MAIL CONFIG: SERVER={app.config.get('MAIL_SERVER')}, PORT={app.config.get('MAIL_PORT')}, USE_TLS={app.config.get('MAIL_USE_TLS')}, USERNAME={app.config.get('MAIL_USERNAME')}")
+    logging.info(f"Attempting emergency email: admin={admin_username}, subject={subject}, message={message}, recipient={recipient}")
     if not is_admin(admin_username):
         logging.warning(f"Unauthorized emergency email attempt by {admin_username}")
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
     if not subject or not message:
+        logging.error("Missing subject or message for emergency email.")
         return jsonify({'success': False, 'message': 'Subject and message required.'}), 400
-    sent_count = 0
+    def send_with_logging(user, subject, message):
+        try:
+            logging.info(f"Preparing to send to {user.username} ({user.email})")
+            # Log message details
+            logging.info(f"Message details: subject={subject}, body={message}, sender={app.config.get('MAIL_USERNAME')}, recipient={user.email}")
+            send_notification_email(user, subject, message)
+            logging.info(f"Sent emergency email to {user.username} ({user.email}) with subject '{subject}'")
+        except Exception as e:
+            tb = traceback.format_exc()
+            error_msg = f"Failed to send to {user.username} ({user.email}): {e}\n{tb}"
+            logging.error(error_msg)
+            errors.append(error_msg)
     if recipient == 'all':
         users = User.query.filter(User.email.isnot(None)).all()
+        logging.info(f"Found {len(users)} users with email for emergency email.")
         for user in users:
-            send_notification_email(user, subject, message)
+            send_with_logging(user, subject, message)
             sent_count += 1
         logging.info(f"Admin {admin_username} sent emergency email to ALL users. Subject: {subject}")
     else:
@@ -266,12 +285,18 @@ def send_emergency_email():
         if recipient:
             user = User.query.filter((User.username==recipient)|(User.email==recipient)).first()
         if user and user.email:
-            send_notification_email(user, subject, message)
+            send_with_logging(user, subject, message)
             sent_count = 1
             logging.info(f"Admin {admin_username} sent emergency email to {user.username} ({user.email}). Subject: {subject}")
         else:
-            return jsonify({'success': False, 'message': 'Recipient not found or has no email.'}), 404
-    return jsonify({'success': True, 'message': f'Emergency email sent to {sent_count} user(s).'})
+            error_msg = f"Recipient not found or has no email: {recipient}"
+            logging.error(error_msg)
+            errors.append(error_msg)
+    result = {'success': True, 'message': f'Emergency email sent to {sent_count} user(s).'}
+    if errors:
+        result['errors'] = errors
+    logging.info(f"Emergency email result: {result}")
+    return jsonify(result)
 
 @app.route('/authorize')
 def authorize():
@@ -484,9 +509,24 @@ def update_colors():
         comment.background_color = user.background_color
         comment.text_color = user.text_color
     db.session.commit()
-    return jsonify({'success': True, 'message': 'Colors updated.', 'backgroundColor': user.background_color, 'textColor': user.text_color})
+    # Return all user fields needed for frontend sync
+    return jsonify({
+        'success': True,
+        'message': 'Colors updated.',
+        'backgroundColor': user.background_color,
+        'textColor': user.text_color,
+        'username': user.username,
+        'email': user.email,
+        'font': getattr(user, 'font', None),
+        'timezone': getattr(user, 'timezone', None),
+        'is_admin': getattr(user, 'is_admin', False),
+        'bookmarks': getattr(user, 'bookmarks', []),
+        'secondaryEmails': getattr(user, 'secondary_emails', []),
+        'notificationPrefs': getattr(user, 'notification_prefs', None),
+        'notificationHistory': getattr(user, 'notification_history', None)
+    })
 
-@app.route('/api/notification-prefs', methods=['POST'])
+@app.route('/api/get-notification-prefs', methods=['POST'])
 def get_notification_prefs():
     data = request.get_json()
     username = data.get('username')
@@ -544,7 +584,7 @@ def update_notification_prefs():
     db.session.commit()
     return jsonify({'success': True, 'message': 'Notification preferences updated.'})
 
-@app.route('/api/notification-history', methods=['POST'])
+@app.route('/api/get-notification-history', methods=['POST'])
 def notification_history():
     data = request.get_json()
     username = data.get('username')
@@ -566,6 +606,118 @@ def notification_history():
 @app.route('/api/notification-history', methods=['GET'])
 def notification_history_get():
     return jsonify({'success': False, 'message': 'Use POST for this endpoint.'}), 405
+
+@app.route('/api/notify-new-book', methods=['POST'])
+def notify_new_book():
+    data = request.get_json()
+    book_id = data.get('book_id')
+    book_title = data.get('book_title', 'Untitled Book')
+    users = User.query.all()
+    for user in users:
+        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+        if not prefs.get('muteAll', False) and prefs.get('newBooks', True):
+            add_notification(user, 'newBook', 'New Book Added!', f'A new book "{book_title}" is now available in the library.', link=f'/read/{book_id}')
+    return jsonify({'success': True, 'message': f'Notification sent for new book: {book_title}.'})
+
+@app.route('/api/notify-book-update', methods=['POST'])
+def notify_book_update():
+    data = request.get_json()
+    book_id = data.get('book_id')
+    book_title = data.get('book_title', 'A book in your favorites')
+    count = 0
+    users = User.query.all()
+    for user in users:
+        bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
+        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+        if any(bm['id'] == book_id for bm in bookmarks) and not prefs.get('muteAll', False) and prefs.get('updates', True):
+            add_notification(user, 'bookUpdate', 'Book Updated!', f'"{book_title}" in your favorites has been updated.', link=f'/read/{book_id}')
+            count += 1
+    return jsonify({'success': True, 'message': f'Notification sent to {count} users for book update.'})
+
+@app.route('/api/notify-app-update', methods=['POST'])
+def notify_app_update():
+    users = User.query.all()
+    for user in users:
+        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+        if not prefs.get('muteAll', False) and prefs.get('announcements', True):
+            add_notification(user, 'appUpdate', 'App Updated!', 'Storyweave Chronicles has been updated!')
+    return jsonify({'success': True, 'message': 'App update notification sent to all users.'})
+
+@app.route('/api/mark-all-notifications-read', methods=['POST'])
+def mark_notifications_read():
+    data = request.get_json()
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    history = json.loads(user.notification_history) if user.notification_history else []
+    for n in history:
+        n['read'] = True
+    user.notification_history = json.dumps(history)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Notifications marked as read.', 'history': history})
+
+@app.route('/api/delete-notification', methods=['POST'])
+def dismiss_notification():
+    data = request.get_json()
+    username = data.get('username')
+    notification_id = data.get('notificationId')
+    timestamp = data.get('timestamp')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    history = json.loads(user.notification_history) if user.notification_history else []
+    found = False
+    for n in history:
+        # Ensure each notification has an 'id' field
+        if 'id' not in n:
+            n['id'] = n.get('timestamp')
+        # Match by id or timestamp
+        if (notification_id and (n.get('id') == notification_id or n.get('timestamp') == notification_id)) or (timestamp and n.get('timestamp') == timestamp):
+            n['dismissed'] = True
+            found = True
+    user.notification_history = json.dumps(history)
+    db.session.commit()
+    return jsonify({'success': found, 'message': 'Notification dismissed.' if found else 'Notification not found.', 'history': history})
+
+# Dismiss all notifications for a user
+@app.route('/api/dismiss-all-notifications', methods=['POST'])
+def dismiss_all_notifications():
+    data = request.get_json()
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    history = json.loads(user.notification_history) if user.notification_history else []
+    for n in history:
+        if 'id' not in n:
+            n['id'] = n.get('timestamp')
+        n['dismissed'] = True
+    user.notification_history = json.dumps(history)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'All notifications dismissed.', 'history': history})
+
+# Mark a single notification as read/unread
+@app.route('/api/mark-notification-read', methods=['POST'])
+def mark_notification_read():
+    data = request.get_json()
+    username = data.get('username')
+    notification_id = data.get('notificationId')
+    read = data.get('read', True)
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    history = json.loads(user.notification_history) if user.notification_history else []
+    found = False
+    for n in history:
+        if 'id' not in n:
+            n['id'] = n.get('timestamp')
+        if n.get('id') == notification_id or n.get('timestamp') == notification_id:
+            n['read'] = read
+            found = True
+    user.notification_history = json.dumps(history)
+    db.session.commit()
+    return jsonify({'success': found, 'message': 'Notification marked as read.' if found else 'Notification not found.', 'history': history})
 
 # Update font and timezone for user
 @app.route('/api/update-profile-settings', methods=['POST'])
@@ -649,7 +801,21 @@ def register():
     )
     db.session.add(user)
     db.session.commit()
-    return jsonify({'success': True, 'message': 'Registration successful.', 'username': username, 'email': email, 'is_admin': user.is_admin})
+    return jsonify({
+        'success': True,
+        'message': 'Registration successful.',
+        'username': user.username,
+        'email': user.email,
+        'backgroundColor': user.background_color or '#ffffff',
+        'textColor': user.text_color or '#000000',
+        'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
+        'secondaryEmails': json.loads(user.secondary_emails) if user.secondary_emails else [],
+        'font': user.font or '',
+        'timezone': user.timezone or 'UTC',
+        'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
+        'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
+        'is_admin': user.is_admin
+    })
 
 @app.route('/api/change-password', methods=['POST'])
 def change_password():
@@ -742,43 +908,10 @@ def delete_account():
     user.font = None
     user.timezone = None
     db.session.commit()
-    return jsonify({'success': True, 'message': 'Account deleted. All personal data removed; comments marked as deleted.'})
-
-@app.route('/api/notify-new-book', methods=['POST'])
-def notify_new_book():
-    data = request.get_json()
-    book_id = data.get('book_id')
-    book_title = data.get('book_title', 'Untitled Book')
-    users = User.query.all()
-    for user in users:
-        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-        if not prefs.get('muteAll', False) and prefs.get('newBooks', True):
-            add_notification(user, 'newBook', 'New Book Added!', f'A new book "{book_title}" is now available in the library.', link=f'/read/{book_id}')
-    return jsonify({'success': True, 'message': f'Notification sent for new book: {book_title}.'})
-
-@app.route('/api/notify-book-update', methods=['POST'])
-def notify_book_update():
-    data = request.get_json()
-    book_id = data.get('book_id')
-    book_title = data.get('book_title', 'A book in your favorites')
-    count = 0
-    users = User.query.all()
-    for user in users:
-        bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
-        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-        if any(bm['id'] == book_id for bm in bookmarks) and not prefs.get('muteAll', False) and prefs.get('updates', True):
-            add_notification(user, 'bookUpdate', 'Book Updated!', f'"{book_title}" in your favorites has been updated.', link=f'/read/{book_id}')
-            count += 1
-    return jsonify({'success': True, 'message': f'Notification sent to {count} users for book update.'})
-
-@app.route('/api/notify-app-update', methods=['POST'])
-def notify_app_update():
-    users = User.query.all()
-    for user in users:
-        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-        if not prefs.get('muteAll', False) and prefs.get('announcements', True):
-            add_notification(user, 'appUpdate', 'App Updated!', 'Storyweave Chronicles has been updated!')
-    return jsonify({'success': True, 'message': 'App update notification sent to all users.'})
+    # 7. Delete the user row from the database
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Account deleted. User removed from database; comments marked as deleted.'})
 
 @app.route('/api/drive-webhook', methods=['POST'])
 def drive_webhook():
@@ -1101,6 +1234,8 @@ def get_comments():
     for c in comments:
         if c.deleted:
             continue
+        # Fetch user colors
+        user = User.query.filter_by(username=c.username).first()
         item = {
             'id': c.id,
             'book_id': c.book_id,
@@ -1112,6 +1247,8 @@ def get_comments():
             'upvotes': c.upvotes,
             'downvotes': c.downvotes,
             'deleted': c.deleted,
+            'background_color': user.background_color if user and user.background_color else None,
+            'text_color': user.text_color if user and user.text_color else None,
             'replies': []
         }
         comment_map[c.id] = item
@@ -1201,38 +1338,6 @@ def get_user_meta():
         'background_color': user.background_color or '#232323',
         'text_color': user.text_color or '#fff'
     })
-
-@app.route('/api/mark-notifications-read', methods=['POST'])
-def mark_notifications_read():
-    data = request.get_json()
-    username = data.get('username')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    history = json.loads(user.notification_history) if user.notification_history else []
-    for n in history:
-        n['read'] = True
-    user.notification_history = json.dumps(history)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Notifications marked as read.', 'history': history})
-
-@app.route('/api/dismiss-notification', methods=['POST'])
-def dismiss_notification():
-    data = request.get_json()
-    username = data.get('username')
-    timestamp = data.get('timestamp')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    history = json.loads(user.notification_history) if user.notification_history else []
-    found = False
-    for n in history:
-        if n.get('timestamp') == timestamp:
-            n['dismissed'] = True
-            found = True
-    user.notification_history = json.dumps(history)
-    db.session.commit()
-    return jsonify({'success': found, 'message': 'Notification dismissed.' if found else 'Notification not found.', 'history': history})
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")

@@ -185,7 +185,20 @@ export default function PDFReader() {
             alignItems: 'flex-start',
             gap: 12
           }}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: avatarBg, color: avatarTextColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 18, marginRight: 10 }}>
+            <div style={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              background: avatarBg,
+              color: avatarTextColor,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 700,
+              fontSize: 18,
+              marginRight: 10,
+              border: `2.5px solid ${avatarTextColor}`
+            }}>
               {comment.username ? comment.username[0].toUpperCase() : '?'}
             </div>
             <div style={{ flex: 1 }}>
@@ -230,12 +243,14 @@ export default function PDFReader() {
                     onClick={() => setReplyTo(comment.id)}
                     style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}
                   >Reply</button>
-                  {user && user.username === comment.username && (
+                  {(user && (user.username === comment.username || user.is_admin)) && (
                     <>
-                      <button
-                        onClick={() => { setEditId(comment.id); setEditText(comment.text); }}
-                        style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', marginRight: 8, cursor: 'pointer' }}
-                      >Edit</button>
+                      {user.username === comment.username && (
+                        <button
+                          onClick={() => { setEditId(comment.id); setEditText(comment.text); }}
+                          style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', marginRight: 8, cursor: 'pointer' }}
+                        >Edit</button>
+                      )}
                       <button
                         onClick={() => handleDeleteComment(comment.id)}
                         style={{ background: buttonBg, color: commentText, border: '1px solid #c00', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#c00' }}

@@ -128,7 +128,19 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
 
 function ProfilePage({ user, setUser }) {
   const { backgroundColor, textColor, user: contextUser } = useContext(ThemeContext);
-  const [activeTab, setActiveTab] = useState('settings');
+  // Persist activeTab in localStorage so it survives refreshes and re-renders
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      return localStorage.getItem('profileActiveTab') || 'settings';
+    } catch {
+      return 'settings';
+    }
+  });
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('profileActiveTab', activeTab);
+    } catch {console.log("so something went wrooonnngggg.....")}
+  }, [activeTab]);
   // Sidebar expansion state should persist and not reset on unrelated re-renders
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   // Use contextUser if available, fallback to prop
