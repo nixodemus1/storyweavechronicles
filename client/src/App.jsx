@@ -1,126 +1,27 @@
+// ...existing imports...
+
 import React, { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
+import ReactDOM from "react-dom";
+import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import { stepColor } from "./utils/colorUtils";
 import { ThemeContext } from "./themeContext";
-import { BrowserRouter as Router, Routes, Route, useNavigate, Link } from "react-router-dom";
-
 import LandingPage from "./pages/LandingPage";
 import SearchResults from "./pages/SearchResults.jsx";
-import BooksViewer from "./components/BooksViewer";
-import PDFReader from "./components/PDFReader";
+import PDFReader from "./pages/PDFReader";
 import LoginRegisterPage from "./pages/LoginRegisterPage";
 import ProfilePage from "./pages/ProfilePage";
-import Logo1 from "./assets/file (1).svg";
-import Logo2 from "./assets/file (2).svg";
-import Logo3 from "./assets/file (3).svg";
-const API_BASE_URL = import.meta.env.VITE_HOST_URL;
-
-function NotificationDropdown({ open, anchorRef, onClose, notifications, headerContainerColor, textColor, handleNotificationClick }) {
-  if (!open) return null;
-  const rect = anchorRef?.current?.getBoundingClientRect();
-  const style = rect
-    ? {
-        position: "fixed",
-        left: Math.max(rect.right - 400, 8),
-        top: rect.bottom + 8,
-        minWidth: 320,
-        maxWidth: 400,
-        background: headerContainerColor,
-        color: textColor,
-        borderRadius: 8,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
-        zIndex: 9999,
-        padding: "12px 0"
-      }
-    : {};
-  const visibleNotifications = notifications.filter(n => !n.clicked);
-  return createPortal(
-    <div style={style}>
-      <div style={{ fontWeight: 700, fontSize: 16, padding: "0 16px 8px 16px" }}>Notifications</div>
-      {visibleNotifications.length === 0 ? (
-        <div style={{ color: "#888", padding: "8px 16px" }}>No notifications.</div>
-      ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, maxHeight: 260, overflowY: "auto" }}>
-          {visibleNotifications.slice(0, 10).map((n, i) => (
-            <li
-              key={i}
-              style={{
-                position: 'relative',
-                padding: "10px 16px",
-                borderBottom: `1px solid ${textColor}`,
-                color: n.read ? "#888" : textColor,
-                background: headerContainerColor,
-                fontWeight: n.read ? 400 : 600,
-                cursor: n.link ? "pointer" : "default",
-                textDecoration: n.link ? "underline" : "none"
-              }}
-              onClick={n.link ? () => handleNotificationClick(n) : undefined}
-              title={n.link ? "Click to view" : undefined}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>{n.title || n.type}</span>
-                {!n.link && (
-                  <button
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: textColor,
-                      fontWeight: 700,
-                      fontSize: 16,
-                      cursor: 'pointer',
-                      marginLeft: 8
-                    }}
-                    title="Dismiss notification"
-                    onClick={e => {
-                      e.stopPropagation();
-                      handleNotificationClick(n);
-                    }}
-                  >×</button>
-                )}
-              </div>
-              <div style={{ fontSize: 13 }}>{n.body}</div>
-              <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{n.timestamp}</div>
-            </li>
-          ))}
-        </ul>
-      )}
-      <button
-        style={{
-          margin: "8px 16px",
-          padding: "6px 14px",
-          borderRadius: 5,
-          background: textColor,
-          color: headerContainerColor,
-          border: "none",
-          fontWeight: 600,
-          cursor: "pointer",
-          fontSize: 14
-        }}
-        onClick={onClose}
-      >Close</button>
-    </div>,
-    document.body
-  );
-}
+import { ContainerDepthProvider } from "./components/ContainerDepthContext.jsx";
 
 export default function App() {
+  // Track theme and user settings (declare all state hooks first)
   const [theme, setTheme] = useState("light");
-  const [backgroundColor, setBackgroundColor] = useState(() => {
-    try {
-      return localStorage.getItem('backgroundColor') || "#f5f6fa";
-    } catch {
-      return "#f5f6fa";
-    }
-  });
-  const [textColor, setTextColor] = useState(() => {
-    try {
-      return localStorage.getItem('textColor') || "#23272f";
-    } catch {
-      return "#23272f";
-    }
-  });
+  const [backgroundColor, setBackgroundColor] = useState("#fff");
+  const [textColor, setTextColor] = useState("#222");
   const [font, setFont] = useState("");
-  // Persist user in localStorage
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+
+  // Track user, persist in localStorage
   const [user, setUser] = useState(() => {
     try {
       const stored = localStorage.getItem('user');
@@ -129,474 +30,469 @@ export default function App() {
       return null;
     }
   });
-  const [notifications, setNotifications] = useState([]);
-  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
-  const bellRef = useRef();
-  const unreadCount = notifications.filter(n => !n.read).length;
-
-  // Save user to localStorage whenever it changes
+  // Save user to localStorage on change
   useEffect(() => {
+    window.setUser = setUser;
     if (user) {
       localStorage.setItem('user', JSON.stringify(user));
     } else {
       localStorage.removeItem('user');
     }
+    return () => { delete window.setUser; };
   }, [user]);
-  // Save color changes to backend only if user changes them (not when syncing from backend)
-  const [colorChangedByUser, setColorChangedByUser] = useState(false);
+
+  // Only sync theme/font/timezone from user object on initial login or username change
+  const prevUsernameRef = React.useRef();
   useEffect(() => {
-    localStorage.setItem('backgroundColor', backgroundColor);
-    localStorage.setItem('textColor', textColor);
-    if (user && user.username && colorChangedByUser) {
-      fetch(`${API_BASE_URL}/api/update-colors`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: user.username,
-          backgroundColor,
-          textColor,
-        }),
-      });
-      setColorChangedByUser(false);
+    if (!user) {
+      // Reset to theme defaults if no user
+      setBackgroundColor(theme === "dark" ? "#232323" : "#fff");
+      setTextColor(theme === "dark" ? "#fff" : "#222");
+      setFont("");
+      setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+      prevUsernameRef.current = undefined;
+      return;
     }
-  }, [backgroundColor, textColor, user, colorChangedByUser]);
-
-  // When user changes color, set flag
-  const handleBackgroundColorChange = (color) => {
-    setBackgroundColor(color);
-    setColorChangedByUser(true);
-  };
-  const handleTextColorChange = (color) => {
-    setTextColor(color);
-    setColorChangedByUser(true);
-  };
-
-  // Update default colors when theme changes
-  useEffect(() => {
-    if (theme === "dark") {
-      setTextColor("#f5f6fa");
-      setBackgroundColor("#181a20");
-    } else {
-      setTextColor("#23272f");
-      setBackgroundColor("#f5f6fa");
+    if (prevUsernameRef.current !== user.username) {
+      if (user.backgroundColor) setBackgroundColor(user.backgroundColor);
+      if (user.textColor) setTextColor(user.textColor);
+      if (user.font) setFont(user.font);
+      if (user.timezone) setTimezone(user.timezone);
+      prevUsernameRef.current = user.username;
     }
-  }, [theme]);
+  }, [user, theme]);
 
-  const toggleTheme = () => setTheme(t => (t === "light" ? "dark" : "light"));
-
-  // AuthWrapper handles navigation after login/register
-  function AuthWrapper(props) {
+  // Navigation function for notification clicks
+  function useAppNavigate() {
     const navigate = useNavigate();
-    async function handleAuth(data) {
-      // Always use backend's saved color values after login/register
-      setBackgroundColor(data.backgroundColor || "#f5f6fa");
-      setTextColor(data.textColor || "#23272f");
-      // After registration, backend does not return username/email, so use form data if missing
-      let username = data.username;
-      let email = data.email;
-      if (!username || !email) {
-        // Try to get from registration form (if available)
-        if (data.message && window.lastRegisterPayload) {
-          username = window.lastRegisterPayload.username;
-          email = window.lastRegisterPayload.email;
-        }
-      }
-      // Fetch full user profile to ensure all fields are present
-      let userProfile = data;
-      if (username) {
-        try {
-          const res = await fetch(`${API_BASE_URL}/api/get-user`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username })
-          });
-          const profile = await res.json();
-          if (profile.success) userProfile = profile;
-        } catch (e) {console.error(e)}
-      }
-      setUser({
-        username: userProfile.username,
-        email: userProfile.email,
-        secondaryEmails: userProfile.secondaryEmails || [],
-        backgroundColor: userProfile.backgroundColor,
-        textColor: userProfile.textColor,
-        font: userProfile.font,
-        timezone: userProfile.timezone,
-        bookmarks: userProfile.bookmarks || [],
-        notificationPrefs: userProfile.notificationPrefs || {},
-        notificationHistory: userProfile.notificationHistory || [],
-      });
-      navigate("/");
-    }
-    return <LoginRegisterPage onAuth={handleAuth} {...props} />;
+    return (to) => {
+      if (typeof to === 'string') navigate(to);
+    };
   }
-  // On mount, or when username changes, fetch and apply color preferences from backend
-  useEffect(() => {
-    if (user && user.username) {
-      fetch(`${API_BASE_URL}/api/get-user`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username })
-      })
-        .then(res => res.json())
-        .then(profile => {
-          if (profile.success) {
-            setBackgroundColor(profile.backgroundColor || '#f5f6fa');
-            setTextColor(profile.textColor || '#23272f');
-            setFont(profile.font || '');
-            setUser(u => ({ ...u, ...profile }));
-          }
-        });
+  // Header user avatar/login button
+  function HeaderUserButton() {
+    if (user) {
+      return (
+        <Link
+          to="/profile"
+          className="user-profile-header"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            marginLeft: 8,
+            textDecoration: 'none',
+            color: textColor,
+            minWidth: 0,
+            maxWidth: 220,
+            flexShrink: 1
+          }}
+          title="View profile"
+          // dev only remember to delete later
+          onClick={() => { console.log('User object on avatar click:', user); }}
+        >
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              background: backgroundColor,
+              color: textColor,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 15,
+              marginTop: 4,
+              fontWeight: 700,
+              fontSize: 18,
+              border: '1.5px solid #888',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+            }}
+          >
+            {user.username ? user.username[0].toUpperCase() : "?"}
+          </div>
+        </Link>
+      );
+    } else {
+      return (
+        <Link
+          to="/login"
+          className="login-btn"
+          style={{ marginLeft: 8 }}
+        >
+          Log In
+        </Link>
+      );
     }
-  }, [user?.username]);
-
-  // Fetch notifications when user changes or on interval
-    useEffect(() => {
-      if (!user?.username) return;
-      let isMounted = true;
-      // Fetch notifications only, do NOT update user or global state
-      const fetchNotifications = () => {
-        fetch(`${API_BASE_URL}/api/notification-history?username=${user.username}`)
-          .then(res => res.json())
-          .then(data => {
-            if (isMounted && data.success && Array.isArray(data.history)) {
-              setNotifications(data.history);
-            }
-          });
-      };
-      fetchNotifications();
-      // Optionally poll every X seconds (e.g., 60s)
-      const interval = setInterval(fetchNotifications, 60000);
-      return () => {
-        isMounted = false;
-        clearInterval(interval);
-      };
-    }, [user?.username]);
-
-  // Mark all as read when dropdown opens
-  function handleOpenDropdown() {
-    setNotifDropdownOpen(true);
   }
 
-  // Close dropdown and mark notifications as read
-  function handleCloseDropdown() {
-    setNotifDropdownOpen(false);
-    // Mark all unread as read in backend
-    if (user?.username) {
-      const unread = notifications.filter(n => !n.read && !n.clicked);
-      if (unread.length > 0) {
-        fetch(`${API_BASE_URL}/api/mark-notifications-read`, {
+  // Custom hook for notifications
+  function useNotifications(user) {
+    const [notifications, setNotifications] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [hasUnread, setHasUnread] = useState(false);
+    const lastIdsRef = useRef([]);
+
+    // Fetch notifications only if user changes or on manual trigger
+    const fetchNotifications = async () => {
+      if (!user || !user.username) return;
+      setLoading(true);
+      try {
+        const res = await fetch('/api/notification-history', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: user.username })
-        })
-          .then(res => res.json())
-          .then(data => {
-            if (data.success && Array.isArray(data.history)) setNotifications(data.history);
-          });
-      }
-    }
-  }
-
-  // Refresh notifications function
-  function refreshNotifications() {
-    if (user?.username) {
-      fetch(`${API_BASE_URL}/api/notification-history`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, dropdownOnly: true })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && Array.isArray(data.history)) setNotifications(data.history);
-          else setNotifications([]);
         });
-    }
-  }
-
-  // Compute container color for header
-  const headerContainerColor = stepColor(
-    backgroundColor,
-    theme === "dark" ? "dark" : "light",
-    1
-  );
-
-  // Handle notification click - marks as read and navigates if link exists
-  function handleNotificationClick(n) {
-    if (user?.username) {
-      // Mark as read
-  fetch(`${API_BASE_URL}/api/mark-notifications-read`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, timestamp: n.timestamp })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && Array.isArray(data.history)) {
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (err) {
+          console.log('Error parsing notifications response:', err);
+          setLoading(false);
+          setNotifications([]);
+          return;
+        }
+        if (data.success && Array.isArray(data.history)) {
+          const newIds = data.history.map(n => n.id).sort();
+          if (JSON.stringify(newIds) !== JSON.stringify(lastIdsRef.current)) {
             setNotifications(data.history);
+            lastIdsRef.current = newIds;
+            setHasUnread(data.history.some(n => !n.read));
           }
-        });
-      // Dismiss from dropdown
-      fetch(`${API_BASE_URL}/api/dismiss-notification`, {
+        }
+      } catch (err) {
+        console.log('Error fetching notifications:', err);
+        setNotifications([]);
+      }
+      setLoading(false);
+    };
+
+    // Fetch on user change
+    useEffect(() => {
+      fetchNotifications();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.username]);
+
+    // Dismiss notification
+    const handleDismiss = async (id) => {
+      await fetch(`/api/dismiss-notification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, timestamp: n.timestamp })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && Array.isArray(data.history)) {
-            // Only update dropdown notifications
-            refreshNotifications();
-          }
+        body: JSON.stringify({ username: user.username, notification_id: id })
+      });
+      // Remove from local state
+      setNotifications(notifications.filter(n => n.id !== id));
+      lastIdsRef.current = notifications.filter(n => n.id !== id).map(n => n.id).sort();
+      // Update user profile notifications
+      if (typeof window.setUser === 'function') {
+        window.setUser(u => {
+          if (!u) return u;
+          return {
+            ...u,
+            notifications: notifications.filter(n => n.id !== id)
+          };
         });
-    }
-    // Remove notification from dropdown immediately for better UX
-    setNotifications(prev => prev.map(notif =>
-      notif.timestamp === n.timestamp ? { ...notif, clicked: true } : notif
-    ));
-    if (n.link) window.location.href = n.link;
+      }
+    };
+
+    // Handle notification click (navigate if link, dismiss if not)
+    const handleNotificationClick = (notification, navigate) => {
+      if (notification.link) {
+        // Mark as read and navigate
+        fetch(`/api/mark-notification-read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user.username, notification_id: notification.id })
+        });
+        if (navigate) navigate(notification.link);
+        // Optionally, remove from local state or mark as read
+        setNotifications(notifications.map(n => n.id === notification.id ? { ...n, read: true } : n));
+      }
+    };
+
+    return { notifications, loading, hasUnread, fetchNotifications, handleDismiss, handleNotificationClick };
   }
 
-  useEffect(() => {
-    const interval = setInterval(refreshNotifications, 5000); // every 5 seconds
-    return () => clearInterval(interval);
-  }, [user?.username]);
+  // Notification button and dropdown
+  function NotificationButton() {
+    const [showDropdown, setShowDropdown] = useState(false);
+    const dropdownRef = useRef(null);
+    const { notifications, loading, hasUnread, fetchNotifications, handleDismiss, handleNotificationClick } = useNotifications(user);
+    const appNavigate = useAppNavigate();
+
+    // Close dropdown on outside click
+    useEffect(() => {
+      function handleClick(e) {
+        if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+          setShowDropdown(false);
+        }
+      }
+      if (showDropdown) {
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+      }
+    }, [showDropdown]);
+
+    // Bell icon button
+    return (
+      <>
+        <button
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '1.7rem',
+            width: 40,
+            height: 40,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+            color: hasUnread ? '#f5c518' : headerButtonTextColor,
+          }}
+          onClick={() => {
+            setShowDropdown(v => !v);
+            if (!showDropdown) fetchNotifications();
+          }}
+          title="Notifications"
+          aria-label="Notifications"
+        >
+          <span role="img" aria-label="bell">🔔</span>
+          {hasUnread && (
+            <span style={{ position: 'absolute', top: 4, right: 4, width: 10, height: 10, borderRadius: '50%', background: '#f5c518', border: '1px solid #fff' }}></span>
+          )}
+        </button>
+        {showDropdown && (
+          typeof document !== 'undefined' && document.body ?
+            ReactDOM.createPortal(
+              <div
+                ref={dropdownRef}
+                style={{
+                  position: 'fixed',
+                  top: 70,
+                  right: 60,
+                  minWidth: 320,
+                  background: headerButtonColor,
+                  color: headerButtonTextColor,
+                  borderRadius: 10,
+                  boxShadow: '0 4px 24px rgba(0,0,0,0.12)',
+                  zIndex: 9999,
+                  padding: 18,
+                  maxHeight: 400,
+                  overflowY: 'auto',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <span style={{ fontWeight: 700, fontSize: 18 }}>Notifications</span>
+                  <button
+                    style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: headerButtonTextColor }}
+                    onClick={() => setShowDropdown(false)}
+                    title="Close"
+                  >✖</button>
+                  <button
+                    style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: headerButtonTextColor, marginLeft: 8 }}
+                    onClick={fetchNotifications}
+                    title="Refresh"
+                  >⟳</button>
+                </div>
+                {loading ? (
+                  <div>Loading...</div>
+                ) : notifications.length === 0 ? (
+                  <div style={{ color: '#888', fontSize: 15 }}>No new notifications.</div>
+                ) : (
+                  notifications.map(n => (
+                    <div key={n.id} style={{ background: stepColor(headerButtonColor, theme, 1), color: headerButtonTextColor, borderRadius: 7, marginBottom: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      {n.link ? (
+                        <button
+                          style={{ flex: 1, marginRight: 10, background: 'none', border: 'none', color: headerButtonTextColor, textAlign: 'left', cursor: 'pointer', padding: 0 }}
+                          onClick={() => handleNotificationClick(n, appNavigate)}
+                          title={n.title || 'Notification'}
+                        >
+                          <div style={{ fontWeight: 600 }}>{n.title || 'Notification'}</div>
+                          <div style={{ fontSize: 14 }}>{n.message}</div>
+                          <div style={{ fontSize: 12, color: '#888' }}>{new Date(n.timestamp).toLocaleString()}</div>
+                        </button>
+                      ) : (
+                        <div style={{ flex: 1, marginRight: 10 }}>
+                          <div style={{ fontWeight: 600 }}>{n.title || 'Notification'}</div>
+                          <div style={{ fontSize: 14 }}>{n.message}</div>
+                          <div style={{ fontSize: 12, color: '#888' }}>{new Date(n.timestamp).toLocaleString()}</div>
+                        </div>
+                      )}
+                      <button
+                        style={{ background: '#ffe0e0', color: '#c00', border: '1px solid #c00', borderRadius: 6, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', marginLeft: 8 }}
+                        onClick={() => handleDismiss(n.id)}
+                        title="Dismiss"
+                      >Dismiss</button>
+                    </div>
+                  ))
+                )}
+              </div>,
+              document.body
+            ) : null
+        )}
+      </>
+    );
+  }
+  // Header colors
+  const headerContainerColor = stepColor(backgroundColor, theme, 2);
+  const headerTextColor = theme === "dark" ? "#fff" : stepColor(textColor, theme, 1);
+  const headerButtonColor = stepColor(headerContainerColor, theme, 1);
+  const headerButtonTextColor = headerTextColor;
+
+  // Header logo
+  function HeaderLogo() {
+    return (
+      <Link to="/" className="logo" style={{ display: "flex", alignItems: "center", textDecoration: "none", color: headerTextColor }}>
+        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 48, height: 48, borderRadius: "50%", background: backgroundColor, boxShadow: "0 2px 8px rgba(0,0,0,0.08)", marginRight: 12, overflow: "hidden" }}>
+          <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlnsXlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="48" height="48" viewBox="0 0 500 500" style={{ display: "block" }}>
+            <path fill={headerTextColor} opacity="1.000000" stroke="none" d="M291.000000,501.000000 C194.000031,501.000000 97.500046,501.000000 1.000052,501.000000 C1.000035,334.333405 1.000035,167.666794 1.000017,1.000141 C167.666565,1.000094 334.333130,1.000094 500.999756,1.000047 C500.999847,167.666519 500.999847,334.333038 500.999939,500.999786 C431.166656,501.000000 361.333344,501.000000 291.000000,501.000000 z" />
+            <path fill={backgroundColor} opacity="1.000000" stroke="none" d="M281.620789,288.460999 C276.615417,276.827271 271.783386,265.533600 266.603333,253.426437 C259.810211,269.199585 253.204269,284.056061 247.060425,299.101257 C245.246780,303.542603 243.195160,305.887115 238.074707,305.147003 C233.692810,304.513580 228.096191,306.170807 225.079987,303.989624 C222.285019,301.968384 222.143051,296.220398 220.924637,292.086426 C211.665024,260.669281 202.427948,229.245499 192.947861,197.021591 C201.073364,197.021591 208.782822,196.877213 216.472290,197.203522 C217.438187,197.244507 218.741592,199.648743 219.141586,201.156235 C224.857101,222.696777 230.442368,244.271881 236.065460,265.836975 C236.468796,267.383759 236.922028,268.917511 237.690857,271.670502 C238.769684,269.003876 239.455383,267.392090 240.078339,265.756378 C246.767426,248.192947 253.589630,230.677750 260.012329,213.017334 C261.358551,209.315659 263.412476,208.934921 266.678894,208.901077 C270.024811,208.866425 271.899170,209.549530 273.203705,213.129059 C279.581360,230.628815 286.339081,247.990112 292.974945,265.395599 C293.669922,267.218475 294.447021,269.010040 295.360229,271.241882 C302.001892,246.238678 308.481323,221.846085 315.009125,197.271545 C323.408112,197.271545 331.505005,197.271545 340.167694,197.271545 C336.768311,208.903763 333.419434,220.337341 330.085968,231.775406 C323.385101,254.767929 316.627075,277.744263 310.071198,300.778076 C309.145599,304.030121 307.888336,305.443726 304.332336,305.137543 C299.219299,304.697296 292.890076,306.568726 289.249634,304.166046 C285.622162,301.771942 284.669342,295.322510 282.551086,290.647858 C282.276672,290.042267 282.045441,289.417114 281.620789,288.460999 z M163.070679,274.636169 C163.657059,269.590332 161.171844,266.426270 157.477112,264.505188 C153.231079,262.297455 148.569244,260.905975 144.184540,258.944244 C138.593002,256.442566 132.748154,254.270248 127.633530,250.988159 C116.562050,243.883499 112.161888,233.316147 114.563469,220.426468 C117.042061,207.123428 125.817902,199.489166 138.715530,196.961884 C155.158585,193.739868 169.898285,196.798233 180.820755,210.777176 C182.411560,212.813141 183.507080,215.236084 185.099243,217.933029 C177.458542,221.131012 170.297226,224.128342 162.840546,227.249313 C161.929031,225.953583 161.326416,224.485229 160.236206,223.664825 C157.259171,221.424561 154.326172,218.731400 150.914719,217.558456 C146.205063,215.939133 140.706100,219.062531 138.873672,223.292877 C137.054977,227.491516 138.231079,231.942337 143.002518,234.861786 C147.201096,237.430710 152.009888,239.000275 156.543030,241.024948 C162.291000,243.592224 168.402023,245.577408 173.705917,248.863632 C187.972412,257.702942 191.622040,274.212036 183.096176,288.829620 C174.631454,303.342377 155.920258,309.937408 137.987427,304.439362 C125.128029,300.496735 115.329880,292.919250 110.133041,279.528564 C117.755325,276.287170 125.056007,273.182556 132.153915,270.164154 C135.068573,273.757019 137.421219,277.683411 140.715439,280.513977 C148.688721,287.364929 159.468384,284.520477 163.070679,274.636169 z M375.771545,200.739166 C395.625122,192.886124 414.429657,194.534119 433.130463,204.617752 C430.023773,211.946625 427.071991,218.909988 424.071594,225.988144 C405.516724,212.307266 384.415283,217.784256 374.295380,229.381607 C363.698669,241.525314 363.679413,260.105072 374.347473,272.414825 C386.217529,286.111542 406.928802,287.976990 424.403320,276.454559 C427.390839,283.457275 430.328217,290.342560 433.470459,297.707916 C412.976501,308.287476 392.600861,309.756866 372.352661,299.301697 C352.259796,288.926636 341.622711,271.889191 342.326263,249.128128 C343.030243,226.353119 354.907776,210.467163 375.771545,200.739166 z M71.396744,296.151917 C70.424171,286.031097 74.842697,279.650848 83.071175,278.720520 C90.248482,277.909058 96.390182,282.062714 98.145874,288.915527 C99.908272,295.794495 96.501266,302.626190 90.013458,305.222534 C83.461800,307.844421 76.341911,305.404022 72.745239,299.264587 C72.245155,298.410950 71.928001,297.450104 71.396744,296.151917 z" />
+          </svg>
+        </span>
+        <span style={{ fontWeight: 700, fontSize: 24, letterSpacing: 1, color: headerTextColor }}>StoryWeave Chronicles</span>
+      </Link>
+    );
+  }
+
+  // Theme toggle button
+  function ThemeToggleButton() {
+    function handleToggle() {
+      const newTheme = theme === 'dark' ? 'light' : 'dark';
+      setTheme(newTheme);
+      setBackgroundColor(newTheme === 'dark' ? '#232323' : '#fff');
+      setTextColor(newTheme === 'dark' ? '#fff' : '#222');
+    }
+    return (
+      <button
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          fontSize: '1.7rem',
+          width: 40,
+          height: 40,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: headerButtonTextColor,
+        }}
+        onClick={handleToggle}
+        title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      >
+        {theme === 'dark' ? '🌙' : '☀️'}
+      </button>
+    );
+  }
+
+  // Main content routes
+  function MainContent() {
+    const navigate = useNavigate();
+    return (
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/search" element={<SearchResults />} />
+        <Route path="/read/:id" element={<PDFReader />} />
+        <Route path="/login" element={<LoginRegisterPage onAuth={data => {
+          if (data.success) {
+            const userObj = {
+              username: data.username,
+              email: data.email,
+              backgroundColor: data.backgroundColor,
+              textColor: data.textColor,
+              bookmarks: data.bookmarks,
+              secondaryEmails: data.secondaryEmails,
+              font: data.font,
+              timezone: data.timezone,
+              notificationPrefs: data.notificationPrefs,
+              notificationHistory: data.notificationHistory,
+              is_admin: data.is_admin
+            };
+            setUser(userObj);
+            localStorage.setItem('user', JSON.stringify(userObj));
+            // Redirect after login
+            if (window.location.pathname === '/login') {
+              navigate('/');
+            }
+          }
+        }} />} />
+        <Route path="/profile" element={<ProfilePage user={user} setUser={setUser} onLogout={() => {
+          setUser(null);
+          localStorage.removeItem('user');
+          window.location.href = "/";
+        }} />} />
+        <Route path="/register" element={<LoginRegisterPage onAuth={data => {
+          if (data.success) {
+            const userObj = {
+              username: data.username,
+              email: data.email,
+              backgroundColor: data.backgroundColor,
+              textColor: data.textColor,
+              bookmarks: data.bookmarks,
+              secondaryEmails: data.secondaryEmails,
+              font: data.font,
+              timezone: data.timezone,
+              notificationPrefs: data.notificationPrefs,
+              notificationHistory: data.notificationHistory,
+              is_admin: data.is_admin
+            };
+            setUser(userObj);
+            localStorage.setItem('user', JSON.stringify(userObj));
+            // Redirect after register
+            navigate('/profile');
+          }
+        }} mode="register" />} />
+      </Routes>
+    );
+  }
 
   return (
     <ThemeContext.Provider value={{
-      theme, toggleTheme, textColor, setTextColor: handleTextColorChange, backgroundColor, setBackgroundColor: handleBackgroundColorChange,
-      font, setFont, user, setUser
+      theme,
+      backgroundColor,
+      textColor,
+      setTheme,
+      setBackgroundColor,
+      setTextColor,
+      font,
+      setFont,
+      timezone,
+      setTimezone,
+      headerButtonColor,
+      headerButtonTextColor,
+      user,
+      setUser,
     }}>
-      <Router>
-        <div
-          className={theme === "dark" ? "dark-mode" : "light-mode"}
-          style={{ color: textColor, background: backgroundColor, minHeight: "100vh", fontFamily: font || undefined }}
-        >
-          <NotificationDropdown
-            open={notifDropdownOpen}
-            anchorRef={bellRef}
-            onClose={handleCloseDropdown}
-            notifications={notifications}
-            headerContainerColor={headerContainerColor}
-            textColor={textColor}
-            handleNotificationClick={handleNotificationClick}
-          />
-          <header
-  className="header"
-  style={{
-    position: 'relative',
-    background: headerContainerColor,
-    color: textColor,
-    width: '100%', // ensures header fits the parent
-    boxSizing: 'border-box', // includes padding in width
-    padding: '0 32px',
-    minHeight: 80,
-    display: 'flex',
-    alignItems: 'center',
-    overflow: 'hidden' // prevents content from spilling out
-  }}
->
-            <Link
-              to="/"
-              className="logo"
-              style={{
-                marginRight: 'auto',
-                textDecoration: 'none',
-                color: textColor,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 16
-              }}
-              title="Go to landing page"
-            >
-              {/* Swap Logo1/Logo2/Logo3 below to try different SVGs */}
+      <ContainerDepthProvider>
+        <Router>
+          <div style={{ background: backgroundColor, color: textColor, minHeight: '100vh', fontFamily: font || 'inherit' }} className={theme === "dark" ? "dark-mode" : "light-mode"}>
+            <header className="header" style={{ background: headerContainerColor, color: headerTextColor, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', minHeight: 64, zIndex: 10, position: 'relative' }}>
+              <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                <HeaderLogo />
+              </div>
               <div
                 style={{
-                  height: 72,
-                  width: 72,
-                  borderRadius: '50%',
-                  background: backgroundColor,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                  flexShrink: 0,
-                  overflow: 'hidden',
-                  objectFit: 'contain',
+                  gap: 10, // Slightly tighter spacing
+                  height: 48, // Ensures vertical centering
+                  paddingRight: 0,
+                  marginRight: 32, // Move icons to the left for visibility
                 }}
               >
-                {/* Inline SVG logo from file (1).svg for visual test */}
-                <svg
-                  viewBox="0 0 500 500"
-                  width={48}
-                  height={48}
-                  style={{ display: 'block' }}
-                  xmlns="http://www.w3.org/2000/svg"
-                  xmlnsXlink="http://www.w3.org/1999/xlink"
-                >
-                  {/* Background path uses backgroundColor */}
-                  <path fill={backgroundColor} opacity="1.000000" stroke="none" d="M291.000000,501.000000 C194.000031,501.000000 97.500046,501.000000 1.000052,501.000000 C1.000035,334.333405 1.000035,167.666794 1.000017,1.000141 C167.666565,1.000094 334.333130,1.000094 500.999756,1.000047 C500.999847,167.666519 500.999847,334.333038 500.999939,500.999786 C431.166656,501.000000 361.333344,501.000000 291.000000,501.000000 M281.794159,288.801025 C282.045441,289.417114 282.276672,290.042267 282.551086,290.647858 C284.669342,295.322510 285.622162,301.771942 289.249634,304.166046 C292.890076,306.568726 299.219299,304.697296 304.332336,305.137543 C307.888336,305.443726 309.145599,304.030121 310.071198,300.778076 C316.627075,277.744263 323.385101,254.767929 330.085968,231.775406 C333.419434,220.337341 336.768311,208.903763 340.167694,197.271545 C331.505005,197.271545 323.408112,197.271545 315.009125,197.271545 C308.481323,221.846085 302.001892,246.238678 295.360229,271.241882 C294.447021,269.010040 293.669922,267.218475 292.974945,265.395599 C286.339081,247.990112 279.581360,230.628815 273.203705,213.129059 C271.899170,209.549530 270.024811,208.866425 266.678894,208.901077 C263.412476,208.934921 261.358551,209.315659 260.012329,213.017334 C253.589630,230.677750 246.767426,248.192947 240.078339,265.756378 C239.455383,267.392090 238.769684,269.003876 237.690857,271.670502 C236.922028,268.917511 236.468796,267.383759 236.065460,265.836975 C230.442368,244.271881 224.857101,222.696777 219.141586,201.156235 C218.741592,199.648743 217.438187,197.244507 216.472290,197.203522 C208.782822,196.877213 201.073364,197.021591 192.947861,197.021591 C202.427948,229.245499 211.665024,260.669281 220.924637,292.086426 C222.143051,296.220398 222.285019,301.968384 225.079987,303.989624 C228.096191,306.170807 233.692810,304.513580 238.074707,305.147003 C243.195160,305.887115 245.246780,303.542603 247.060425,299.101257 C253.204269,284.056061 259.810211,269.199585 266.603333,253.426437 C271.783386,265.533600 276.615417,276.827271 281.794159,288.801025 M163.029999,275.038818 C159.468384,284.520477 148.688721,287.364929 140.715439,280.513977 C137.421219,277.683411 135.068573,273.757019 132.153915,270.164154 C125.056007,273.182556 117.755325,276.287170 110.133041,279.528564 C115.329880,292.919250 125.128029,300.496735 137.987427,304.439362 C155.920258,309.937408 174.631454,303.342377 183.096176,288.829620 C191.622040,274.212036 187.972412,257.702942 173.705917,248.863632 C168.402023,245.577408 162.291000,243.592224 156.543030,241.024948 C152.009888,239.000275 147.201096,237.430710 143.002518,234.861786 C138.231079,231.942337 137.054977,227.491516 138.873672,223.292877 C140.706100,219.062531 146.205063,215.939133 150.914719,217.558456 C154.326172,218.731400 157.259171,221.424561 160.236206,223.664825 C161.326416,224.485229 161.929031,225.953583 162.840546,227.249313 C170.297226,224.128342 177.458542,221.131012 185.099243,217.933029 C183.507080,215.236084 182.411560,212.813141 180.820755,210.777176 C169.898285,196.798233 155.158585,193.739868 138.715530,196.961884 C125.817902,199.489166 117.042061,207.123428 114.563469,220.426468 C112.161888,233.316147 116.562050,243.883499 127.633530,250.988159 C132.748154,254.270248 138.593002,256.442566 144.184540,258.944244 C148.569244,260.905975 153.231079,262.297455 157.477112,264.505188 C161.171844,266.426270 163.657059,269.590332 163.029999,275.038818 M375.422882,200.892365 C354.907776,210.467163 343.030243,226.353119 342.326263,249.128128 C341.622711,271.889191 352.259796,288.926636 372.352661,299.301697 C392.600861,309.756866 412.976501,308.287476 433.470459,297.707916 C430.328217,290.342560 427.390839,283.457275 424.403320,276.454559 C406.928802,287.976990 386.217529,286.111542 374.347473,272.414825 C363.679413,260.105072 363.698669,241.525314 374.295380,229.381607 C384.415283,217.784256 405.516724,212.307266 424.071594,225.988144 C427.071991,218.909988 430.023773,211.946625 433.130463,204.617752 C414.429657,194.534119 395.625122,192.886124 375.422882,200.892365 M71.526169,296.538910 C71.928001,297.450104 72.245155,298.410950 72.745239,299.264587 C76.341911,305.404022 83.461800,307.844421 90.013458,305.222534 C96.501266,302.626190 99.908272,295.794495 98.145874,288.915527 C96.390182,282.062714 90.248482,277.909058 83.071175,278.720520 C74.842697,279.650848 70.424171,286.031097 71.526169,296.538910 z"/>
-                  {/* Letter paths use textColor */}
-                  <path fill={textColor} opacity="1.000000" stroke="none" d="M281.620789,288.460999 C276.615417,276.827271 271.783386,265.533600 266.603333,253.426437 C259.810211,269.199585 253.204269,284.056061 247.060425,299.101257 C245.246780,303.542603 243.195160,305.887115 238.074707,305.147003 C233.692810,304.513580 228.096191,306.170807 225.079987,303.989624 C222.285019,301.968384 222.143051,296.220398 220.924637,292.086426 C211.665024,260.669281 202.427948,229.245499 192.947861,197.021591 C201.073364,197.021591 208.782822,196.877213 216.472290,197.203522 C217.438187,197.244507 218.741592,199.648743 219.141586,201.156235 C224.857101,222.696777 230.442368,244.271881 236.065460,265.836975 C236.468796,267.383759 236.922028,268.917511 237.690857,271.670502 C238.769684,269.003876 239.455383,267.392090 240.078339,265.756378 C246.767426,248.192947 253.589630,230.677750 260.012329,213.017334 C261.358551,209.315659 263.412476,208.934921 266.678894,208.901077 C270.024811,208.866425 271.899170,209.549530 273.203705,213.129059 C279.581360,230.628815 286.339081,247.990112 292.974945,265.395599 C293.669922,267.218475 294.447021,269.010040 295.360229,271.241882 C302.001892,246.238678 308.481323,221.846085 315.009125,197.271545 C323.408112,197.271545 331.505005,197.271545 340.167694,197.271545 C336.768311,208.903763 333.419434,220.337341 330.085968,231.775406 C323.385101,254.767929 316.627075,277.744263 310.071198,300.778076 C309.145599,304.030121 307.888336,305.443726 304.332336,305.137543 C299.219299,304.697296 292.890076,306.568726 289.249634,304.166046 C285.622162,301.771942 284.669342,295.322510 282.551086,290.647858 C282.276672,290.042267 282.045441,289.417114 281.620789,288.460999 z"/>
-                  <path fill={textColor} opacity="1.000000" stroke="none" d="M163.070679,274.636169 C163.657059,269.590332 161.171844,266.426270 157.477112,264.505188 C153.231079,262.297455 148.569244,260.905975 144.184540,258.944244 C138.593002,256.442566 132.748154,254.270248 127.633530,250.988159 C116.562050,243.883499 112.161888,233.316147 114.563469,220.426468 C117.042061,207.123428 125.817902,199.489166 138.715530,196.961884 C155.158585,193.739868 169.898285,196.798233 180.820755,210.777176 C182.411560,212.813141 183.507080,215.236084 185.099243,217.933029 C177.458542,221.131012 170.297226,224.128342 162.840546,227.249313 C161.929031,225.953583 161.326416,224.485229 160.236206,223.664825 C157.259171,221.424561 154.326172,218.731400 150.914719,217.558456 C146.205063,215.939133 140.706100,219.062531 138.873672,223.292877 C137.054977,227.491516 138.231079,231.942337 143.002518,234.861786 C147.201096,237.430710 152.009888,239.000275 156.543030,241.024948 C162.291000,243.592224 168.402023,245.577408 173.705917,248.863632 C187.972412,257.702942 191.622040,274.212036 183.096176,288.829620 C174.631454,303.342377 155.920258,309.937408 137.987427,304.439362 C125.128029,300.496735 115.329880,292.919250 110.133041,279.528564 C117.755325,276.287170 125.056007,273.182556 132.153915,270.164154 C135.068573,273.757019 137.421219,277.683411 140.715439,280.513977 C148.688721,287.364929 159.468384,284.520477 163.070679,274.636169 z"/>
-                  <path fill={textColor} opacity="1.000000" stroke="none" d="M375.771545,200.739166 C395.625122,192.886124 414.429657,194.534119 433.130463,204.617752 C430.023773,211.946625 427.071991,218.909988 424.071594,225.988144 C405.516724,212.307266 384.415283,217.784256 374.295380,229.381607 C363.698669,241.525314 363.679413,260.105072 374.347473,272.414825 C386.217529,286.111542 406.928802,287.976990 424.403320,276.454559 C427.390839,283.457275 430.328217,290.342560 433.470459,297.707916 C412.976501,308.287476 392.600861,309.756866 372.352661,299.301697 C352.259796,288.926636 341.622711,271.889191 342.326263,249.128128 C343.030243,226.353119 354.907776,210.467163 375.771545,200.739166 z"/>
-                  <path fill={textColor} opacity="1.000000" stroke="none" d="M71.396744,296.151917 C70.424171,286.031097 74.842697,279.650848 83.071175,278.720520 C90.248482,277.909058 96.390182,282.062714 98.145874,288.915527 C99.908272,295.794495 96.501266,302.626190 90.013458,305.222534 C83.461800,307.844421 76.341911,305.404022 72.745239,299.264587 C72.245155,298.410950 71.928001,297.450104 71.396744,296.151917 z"/>
-                </svg>
+                <HeaderUserButton />
+                <ThemeToggleButton />
+                {user && <NotificationButton />}
               </div>
-              <span style={{ fontWeight: 700, fontSize: 24, letterSpacing: 1 }}>
-                StoryWeave Chronicles
-              </span>
-            </Link>
-            <button
-              className="theme-toggle-btn"
-              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              onClick={toggleTheme}
-              style={{
-                marginRight: 16,
-                fontSize: '1.7rem',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '8px'
-              }}
-            >
-              {theme === "dark" ? "🌙" : "☀️"}
-            </button>
-            {/* Notifications button and dropdown */}
-<div style={{ position: 'relative', marginRight: 16 }}>
-  <button
-    ref={bellRef}
-    style={{
-      background: 'none',
-      border: 'none',
-      cursor: 'pointer',
-      fontSize: '1.7rem',
-      position: 'relative',
-      padding: '8px'
-    }}
-    title="Notifications"
-    onClick={handleOpenDropdown} // <-- use the new function
-  >
-    <span role="img" aria-label="bell">🔔</span>
-    {unreadCount > 0 && (
-      <span style={{
-        position: 'absolute',
-        top: 2,
-        right: 2,
-        background: '#c00',
-        color: '#fff',
-        borderRadius: '50%',
-        fontSize: 12,
-        width: 18,
-        height: 18,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontWeight: 700
-      }}>{unreadCount}</span>
-    )}
-  </button>
-  <NotificationDropdown
-    open={notifDropdownOpen}
-    anchorRef={bellRef}
-    onClose={handleCloseDropdown}
-    notifications={notifications}
-    headerContainerColor={headerContainerColor}
-    textColor={textColor}
-    handleNotificationClick={handleNotificationClick}
-  />
-</div>
-            {user ? (
-              <Link
-                to="/profile"
-                className="user-profile-header"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  marginLeft: 8,
-                  textDecoration: 'none',
-                  color: textColor,
-                  minWidth: 0,
-                  maxWidth: 220, // optional: limit max width
-                  flexShrink: 1
-                }}
-                title="View profile"
-              >
-                <div
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    background: backgroundColor,
-                    color: textColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: 8,
-                    fontWeight: 700,
-                    fontSize: 18,
-                    border: '1.5px solid #888',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-                  }}
-                >
-                  {user.username ? user.username[0].toUpperCase() : "?"}
-                </div>
-                <span
-                  style={{
-                    fontWeight: 600,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    maxWidth: 120, // adjust as needed
-                    display: 'inline-block'
-                  }}
-                >
-                  {user.username || user.email}
-                </span>
-              </Link>
-            ) : (
-              <Link
-                to="/login"
-                className="login-btn"
-                style={{ marginLeft: 8 }}
-              >
-                Log In
-              </Link>
-            )}
-          </header>
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/search" element={<SearchResults />} />
-            <Route path="/view-pdf/:id" element={<BooksViewer />} />
-            <Route path="/read/:id" element={<PDFReader />} />
-            <Route path="/login" element={<AuthWrapper />} />
-            <Route path="/profile" element={
-  <ProfilePage
-    user={user}
-    setUser={setUser}
-    onLogout={async () => {
-      // Save color changes before logout
-      if (user && user.username) {
-        await fetch(`${API_BASE_URL}/api/update-colors`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username: user.username,
-            backgroundColor,
-            textColor,
-          }),
-        });
-      }
-      setUser(null);
-      window.location.href = "/";
-    }}
-    refreshNotifications={refreshNotifications}
-  />
-} />
-          </Routes>
-        </div>
-      </Router>
+            </header>
+            <MainContent />
+            <div style={{ position: 'fixed', bottom: 8, right: 16, fontSize: 13, color: '#888', background: '#fff8', borderRadius: 6, padding: '4px 10px', zIndex: 9999 }}>
+              Timezone: {timezone}
+            </div>
+          </div>
+        </Router>
+      </ContainerDepthProvider>
     </ThemeContext.Provider>
   );
 }

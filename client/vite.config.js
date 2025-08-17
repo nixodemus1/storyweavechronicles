@@ -18,7 +18,6 @@ export default defineConfig({
       '/api/change-password': 'http://localhost:5000',
       '/api/add-secondary-email': 'http://localhost:5000',
       '/api/remove-secondary-email': 'http://localhost:5000',
-      '/api/delete-account': 'http://localhost:5000',
       '/api/notification-prefs': 'http://localhost:5000',
       '/api/update-notification-prefs': 'http://localhost:5000',
       '/api/notification-history': 'http://localhost:5000',
@@ -36,11 +35,13 @@ export default defineConfig({
       '/api/book-votes': 'http://localhost:5000',
       '/api/top-voted-books': 'http://localhost:5000',
       '/api/user-voted-books': 'http://localhost:5000',
+      '/api/user-top-voted-books': 'http://localhost:5000',
       '/api/add-comment': 'http://localhost:5000',
       '/api/edit-comment': 'http://localhost:5000',
       '/api/admin/remove-admin': 'http://localhost:5000',
       '/api/admin/bootstrap-admin': 'http://localhost:5000',
       '/api/delete-comment': 'http://localhost:5000',
+      '/api/delete-account': 'http://localhost:5000',
       '/api/get-comments': 'http://localhost:5000',
       '/api/vote-comment': 'http://localhost:5000',
       '/api/get-comment-votes': 'http://localhost:5000',
@@ -50,6 +51,7 @@ export default defineConfig({
       '/api/dismiss-notification': 'http://localhost:5000',
       '/api/admin/send-emergency-email': 'http://localhost:5000',
       '/api/admin/make-admin': 'http://localhost:5000',
+    '/api/all-books': 'http://localhost:5000',
     }
   }
 })

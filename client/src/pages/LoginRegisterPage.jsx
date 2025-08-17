@@ -36,6 +36,7 @@ export default function LoginRegisterPage({ onAuth }) {
         data = await res.json();
       } catch (jsonErr) {
         // If JSON parsing fails, show status and response text
+        console.log("JSON parsing error:", jsonErr);
         const text = await res.text();
         setError(`HTTP ${res.status} ${res.statusText}. Response: ${text ? text : "(empty)"}`);
         return;

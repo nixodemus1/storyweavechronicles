@@ -1,63 +1,21 @@
 /* Global theme styles */
 .light-mode {
-  background: #f5f6fa;
-  color: #23272f;
   transition: background 0.2s, color 0.2s;
 }
 .dark-mode {
-  background: #181a20;
-  color: #f5f6fa;
   transition: background 0.2s, color 0.2s;
 }
 
-body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
-  background: #181a20;
-  color: #f5f6fa;
-}
-.dark-mode .header {
-  background: #23272f !important;
-  color: #f5f6fa !important;
-}
 .dark-mode .landing-description,
 .dark-mode .top-list,
 .dark-mode .carousel-item {
-  background: #23272f;
-  color: #f5f6fa;
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
 }
-.dark-mode .book-title {
-  background: rgba(35,39,47,0.85) !important;
-  color: #f5f6fa !important;
-}
 .dark-mode .searchbar-input {
-  background: #23272f !important;
-  color: #f5f6fa !important;
   border-color: #444 !important;
-}
-.dark-mode .searchbar-input:disabled {
-  background: #23272f !important;
-  color: #888 !important;
-}
-.dark-mode .pdf-reader-container {
-  background: #181a20 !important;
-  color: #f5f6fa !important;
-}
-.dark-mode .pdf-reader-header {
-  background: #23272f !important;
-  color: #f5f6fa !important;
-}
-.dark-mode .pdf-reader-page {
-  background: #23272f !important;
-  color: #f5f6fa !important;
 }
 .dark-mode .pdf-reader-btn {
-  background: #23272f !important;
-  color: #f5f6fa !important;
   border-color: #444 !important;
-}
-.dark-mode .pdf-reader-btn:disabled {
-  color: #888 !important;
-  background: #23272f !important;
 }
 
 /* Theme toggle button */
@@ -340,7 +298,4 @@ body.dark-mode, .dark-mode .landing-page, .dark-mode .pdf-reader-container {
 .top-list-link:hover {
   color: #0070f3;
   text-decoration: underline solid #0070f3 2px;
-}
-.dark-mode .top-list-link {
-  /* color set by inline style for user customization */
 }

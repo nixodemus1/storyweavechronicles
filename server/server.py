@@ -119,12 +119,17 @@ def extract_story_id_from_pdf(file_content):
     """
     doc = fitz.open(stream=file_content, filetype="pdf")
     page = doc.load_page(0)
-    blocks = page.get_text("blocks")  # returns list of (x0, y0, x1, y1, text, block_no, block_type)
-    # Find block with largest y1 (lowest on page)
-    if not blocks:
+    blocks = page.get_text("blocks")  # (x0, y0, x1, y1, text, block_no, block_type)
+    # Filter out blocks with no text
+    text_blocks = [b for b in blocks if b[4] and b[4].strip()]
+    if not text_blocks or len(text_blocks) < 2:
         return None
-    bottom_block = max(blocks, key=lambda b: b[3])
-    story_id = bottom_block[4].strip() if bottom_block and bottom_block[4] else None
+    # Sort blocks by y0 (top to bottom)
+    text_blocks.sort(key=lambda b: b[1])
+    # The first block is the title, the second is the external story ID
+    title_block = text_blocks[0]
+    id_block = text_blocks[1]
+    story_id = id_block[4].strip()
     return story_id
 
 def hash_password(password):
@@ -345,16 +350,6 @@ def list_pdfs(folder_id):
     except Exception as e:
         return jsonify(error=str(e)), 500
 
-@app.route('/view-pdf/<file_id>')
-def view_pdf(file_id):
-    try:
-        service = get_drive_service()
-        request = service.files().get_media(fileId=file_id)
-        file_content = io.BytesIO(request.execute())
-        return send_file(file_content, mimetype='application/pdf')
-    except Exception as e:
-        return jsonify(error=str(e)), 500
-
 @app.route('/download-pdf/<file_id>')
 def download_pdf(file_id):
     try:
@@ -397,7 +392,13 @@ def pdf_text(file_id):
         pages = []
         for page_num in range(doc.page_count):
             page = doc.load_page(page_num)
-            text = page.get_text()
+            # Get text blocks and join paragraphs with double newlines
+            blocks = page.get_text("blocks")
+            paragraphs = []
+            for b in blocks:
+                if b[4].strip():
+                    paragraphs.append(b[4].strip())
+            page_text = '\n\n'.join(paragraphs)
             images = []
             for img in page.get_images(full=True):
                 xref = img[0]
@@ -408,7 +409,7 @@ def pdf_text(file_id):
                 images.append(f"data:image/{img_ext};base64,{img_base64}")
             pages.append({
                 'page': page_num + 1,
-                'text': text,
+                'text': page_text,
                 'images': images
             })
         # Try to get metadata (title, etc.)
@@ -679,9 +680,29 @@ def delete_account():
         return jsonify({'success': False, 'message': 'User not found.'}), 404
     if user.password != hash_password(password):
         return jsonify({'success': False, 'message': 'Password incorrect.'}), 401
-    db.session.delete(user)
+    # Cascade delete logic
+    # 1. Mark all user's comments as deleted (do not hard delete)
+    user_comments = Comment.query.filter_by(username=username).all()
+    for comment in user_comments:
+        comment.deleted = True
+    # 2. Remove all votes by user
+    Vote.query.filter_by(username=username).delete()
+    # 3. Remove bookmarks
+    user.bookmarks = '[]'
+    # 4. Remove notification history and prefs
+    user.notification_history = '[]'
+    user.notification_prefs = '{}'
+    # 5. Remove secondary emails
+    user.secondary_emails = '[]'
+    # 6. Remove email, password, and other PII
+    user.email = None
+    user.password = None
+    user.background_color = None
+    user.text_color = None
+    user.font = None
+    user.timezone = None
     db.session.commit()
-    return jsonify({'success': True, 'message': 'Account deleted.'})
+    return jsonify({'success': True, 'message': 'Account deleted. All personal data removed; comments marked as deleted.'})
 
 @app.route('/api/notify-new-book', methods=['POST'])
 def notify_new_book():
@@ -941,14 +962,36 @@ def top_voted_books():
         books.append(meta)
     return jsonify({'success': True, 'books': books})
 
-@app.route('/api/user-voted-books', methods=['GET'])
-def user_voted_books():
+
+@app.route('/api/user-top-voted-books', methods=['GET'])
+def user_top_voted_books():
     username = request.args.get('username')
     if not username:
-        return jsonify({'success': False, 'message': 'Username required.'}), 400
+        return jsonify({'error': 'Missing username'}), 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    # Get all votes by this user
     votes = Vote.query.filter_by(username=username).all()
-    voted_books = [{'book_id': v.book_id, 'value': v.value, 'timestamp': v.timestamp.isoformat()} for v in votes]
-    return jsonify({'success': True, 'voted_books': voted_books})
+    if not votes:
+        return jsonify({'books': []}), 200
+    # Get book info for each voted book
+    book_ids = [v.book_id for v in votes]
+    books = Book.query.filter(Book.drive_id.in_(book_ids)).all()
+    # Build result list with vote info
+    result = []
+    for book in books:
+        vote = next((v for v in votes if v.book_id == book.drive_id), None)
+        result.append({
+            'id': book.drive_id,
+            'title': book.title,
+            'name': book.title,
+            'cover_url': f'/pdf-cover/{book.drive_id}',
+            'votes': vote.value if vote else None
+        })
+    # Sort by vote value descending, then by title
+    result.sort(key=lambda b: (-b['votes'] if b['votes'] is not None else 0, b['title']))
+    return jsonify({'books': result}), 200
 
 @app.route('/api/add-comment', methods=['POST'])
 def add_comment():
@@ -1152,6 +1195,40 @@ def serve_react(path):
     if path.startswith("api/"):
         return jsonify({"success": False, "message": "API endpoint not found."}), 404
     
+# --- GLOBAL BOOK METADATA ENDPOINT ---
+@app.route('/api/all-books', methods=['GET'])
+def all_books():
+    try:
+        books = Book.query.all()
+        result = []
+        for book in books:
+            created_time = None
+            modified_time = None
+            try:
+                history = json.loads(book.version_history) if book.version_history else []
+                if history and isinstance(history, list):
+                    created_time = history[0].get('created')
+            except Exception:
+                pass
+            if not created_time:
+                created_time = book.created_at.isoformat() if book.created_at else None
+            if book.updated_at:
+                modified_time = book.updated_at.isoformat()
+            else:
+                modified_time = created_time
+            result.append({
+                'id': book.drive_id,
+                'title': book.title,
+                'external_story_id': book.external_story_id,
+                'createdTime': created_time,
+                'modifiedTime': modified_time,
+                'created_at': book.created_at.isoformat(),
+                'updated_at': book.updated_at.isoformat() if book.updated_at else None
+            })
+        return jsonify(success=True, books=result)
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
 if __name__ == '__main__':
     # Start APScheduler for email notifications
     def send_scheduled_emails(frequency):

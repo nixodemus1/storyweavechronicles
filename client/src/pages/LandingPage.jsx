@@ -1,45 +1,90 @@
+// Custom hook to cache covers for a list of pdfs
+// In-memory cache for cover URLs
+const coverCache = {};
+
+function useCachedCovers(pdfs) {
+  const [covers, setCovers] = React.useState({});
+
+  React.useEffect(() => {
+    let isMounted = true;
+    // Revoke previous blob URLs before setting new covers
+    const prevBlobUrls = Object.values(covers).filter(url => url && url.startsWith('blob:'));
+    prevBlobUrls.forEach(url => {
+      try { URL.revokeObjectURL(url); } catch {console.log("Error revoking blob URL:", url);}
+    });
+
+    const fetchCovers = async () => {
+      const newCovers = {};
+      console.log('[useCachedCovers] Fetching covers for pdfs:', pdfs.map(p => p.id));
+      await Promise.all(
+        pdfs.map(async (pdf) => {
+          if (!pdf.id) return;
+          if (coverCache[pdf.id]) {
+            newCovers[pdf.id] = coverCache[pdf.id];
+            return;
+          }
+          try {
+            const res = await fetch(`${import.meta.env.VITE_HOST_URL}/pdf-cover/${pdf.id}`);
+            if (!res.ok) throw new Error('Failed to fetch');
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            coverCache[pdf.id] = url;
+            newCovers[pdf.id] = url;
+          } catch {
+            coverCache[pdf.id] = '/no-cover.png';
+            newCovers[pdf.id] = '/no-cover.png';
+          }
+        })
+      );
+      if (isMounted) {
+        console.log('[useCachedCovers] Setting covers:', Object.keys(newCovers));
+        setCovers(newCovers);
+      }
+    };
+    fetchCovers();
+    return () => {
+      isMounted = false;
+      // Revoke blob URLs on unmount
+      const blobUrls = Object.values(covers).filter(url => url && url.startsWith('blob:'));
+      blobUrls.forEach(url => {
+        try { URL.revokeObjectURL(url); } catch {console.log("Error revoking blob URL:", url);}
+      });
+    };
+  }, [pdfs]);
+  return covers;
+}
 import React, { useEffect, useState, useContext } from "react";
 import "../styles/LandingPage.css";
 import Slider from "react-slick";
 import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
-import { stepColor, getLuminance } from "../utils/colorUtils";
+import { ContainerDepthProvider, SteppedContainer } from "../components/ContainerDepthContext";
 
-export default function LandingPage() {
-  const navigate = useNavigate();
-  const { theme, backgroundColor, textColor } = useContext(ThemeContext);
-  const [pdfs, setPdfs] = useState([]);
-  const [topNewest, setTopNewest] = useState([]);
-  const [topVoted, setTopVoted] = useState([]);
-  const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
-  const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
-  // --- Search bar state and logic ---
+function SearchBar({ pdfs, navigate }) {
   const [searchInput, setSearchInput] = useState("");
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteResults, setAutocompleteResults] = useState([]);
+  const containerRef = React.useRef(null);
+  const { backgroundColor } = useContext(ThemeContext);
 
-  // Update autocomplete results as user types
   useEffect(() => {
     if (!searchInput.trim()) {
       setAutocompleteResults([]);
       return;
     }
-    // Partial and prefix match, case-insensitive
     const results = pdfs.filter(pdf =>
       pdf.title && (
         pdf.title.toLowerCase().includes(searchInput.toLowerCase()) ||
         pdf.title.toLowerCase().startsWith(searchInput.toLowerCase())
       )
     );
-    setAutocompleteResults(results.slice(0, 8)); // limit to 8 results
+    setAutocompleteResults(results.slice(0, 8));
   }, [searchInput, pdfs]);
 
-  // Handle search submit (Enter key or search button)
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     if (!searchInput.trim()) return;
-    // Exact match
     const exactMatches = pdfs.filter(pdf =>
       pdf.title && pdf.title.toLowerCase() === searchInput.toLowerCase()
     );
@@ -47,7 +92,6 @@ export default function LandingPage() {
       navigate(`/read/${exactMatches[0].id}`);
       return;
     }
-    // Prefix match
     const prefixMatches = pdfs.filter(pdf =>
       pdf.title && pdf.title.toLowerCase().startsWith(searchInput.toLowerCase())
     );
@@ -55,7 +99,6 @@ export default function LandingPage() {
       navigate(`/read/${prefixMatches[0].id}`);
       return;
     }
-    // Partial match
     const partialMatches = pdfs.filter(pdf =>
       pdf.title && pdf.title.toLowerCase().includes(searchInput.toLowerCase())
     );
@@ -63,44 +106,191 @@ export default function LandingPage() {
       navigate(`/read/${partialMatches[0].id}`);
       return;
     }
-    // Multiple matches: go to search results page
     navigate(`/search?query=${encodeURIComponent(searchInput)}`);
   };
 
-  // Handle autocomplete click
   const handleAutocompleteClick = (pdf) => {
     setSearchInput("");
     setShowAutocomplete(false);
     navigate(`/read/${pdf.id}`);
   };
 
-  // Hide autocomplete on blur (with delay for click)
   const handleBlur = () => {
     setTimeout(() => setShowAutocomplete(false), 120);
   };
 
-  // Compute container background and text color variants automatically for contrast
-  // Use smart stepColor utility for container backgrounds
-  function getContainerBg(bg, theme, step = 1) {
-    if (!bg) return theme === 'dark' ? '#232323' : '#f5f5f5';
-    // Always brighten for dark backgrounds, darken for light backgrounds
-    const lum = getLuminance(bg);
-    const direction = lum < 0.5 ? 1 : -1;
-    return stepColor(bg, theme, step, direction);
-  }
+  return (
+  <SteppedContainer depth={0} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 32, marginTop: 32, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', position: 'relative', background: backgroundColor }} ref={containerRef}>
+      <form onSubmit={handleSearchSubmit} autoComplete="off" style={{ width: '100%', maxWidth: 400, display: 'flex', justifyContent: 'center' }}>
+          <input
+            type="text"
+            className="searchbar-input"
+            placeholder="Search books by title..."
+            value={searchInput}
+            onChange={e => {
+              setSearchInput(e.target.value);
+              setShowAutocomplete(true);
+            }}
+            onFocus={() => setShowAutocomplete(true)}
+            onBlur={handleBlur}
+            style={{
+              width: 340,
+              maxWidth: '90vw',
+              padding: '10px 14px',
+              borderRadius: 6,
+              fontSize: 18,
+              border: '1.5px solid #bbb',
+              color: 'inherit',
+              background: backgroundColor, // base background color
+              boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+            }}
+          />
+      </form>
+      {showAutocomplete && autocompleteResults.length > 0 && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: 340,
+          border: `1px solid #bbb`,
+          borderRadius: 6,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          maxHeight: 320,
+          overflowY: 'auto',
+          marginTop: 2,
+          zIndex: 20,
+          background: 'inherit'
+        }}>
+          {autocompleteResults.map(pdf => (
+            <div
+              key={pdf.id}
+              className="autocomplete-item"
+              style={{
+                padding: '10px 16px',
+                cursor: 'pointer',
+                borderBottom: '1px solid #eee',
+                fontSize: 17
+              }}
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => handleAutocompleteClick(pdf)}
+            >
+              {pdf.title}
+            </div>
+          ))}
+        </div>
+      )}
+    </SteppedContainer>
+  );
+}
 
-  const containerBg = getContainerBg(backgroundColor, theme, 1);
-  const containerText = getContainerText(containerBg, textColor);
-  // Secondary container (top-10) color: one more step lighter (or darker)
-  const secondaryBg = getContainerBg(backgroundColor, theme, 2);
-  function getContainerText(containerBg, rootText) {
-    // If containerBg is too close to rootText, invert
-    // Otherwise, use rootText
-    // For simplicity, just use rootText for now
-    return rootText;
-  }
+function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
+  const pdfs20 = React.useMemo(() => pdfs.slice(0, 20), [pdfs]);
+  const covers = useCachedCovers(pdfs20);
+  console.log('[CarouselSection] Rendering with covers:', covers);
+  return (
+    <SteppedContainer depth={depth} style={{ marginBottom: 32 }}>
+      <div className="carousel-container">
+        <Slider {...settings}
+          beforeChange={() => { window._carouselDragged = false; }}
+          afterChange={() => { window._carouselDragged = false; }}
+        >
+          {pdfs20
+            .filter(pdf => pdf && pdf.id && pdf.title)
+            .map((pdf) => (
+              <SteppedContainer depth={depth + 1} key={pdf.id} className="carousel-item" style={{ cursor: 'pointer' }}>
+                <img
+                  src={covers[pdf.id] || `${import.meta.env.VITE_HOST_URL}/pdf-cover/${pdf.id}`}
+                  alt={pdf.title}
+                  className="book-cover"
+                  onError={e => {
+                    e.target.onerror = null;
+                    e.target.src = '/no-cover.png';
+                  }}
+                />
+                <SteppedContainer depth={depth + 2} className="book-title" style={{ padding: '0.25em 0.5em', borderRadius: 4, marginTop: 8 }}>
+                  <button
+                    style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', fontSize: 'inherit' }}
+                    onClick={() => navigate(`/read/${pdf.id}`)}
+                    tabIndex={-1}
+                    inert={false}
+                  >
+                    {pdf.title}
+                  </button>
+                </SteppedContainer>
+              </SteppedContainer>
+            ))}
+        </Slider>
+      </div>
+    </SteppedContainer>
+  );
+}
 
-  // Carousel settings
+function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
+  const coversNewest = useCachedCovers(topNewest);
+  const coversVoted = useCachedCovers(topVoted);
+  return (
+    <SteppedContainer depth={depth} className="landing-description" style={{ marginBottom: 32 }}>
+      <p>
+        Explore our collection of books and start reading today!
+      </p>
+      <div className="top-lists-container">
+        <SteppedContainer depth={depth + 1} className="top-list" style={{ marginBottom: 16 }}>
+          <h3>Top 10 Newest</h3>
+          <ol>
+            {topNewest.map((pdf) => (
+              <li key={pdf.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <img src={coversNewest[pdf.id] || `${import.meta.env.VITE_HOST_URL}/pdf-cover/${pdf.id}`}
+                  alt={pdf.title}
+                  style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }} />
+                <SteppedContainer depth={depth + 2} style={{ display: 'inline-block', borderRadius: 4 }}>
+                  <button
+                    className="top-list-link"
+                    style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer' }}
+                    onClick={() => navigate(`/read/${pdf.id}`)}
+                  >
+                    {pdf.title}
+                  </button>
+                </SteppedContainer>
+              </li>
+            ))}
+          </ol>
+        </SteppedContainer>
+        <SteppedContainer depth={depth + 1} className="top-list">
+          <h3>Top 10 by Votes</h3>
+          <ol>
+            {topVoted.map((pdf) => (
+              <li key={pdf.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <img src={coversVoted[pdf.id] || `${import.meta.env.VITE_HOST_URL}/pdf-cover/${pdf.id}`}
+                  alt={pdf.title}
+                  style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }} />
+                <SteppedContainer depth={depth + 2} style={{ display: 'inline-block', borderRadius: 4 }}>
+                  <button
+                    className="top-list-link"
+                    style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer' }}
+                    onClick={() => navigate(`/read/${pdf.id}`)}
+                  >
+                    {pdf.title}
+                  </button>
+                </SteppedContainer>
+              </li>
+            ))}
+          </ol>
+        </SteppedContainer>
+      </div>
+    </SteppedContainer>
+  );
+}
+
+export default function LandingPage() {
+  const navigate = useNavigate();
+  const { theme, backgroundColor: _backgroundColor, textColor } = useContext(ThemeContext);
+  const [pdfs, setPdfs] = useState([]);
+  const [topNewest, setTopNewest] = useState([]);
+  const [topVoted, setTopVoted] = useState([]);
+  const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
+  const API_BASE_URL = import.meta.env.VITE_HOST_URL;
+
   const settings = {
     dots: true,
     infinite: true,
@@ -118,15 +308,10 @@ export default function LandingPage() {
 
   useEffect(() => {
     if (!folderId) return;
-    console.log("folderId:", folderId);
-    // Helper to compute a hash of the file list for change detection
     function computeHash(pdfs) {
       if (!pdfs || !Array.isArray(pdfs)) return '';
-      // Use id and createdTime for hash
       return pdfs.map(pdf => `${pdf.id}:${pdf.createdTime || ''}`).sort().join('|');
     }
-
-    // Try to load from localStorage
     const cached = localStorage.getItem('swc_pdfs_cache');
     const cachedHash = localStorage.getItem('swc_pdfs_hash');
     let usedCache = false;
@@ -135,17 +320,13 @@ export default function LandingPage() {
         const parsed = JSON.parse(cached);
         setPdfs(parsed);
         setTopNewest(parsed.slice(0, 10));
-        setTopVoted(parsed.slice().sort(() => 0.5 - Math.random()).slice(0, 10));
         usedCache = true;
       } catch {return}
     }
-
     fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
-        console.log('PDFs response:', data);
         if (data.pdfs) {
-          // Sort newest first
           const sorted = data.pdfs.slice().sort((a, b) => {
             if (a.createdTime && b.createdTime) {
               return new Date(b.createdTime) - new Date(a.createdTime);
@@ -156,166 +337,41 @@ export default function LandingPage() {
           if (!usedCache || hash !== cachedHash) {
             setPdfs(sorted);
             setTopNewest(sorted.slice(0, 10));
-            setTopVoted(sorted.slice().sort(() => 0.5 - Math.random()).slice(0, 10));
             localStorage.setItem('swc_pdfs_cache', JSON.stringify(sorted));
             localStorage.setItem('swc_pdfs_hash', hash);
           }
         }
       })
       .catch(err => console.error("Error fetching PDFs:", err));
-  }, [folderId]);
+  }, [folderId, API_BASE_URL]);
+
+  // Fetch top voted books from backend and match with pdfs
+  useEffect(() => {
+    if (!pdfs || pdfs.length === 0) return;
+    fetch(`${API_BASE_URL}/api/top-voted-books`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.books)) {
+          // Match returned book IDs to pdfs
+          const topVotedBooks = data.books
+            .map(b => pdfs.find(pdf => pdf.id === b.id || pdf.id === b.book_id))
+            .filter(Boolean)
+            .slice(0, 10);
+          setTopVoted(topVotedBooks);
+        }
+      })
+      .catch(err => console.error("Error fetching top voted books:", err));
+  }, [pdfs, API_BASE_URL]);
 
   return (
-    <div
-      className={`landing-page ${theme}-mode`}
-      style={{ background: backgroundColor, color: textColor, minHeight: '100vh' }}
-    >
-  {/* ...no container color pickers, only header pickers remain... */}
-      {/* Search bar with autocomplete */}
-      <div className="searchbar-container" style={{ position: 'relative', zIndex: 10 }}>
-        <form onSubmit={handleSearchSubmit} autoComplete="off">
-          <input
-            type="text"
-            className="searchbar-input"
-            placeholder="Search books by title..."
-            value={searchInput}
-            onChange={e => {
-              setSearchInput(e.target.value);
-              setShowAutocomplete(true);
-            }}
-            onFocus={() => setShowAutocomplete(true)}
-            onBlur={handleBlur}
-            style={{ width: '100%', padding: '10px 14px', borderRadius: 6, fontSize: 18, border: '1.5px solid #bbb' }}
-          />
-        </form>
-        {showAutocomplete && autocompleteResults.length > 0 && (
-          <div className="autocomplete-dropdown" style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            background: containerBg,
-            color: containerText,
-            border: `1px solid #bbb`,
-            borderRadius: 6,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-            maxHeight: 320,
-            overflowY: 'auto',
-            marginTop: 2,
-            zIndex: 20
-          }}>
-            {autocompleteResults.map(pdf => (
-              <div
-                key={pdf.id}
-                className="autocomplete-item"
-                style={{
-                  padding: '10px 16px',
-                  cursor: 'pointer',
-                  borderBottom: '1px solid #eee',
-                  fontSize: 17
-                }}
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => handleAutocompleteClick(pdf)}
-              >
-                {pdf.title}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="carousel-container">
-        <Slider {...settings}
-          beforeChange={() => { window._carouselDragged = false; }}
-          afterChange={() => { window._carouselDragged = false; }}
-        >
-          {pdfs
-            .slice(0, 20)
-            .filter(pdf => pdf && pdf.id && pdf.title)
-            .map((pdf) => (
-              <div
-                key={pdf.id}
-                className="carousel-item"
-                style={{ cursor: 'pointer', background: containerBg, color: containerText }}
-                title={`Read ${pdf.title}`}
-                onMouseDown={() => { window._carouselDragged = false; }}
-                onMouseMove={() => { window._carouselDragged = true; }}
-                onMouseUp={() => {
-                  if (!window._carouselDragged) {
-                    navigate(`/read/${pdf.id}`);
-                  }
-                }}
-                onTouchStart={() => { window._carouselDragged = false; }}
-                onTouchMove={() => { window._carouselDragged = true; }}
-                onTouchEnd={() => {
-                  if (!window._carouselDragged) {
-                    navigate(`/read/${pdf.id}`);
-                  }
-                }}
-              >
-                <img
-                  src={`${import.meta.env.VITE_HOST_URL}/pdf-cover/${pdf.id}`}
-                  alt={pdf.title}
-                  className="book-cover"
-                  onError={e => {
-                    e.target.onerror = null;
-                    e.target.src = '/no-cover.png';
-                  }}
-                />
-                <div
-                  className="book-title"
-                  style={{
-                    color: containerText,
-                    background: containerBg,
-                    padding: '0.25em 0.5em',
-                    borderRadius: 4,
-                    marginTop: 8
-                  }}
-                >
-                  {pdf.title}
-                </div>
-              </div>
-            ))}
-        </Slider>
-      </div>
-  <div className="landing-description" style={{ background: containerBg, color: containerText }}>
-        <p>
-          Explore our collection of books and start reading today!
-        </p>
-        <div className="top-lists-container">
-          <div className="top-list" style={{ background: secondaryBg, color: textColor }}>
-            <h3 style={{ color: textColor }}>Top 10 Newest</h3>
-            <ol>
-              {topNewest.map((pdf) => (
-                <li key={pdf.id}>
-                  <button
-                    className="top-list-link"
-                    style={{ color: textColor }}
-                    onClick={() => navigate(`/read/${pdf.id}`)}
-                  >
-                    {pdf.title}
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </div>
-          <div className="top-list" style={{ background: secondaryBg, color: textColor }}>
-            <h3 style={{ color: textColor }}>Top 10 by Votes</h3>
-            <ol>
-              {topVoted.map((pdf) => (
-                <li key={pdf.id}>
-                  <button
-                    className="top-list-link"
-                    style={{ color: textColor }}
-                    onClick={() => navigate(`/read/${pdf.id}`)}
-                  >
-                    {pdf.title}
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </div>
+    <ContainerDepthProvider>
+      <SteppedContainer depth={0} style={{ minHeight: '100vh', padding: 0 }}>
+        <div className={`landing-page ${theme}-mode`} style={{ background: 'transparent', color: textColor, minHeight: '100vh' }}>
+          <SearchBar pdfs={pdfs} navigate={navigate} depth={1} />
+          <CarouselSection pdfs={pdfs} navigate={navigate} settings={settings} depth={1} />
+          <TopListsSection topNewest={topNewest} topVoted={topVoted} navigate={navigate} depth={1} />
         </div>
-      </div>
-    </div>
+      </SteppedContainer>
+    </ContainerDepthProvider>
   );
 }
