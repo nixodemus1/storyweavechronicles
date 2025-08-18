@@ -2,4 +2,3 @@ server/token.json
 server/credentials.json
 .env
 storyweave_db.session.sql
-server/drive-webhook.py
