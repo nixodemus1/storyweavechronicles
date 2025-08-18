@@ -5,6 +5,25 @@ import { stepColor } from "../utils/colorUtils";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
+function getCoverFromCache(bookId) {
+  try {
+    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
+    return cache[bookId] || `${API_BASE_URL}/pdf-cover/${bookId}`;
+  } catch {
+    return `${API_BASE_URL}/pdf-cover/${bookId}`;
+  }
+}
+
+function setCoverInCache(bookId, url) {
+  try {
+    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
+    cache[bookId] = url;
+    localStorage.setItem('swc_cover_cache', JSON.stringify(cache));
+  } catch {
+    null;
+  }
+}
+
 const BookmarksTab = React.memo(function BookmarksTab({ user }) {
   const { textColor, backgroundColor, theme } = useContext(ThemeContext);
   const [bookmarks, setBookmarks] = useState([]);
@@ -36,11 +55,20 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
       });
   }, []);
 
-  function getCachedCover(bookId) {
-    const key = `swc_cover_${bookId}`;
-    const cached = localStorage.getItem(key);
-    return cached || `${API_BASE_URL}/pdf-cover/${bookId}`;
-  }
+  // Preload covers and cache them in localStorage
+  React.useEffect(() => {
+    bookmarks.forEach(bm => {
+      const bookId = bm.id;
+      const cached = getCoverFromCache(bookId);
+      if (!cached || cached.startsWith(API_BASE_URL)) {
+        const url = `${API_BASE_URL}/pdf-cover/${bookId}`;
+        const img = new window.Image();
+        img.onload = () => setCoverInCache(bookId, url);
+        img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
+        img.src = url;
+      }
+    });
+  }, [bookmarks]);
 
   const bookmarkedBooks = bookmarks
     .map(bm => {
@@ -78,10 +106,10 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
               >
                 <Link to={`/read/${book.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
                   <img
-                    src={getCachedCover(book.id)}
+                    src={getCoverFromCache(book.id)}
                     alt={book.name}
                     style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                    onError={e => { e.target.onerror = null; e.target.src = '/no-cover.png'; }}
+                    onError={e => { e.target.onerror = null; e.target.src = '/no-cover.png'; setCoverInCache(book.id, '/no-cover.png'); }}
                   />
                 </Link>
                 {/* Clickable book title next to cover */}
@@ -133,6 +161,21 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
       });
   }, [user?.username]);
 
+  // Preload covers and cache them in localStorage
+  React.useEffect(() => {
+    books.forEach(book => {
+      const bookId = book.id;
+      const cached = getCoverFromCache(bookId);
+      if (!cached || cached.startsWith(API_BASE_URL)) {
+        const url = book.cover_url || `${API_BASE_URL}/pdf-cover/${bookId}`;
+        const img = new window.Image();
+        img.onload = () => setCoverInCache(bookId, url);
+        img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
+        img.src = url;
+      }
+    });
+  }, [books]);
+
   const containerBg = stepColor(backgroundColor, theme, 1);
 
   return (
@@ -157,10 +200,10 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
             }}>
               <Link to={`/read/${book.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
                 <img
-                  src={book.cover_url || `${API_BASE_URL}/pdf-cover/${book.id}`}
+                  src={getCoverFromCache(book.id)}
                   alt={book.name}
                   style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                  onError={e => { e.target.onerror = null; e.target.src = '/no-cover.png'; }}
+                  onError={e => { e.target.onerror = null; e.target.src = '/no-cover.png'; setCoverInCache(book.id, '/no-cover.png'); }}
                 />
                 <span style={{ fontWeight: 600, textDecoration: 'underline', fontSize: 16 }}>{book.name}</span>
               </Link>
@@ -202,6 +245,21 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
       });
   }, []);
 
+  // Preload covers for commented books
+  React.useEffect(() => {
+    comments.forEach(comment => {
+      const bookId = comment.book_id;
+      const cached = getCoverFromCache(bookId);
+      if (!cached || cached.startsWith(API_BASE_URL)) {
+        const url = `${API_BASE_URL}/pdf-cover/${bookId}`;
+        const img = new window.Image();
+        img.onload = () => setCoverInCache(bookId, url);
+        img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
+        img.src = url;
+      }
+    });
+  }, [comments]);
+
   // Helper to get book title from id
   function getBookTitle(bookId) {
     const book = books.find(b => b.id === bookId);
@@ -242,6 +300,7 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
 const AccountTabContent = React.memo(function AccountTabContent({ user }) {
   const { backgroundColor, theme } = useContext(ThemeContext);
   const overviewBg = stepColor(backgroundColor, theme, 1);
+  // Cover cache shared for all tabs
   return (
     <>
       {/* Account Overview: Primary and Secondary Emails */}

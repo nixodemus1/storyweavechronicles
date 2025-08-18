@@ -18,6 +18,7 @@ import datetime
 import json
 from dotenv import load_dotenv
 from PIL import Image
+import psutil
 import logging
 
 load_dotenv()
@@ -418,8 +419,11 @@ def list_pdfs(folder_id):
                 'created_at': book.created_at.isoformat(),
                 'updated_at': book.updated_at.isoformat() if book.updated_at else None
             })
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[list-pdf] Memory usage: {mem:.2f} MB for folder_id={folder_id}")
         return jsonify(pdfs=books)
     except Exception as e:
+        print(f"Error in list_pdfs: {e}")
         return jsonify(error=str(e)), 500
 
 @app.route('/download-pdf/<file_id>')
@@ -432,6 +436,8 @@ def download_pdf(file_id):
         file_content = io.BytesIO(request.execute())
         response = make_response(send_file(file_content, mimetype='application/pdf', as_attachment=True, download_name=filename))
         response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[download-pdf] Memory usage: {mem:.2f} MB for file_id={file_id}")
         return response
     except Exception as e:
         response = make_response(jsonify(error=str(e)), 500)
@@ -459,11 +465,13 @@ def pdf_cover(file_id):
             response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
             return response
         except Exception:
+            print(f"Error in pdf_cover: {e}")
             fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
             response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
             response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
             return response
     except Exception as e:
+        print(f"Error in pdf_cover: {e}")
         fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
         response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
         response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
@@ -509,6 +517,8 @@ def pdf_text(file_id):
             name = file_metadata.get('name')
         except Exception:
             pass
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[pdf-text] Memory usage: {mem:.2f} MB for file_id={file_id}")
         return jsonify({
             'success': True,
             'id': file_id,
@@ -1423,8 +1433,14 @@ def moderate_comment():
 def health_check():
     """
     Health check endpoint for Render.com. Returns 200 OK and JSON status.
+    Only log if status is not 200.
     """
-    return jsonify({'status': 'ok', 'message': 'Service is healthy.'}), 200
+    response = jsonify({'status': 'ok', 'message': 'Service is healthy.'})
+    status_code = 200
+    # Only log if status is not 200
+    if status_code != 200:
+        logging.info(f"[HEALTH CHECK] Status: {status_code} Response: {response.get_json()}")
+    return response, status_code
     
 # --- GitHub Webhook for App Update Notifications ---
 @app.route('/api/github-webhook', methods=['POST'])
