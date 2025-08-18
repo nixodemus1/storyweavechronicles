@@ -177,20 +177,33 @@ def send_notification_email(user, subject, body):
 # --- Notification Utility ---
 def add_notification(user, type_, title, body, link=None):
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    import uuid
     history = json.loads(user.notification_history) if user.notification_history else []
-    history.append({
+    timestamp = int(datetime.datetime.utcnow().timestamp() * 1000)
+    notification = {
+        'id': str(uuid.uuid4()),  # Always use a UUID for uniqueness
         'type': type_,
         'title': title,
         'body': body,
-        'timestamp': now,
+        'timestamp': timestamp,
         'read': False,
+        'dismissed': False,
         'link': link
-    })
-    user.notification_history = json.dumps(history)
-    db.session.commit()
-    prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-    if prefs.get('emailFrequency', 'immediate') == 'immediate':
-        send_notification_email(user, title, body)
+    }
+    # Prevent duplicates: check for same type, title, body, and link in history
+    if not any(
+            n.get('type') == notification['type'] and
+            n.get('title') == notification['title'] and
+            n.get('body') == notification['body'] and
+            n.get('link') == notification['link']
+            for n in history
+        ):
+            history.append(notification)
+            user.notification_history = json.dumps(history)
+            db.session.commit()
+            prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+            if prefs.get('emailFrequency', 'immediate') == 'immediate':
+                send_notification_email(user, title, body)
 
 # --- Admin Utility ---
 def is_admin(username):
@@ -554,8 +567,8 @@ def notify_reply():
     book_id = data.get('book_id')
     comment_id = data.get('comment_id')
     message = data.get('message', 'Someone replied to your comment!')
-    # Find the parent comment
-    parent_comment = Comment.query.get(comment_id)
+    # Find the parent comment (use Session.get for SQLAlchemy 2.x compatibility)
+    parent_comment = db.session.get(Comment, comment_id)
     if not parent_comment or parent_comment.deleted:
         return jsonify({'success': False, 'message': 'Parent comment not found.'}), 404
     parent_username = parent_comment.username
@@ -600,6 +613,8 @@ def notification_history():
         history = []
     if dropdown_only:
         history = [n for n in history if not n.get('dismissed')]
+    print(f"[GET NOTIFICATION HISTORY] User: {username}, History count: {len(history)}")
+    print(f"[GET NOTIFICATION HISTORY] History: {history}")
     return jsonify({'success': True, 'history': history})
 
 # Add a GET handler to return JSON error
@@ -658,43 +673,39 @@ def mark_notifications_read():
     return jsonify({'success': True, 'message': 'Notifications marked as read.', 'history': history})
 
 @app.route('/api/delete-notification', methods=['POST'])
-def dismiss_notification():
+def delete_notification():
     data = request.get_json()
     username = data.get('username')
     notification_id = data.get('notificationId')
-    timestamp = data.get('timestamp')
     user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
     history = json.loads(user.notification_history) if user.notification_history else []
-    found = False
-    for n in history:
-        # Ensure each notification has an 'id' field
-        if 'id' not in n:
-            n['id'] = n.get('timestamp')
-        # Match by id or timestamp
-        if (notification_id and (n.get('id') == notification_id or n.get('timestamp') == notification_id)) or (timestamp and n.get('timestamp') == timestamp):
-            n['dismissed'] = True
-            found = True
-    user.notification_history = json.dumps(history)
+    new_history = [n for n in history if str(n.get('id', n.get('timestamp'))) != str(notification_id)]
+    found = len(new_history) < len(history)
+    user.notification_history = json.dumps(new_history)
     db.session.commit()
-    return jsonify({'success': found, 'message': 'Notification dismissed.' if found else 'Notification not found.', 'history': history})
+    return jsonify({'success': found, 'message': 'Notification deleted.' if found else 'Notification not found.', 'history': new_history})
 
 # Dismiss all notifications for a user
 @app.route('/api/dismiss-all-notifications', methods=['POST'])
 def dismiss_all_notifications():
     data = request.get_json()
     username = data.get('username')
+    print(f"[DISMISS ALL] Request for user: {username}")
     user = User.query.filter_by(username=username).first()
     if not user:
+        print(f"[DISMISS ALL] User not found: {username}")
         return jsonify({'success': False, 'message': 'User not found.'}), 404
     history = json.loads(user.notification_history) if user.notification_history else []
+    print(f"[DISMISS ALL] Initial history count: {len(history)}")
     for n in history:
+        n['dismissed'] = True
         if 'id' not in n:
             n['id'] = n.get('timestamp')
-        n['dismissed'] = True
     user.notification_history = json.dumps(history)
     db.session.commit()
+    print(f"[DISMISS ALL] All notifications set to dismissed. History count: {len(history)}")
     return jsonify({'success': True, 'message': 'All notifications dismissed.', 'history': history})
 
 # Mark a single notification as read/unread
@@ -718,6 +729,25 @@ def mark_notification_read():
     user.notification_history = json.dumps(history)
     db.session.commit()
     return jsonify({'success': found, 'message': 'Notification marked as read.' if found else 'Notification not found.', 'history': history})
+
+@app.route('/api/delete-all-notification-history', methods=['POST'])
+def delete_all_notification_history():
+    data = request.get_json()
+    username = data.get('username')
+    print(f"[DELETE ALL] Request for user: {username}")
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        print(f"[DELETE ALL] User not found: {username}")
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    print(f"[DELETE ALL] History BEFORE: {user.notification_history}")
+    user.notification_history = json.dumps([])
+    db.session.commit()
+    print(f"[DELETE ALL] History AFTER: {user.notification_history}")
+    # Double-check by reloading from DB
+    user_check = User.query.filter_by(username=username).first()
+    print(f"[DELETE ALL] History AFTER COMMIT (reloaded): {user_check.notification_history}")
+    print(f"[DELETE ALL] Notification history cleared for user: {username}")
+    return jsonify({'success': True, 'message': 'All notifications deleted from history.', 'history': []})
 
 # Update font and timezone for user
 @app.route('/api/update-profile-settings', methods=['POST'])
@@ -801,6 +831,20 @@ def register():
     )
     db.session.add(user)
     db.session.commit()
+    # Send welcome notification
+    add_notification(
+        user,
+        'announcement',
+        'Welcome to Storyweave Chronicles!',
+        'Thank you for registering. Explore stories, bookmark your favorites, and join the community!',
+        link='/'
+    )
+    # Send welcome email
+    send_notification_email(
+        user,
+        'Welcome to Storyweave Chronicles!',
+        f"Welcome to the site! You can read stories, bookmark your favorites, and join the community discussion. Hope you have a great time!\n\nYour account info:\nUsername: {user.username}\nEmail: {user.email}\n"
+    )
     return jsonify({
         'success': True,
         'message': 'Registration successful.',
@@ -874,44 +918,6 @@ def remove_secondary_email():
     db.session.commit()
     return jsonify({'success': True, 'message': 'Secondary email removed.', 'secondaryEmails': secondary})
 
-@app.route('/api/delete-account', methods=['POST'])
-def delete_account():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    if not username or not password:
-        return jsonify({'success': False, 'message': 'Username and password required.'}), 400
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    if user.password != hash_password(password):
-        return jsonify({'success': False, 'message': 'Password incorrect.'}), 401
-    # Cascade delete logic
-    # 1. Mark all user's comments as deleted (do not hard delete)
-    user_comments = Comment.query.filter_by(username=username).all()
-    for comment in user_comments:
-        comment.deleted = True
-    # 2. Remove all votes by user
-    Vote.query.filter_by(username=username).delete()
-    # 3. Remove bookmarks
-    user.bookmarks = '[]'
-    # 4. Remove notification history and prefs
-    user.notification_history = '[]'
-    user.notification_prefs = '{}'
-    # 5. Remove secondary emails
-    user.secondary_emails = '[]'
-    # 6. Remove email, password, and other PII
-    user.email = None
-    user.password = None
-    user.background_color = None
-    user.text_color = None
-    user.font = None
-    user.timezone = None
-    db.session.commit()
-    # 7. Delete the user row from the database
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Account deleted. User removed from database; comments marked as deleted.'})
 
 @app.route('/api/drive-webhook', methods=['POST'])
 def drive_webhook():
@@ -942,6 +948,72 @@ def drive_webhook():
         with app.test_request_context(json=notify_data):
             notify_book_update()
     return '', 200
+
+@app.route('/api/test-send-scheduled-notifications', methods=['POST'])
+def test_send_scheduled_notifications():
+    """
+    Test endpoint to simulate scheduled notification emails for a user.
+    POST data: {"username": ..., "frequency": "daily"|"weekly"|"monthly"}
+    """
+    import datetime
+    import traceback
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        frequency = data.get('frequency', 'daily')
+        user = User.query.filter_by(username=username).first()
+        if not user or not user.email:
+            return jsonify({'success': False, 'message': 'User not found or no email.'}), 404
+        # Load notification history
+        history = []
+        try:
+            history = json.loads(user.notification_history) if user.notification_history else []
+        except Exception:
+            history = []
+        # Simulate aggregation logic (filter by frequency)
+        now = datetime.datetime.utcnow()
+        if frequency == 'daily':
+            cutoff = now - datetime.timedelta(days=1)
+        elif frequency == 'weekly':
+            cutoff = now - datetime.timedelta(weeks=1)
+        elif frequency == 'monthly':
+            cutoff = now - datetime.timedelta(days=30)
+        else:
+            cutoff = now - datetime.timedelta(days=1)
+        # Only include notifications newer than cutoff
+        notifications_to_send = []
+        for n in history:
+            ts = n.get('timestamp')
+            if ts is None:
+                continue
+            try:
+                dt = datetime.datetime.fromtimestamp(ts / 1000)
+                if dt > cutoff:
+                    notifications_to_send.append(n)
+            except Exception:
+                continue
+        # Compose email body (simple text for now)
+        if not notifications_to_send:
+            email_body = f"No new notifications for {frequency} period."
+        else:
+            email_body = f"Scheduled {frequency} notification summary for {user.username}:\n\n"
+            for n in notifications_to_send:
+                ts_str = ''
+                try:
+                    ts_val = n.get('timestamp')
+                    if ts_val:
+                        ts_str = datetime.datetime.fromtimestamp(ts_val / 1000).strftime('%Y-%m-%d %H:%M')
+                except Exception:
+                    ts_str = ''
+                email_body += f"- [{ts_str}] {n.get('title', n.get('type', 'Notification'))}: {n.get('body', '')}\n"
+        # Send email
+        try:
+            send_notification_email(user, f"Your {frequency.capitalize()} Notification Summary", email_body)
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'Email send failed: {str(e)}', 'email_body': email_body}), 500
+        return jsonify({'success': True, 'message': f'Scheduled notification email sent for {frequency}.', 'email_body': email_body, 'count': len(notifications_to_send)})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e), 'trace': traceback.format_exc()}), 500
 
 @app.route('/api/get-bookmarks', methods=['GET', 'POST'])
 def get_bookmarks():
@@ -1317,7 +1389,55 @@ def moderate_comment():
     if action == 'delete':
         comment.deleted = True
         db.session.commit()
+        # Notify comment author if deleted by moderator/admin
+        author = User.query.filter_by(username=comment.username).first()
+        if author:
+            add_notification(
+                author,
+                'moderation',
+                'Comment Deleted by Moderator',
+                f'Your comment on book {comment.book_id} was deleted by an admin/moderator.',
+                link=f'/read/{comment.book_id}?comment={comment_id}'
+            )
         return jsonify({'success': True, 'message': 'Comment deleted.'})
+    
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """
+    Health check endpoint for Render.com. Returns 200 OK and JSON status.
+    """
+    return jsonify({'status': 'ok', 'message': 'Service is healthy.'}), 200
+    
+# --- GitHub Webhook for App Update Notifications ---
+@app.route('/api/github-webhook', methods=['POST'])
+def github_webhook():
+    """
+    Receives GitHub webhook payload for push events and sends app update notifications to all users.
+    """
+    data = request.get_json()
+    # Only handle push events
+    if not data or data.get('ref') is None or 'commits' not in data:
+        return jsonify({'success': False, 'message': 'Invalid payload.'}), 400
+    repo = data.get('repository', {}).get('full_name', 'Unknown repo')
+    branch = data.get('ref', '').split('/')[-1]
+    commits = data.get('commits', [])
+    commit_msgs = [c.get('message', '') for c in commits]
+    committers = [c.get('committer', {}).get('name', '') for c in commits]
+    summary = f"Site updated on branch '{branch}' in repo '{repo}'.\n"
+    for i, msg in enumerate(commit_msgs):
+        summary += f"- {msg} (by {committers[i]})\n"
+    users = User.query.all()
+    for user in users:
+        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+        if not prefs.get('muteAll', False) and prefs.get('announcements', True):
+            add_notification(
+                user,
+                'appUpdate',
+                'Site Updated!',
+                summary,
+                link='https://github.com/nixodemus1/storyweavechronicles/commits/main'
+            )
+    return jsonify({'success': True, 'message': 'App update notifications sent.'})
     # Add more moderation actions as needed
     return jsonify({'success': False, 'message': 'Unknown action.'}), 400
 
@@ -1466,7 +1586,12 @@ if __name__ == '__main__':
                             for n in unread:
                                 line = f"- [{n.get('type', 'Notification')}] {n.get('title', '')}: {n.get('body', '')}"
                                 if n.get('timestamp'):
-                                    line += f" (at {n['timestamp']})"
+                                    try:
+                                        ts_val = n.get('timestamp')
+                                        ts_str = datetime.datetime.fromtimestamp(ts_val / 1000).strftime('%Y-%m-%d %H:%M')
+                                        line += f" (at {ts_str})"
+                                    except Exception:
+                                        line += f" (at {n['timestamp']})"
                                 if n.get('link'):
                                     line += f" [View]({n['link']})"
                                 body_lines.append(line)
@@ -1482,9 +1607,72 @@ if __name__ == '__main__':
                             user.notification_history = json.dumps(history)
                             db.session.commit()
 
+    # --- Scheduled Job: Check for New Books and Notify Users ---
+    def check_and_notify_new_books():
+        with app.app_context():
+            try:
+                # Set your Google Drive folder ID here (or load from env)
+                folder_id = os.getenv('DRIVE_BOOKS_FOLDER_ID')
+                if not folder_id:
+                    logging.warning('No DRIVE_BOOKS_FOLDER_ID set in environment.')
+                    return
+                service = get_drive_service()
+                query = f"'{folder_id}' in parents and mimeType='application/pdf'"
+                results = service.files().list(q=query, fields="files(id, name, createdTime)").execute()
+                files = results.get('files', [])
+                known_ids = set(b.drive_id for b in Book.query.all())
+                new_files = [f for f in files if f['id'] not in known_ids]
+                logging.info(f"Scheduled check: {len(new_files)} new PDFs detected.")
+                for f in new_files:
+                    # Download PDF to extract external_story_id
+                    try:
+                        request = service.files().get_media(fileId=f['id'])
+                        file_content = io.BytesIO(request.execute())
+                        story_id = extract_story_id_from_pdf(file_content)
+                    except Exception:
+                        story_id = None
+                    # Truncate external_story_id if too long
+                    if story_id and isinstance(story_id, str) and len(story_id) > 128:
+                        story_id = ""
+                    # Add to DB
+                    try:
+                        book = Book(
+                            drive_id=f['id'],
+                            title=f.get('name', 'Untitled'),
+                            external_story_id=story_id,
+                            version_history=json.dumps([{'created': f.get('createdTime')}])
+                        )
+                        db.session.add(book)
+                        db.session.commit()
+                    except Exception as db_exc:
+                        if "value too long for type character varying(128)" in str(db_exc):
+                            book = Book(
+                                drive_id=f['id'],
+                                title=f.get('name', 'Untitled'),
+                                external_story_id="",
+                                version_history=json.dumps([{'created': f.get('createdTime')}])
+                            )
+                            db.session.add(book)
+                            db.session.commit()
+                        else:
+                            logging.error(f"DB error adding new book: {db_exc}")
+                            continue
+                    # Send notification to all users
+                    users = User.query.all()
+                    for user in users:
+                        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+                        if not prefs.get('muteAll', False) and prefs.get('newBooks', True):
+                            body = f'A new book "{book.title}" is now available in the library.'
+                            if book.external_story_id:
+                                body += f' External ID: {book.external_story_id}'
+                            add_notification(user, 'newBook', 'New Book Added!', body, link=f'/read/{book.drive_id}')
+                    logging.info(f"Notified users of new book: {book.title} ({book.drive_id})")
+            except Exception as e:
+                logging.error(f"Error in scheduled new book check: {e}")
     scheduler = BackgroundScheduler()
     scheduler.add_job(lambda: send_scheduled_emails('daily'), 'cron', hour=8)
     scheduler.add_job(lambda: send_scheduled_emails('weekly'), 'cron', day_of_week='mon', hour=8)
     scheduler.add_job(lambda: send_scheduled_emails('monthly'), 'cron', day=1, hour=8)
+    scheduler.add_job(check_and_notify_new_books, 'interval', hours=1)
     scheduler.start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)

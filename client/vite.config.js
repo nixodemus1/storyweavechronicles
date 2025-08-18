@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/list-pdfs': 'http://localhost:5000',
+      '/api/delete-all-notification-history': 'http://localhost:5000',
       '/view-pdf': 'http://localhost:5000',
       '/download-pdf': 'http://localhost:5000',
       "/pdf-cover": "http://localhost:5000",
@@ -35,13 +36,15 @@ export default defineConfig({
       '/api/book-votes': 'http://localhost:5000',
       '/api/top-voted-books': 'http://localhost:5000',
       '/api/user-voted-books': 'http://localhost:5000',
-    '/api/get-notification-prefs': 'http://localhost:5000',
-    '/api/update-notification-prefs': 'http://localhost:5000',
-    '/api/get-notification-history': 'http://localhost:5000',
-    '/api/delete-notification': 'http://localhost:5000',
-    '/api/mark-notification-read': 'http://localhost:5000',
-    '/api/dismiss-all-notifications': 'http://localhost:5000',
-    '/api/mark-all-notifications-read': 'http://localhost:5000',
+      '/api/test-send-scheduled-notifications': 'http://localhost:5000',
+      '/api/get-notification-prefs': 'http://localhost:5000',
+      '/api/update-notification-prefs': 'http://localhost:5000',
+      '/api/get-notification-history': 'http://localhost:5000',
+      '/api/delete-notification': 'http://localhost:5000',
+      '/api/delete-notification-history': 'http://localhost:5000',
+      '/api/mark-notification-read': 'http://localhost:5000',
+      '/api/dismiss-all-notifications': 'http://localhost:5000',
+      '/api/mark-all-notifications-read': 'http://localhost:5000',
       '/api/delete-comment': 'http://localhost:5000',
       '/api/delete-account': 'http://localhost:5000',
       '/api/get-comments': 'http://localhost:5000',
@@ -53,7 +56,7 @@ export default defineConfig({
       '/api/dismiss-notification': 'http://localhost:5000',
       '/api/admin/send-emergency-email': 'http://localhost:5000',
       '/api/admin/make-admin': 'http://localhost:5000',
-    '/api/all-books': 'http://localhost:5000',
+      '/api/all-books': 'http://localhost:5000',
     }
   }
 })

@@ -9,12 +9,20 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
   const { backgroundColor, textColor, theme } = useContext(ThemeContext);
   const [prefs, setPrefs] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [emailChannels, setEmailChannels] = useState([]);
+  const [loading, setLoading] = useState(true);
 
+  // Email channel setup and load notification prefs
   React.useEffect(() => {
     if (!user?.username) return;
     setLoading(true);
+    const emails = [];
+    if (user?.email) emails.push({ label: 'Primary', value: user.email });
+    if (Array.isArray(user?.secondaryEmails)) {
+      user.secondaryEmails.forEach((e, i) => emails.push({ label: `Secondary ${i+1}`, value: e }));
+    }
+    setEmailChannels(emails);
+    // Fetch notification prefs
     fetch(`${API_BASE_URL}/api/get-notification-prefs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -22,16 +30,11 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
     })
       .then(res => res.json())
       .then(data => {
-        setPrefs(data.prefs || {});
-        setLoading(false);
-      });
-    // Gather all emails (primary + secondary)
-    const emails = [];
-    if (user?.email) emails.push({ label: 'Primary', value: user.email });
-    if (Array.isArray(user?.secondaryEmails)) {
-      user.secondaryEmails.forEach((e, i) => emails.push({ label: `Secondary ${i+1}`, value: e }));
-    }
-    setEmailChannels(emails);
+        if (data.success && data.prefs) {
+          setPrefs(data.prefs);
+        }
+      })
+      .finally(() => setLoading(false));
   }, [user?.username, user?.email, user?.secondaryEmails]);
 
   const containerBg = stepColor(backgroundColor, theme, 1);
@@ -232,27 +235,36 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
     })
       .then(res => res.json())
       .then(data => {
-        setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+        setNotifications(Array.isArray(data.history) ? data.history : []);
         setLoading(false);
       });
   }, [user?.username]);
 
   const containerBg = stepColor(backgroundColor, theme, 1);
 
-  function handleDismiss(id) {
+  async function handleDismiss(id) {
     setDeleting(id);
-    fetch(`${API_BASE_URL}/api/delete-notification`, {
+    try {
+    const res = await fetch(`${API_BASE_URL}/api/delete-notification`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user.username, notificationId: id })
     })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setNotifications(notifications => notifications.filter(n => n.id !== id));
-        }
-      })
-      .finally(() => setDeleting(null));
+      const data = await res.json();
+      if (data.success) {
+        // Refetch notifications after deletion
+        const updatedRes = await fetch(`${API_BASE_URL}/api/get-notification-history`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user.username })
+        });
+        const updatedData = await updatedRes.json();
+        setNotifications(Array.isArray(updatedData.history) ? updatedData.history : []);
+      }
+    } catch (e) {
+      console.log('Error deleting notification:', e);
+    }
+    setDeleting(null);
   }
 
   function handleMarkRead(id, read) {
@@ -269,9 +281,9 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
       });
   }
 
-  function handleBulkDismiss() {
+  function handleBulkDelete() {
     setBulkLoading(true);
-    fetch(`${API_BASE_URL}/api/dismiss-all-notifications`, {
+    fetch(`${API_BASE_URL}/api/delete-all-notification-history`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user.username })
@@ -279,7 +291,16 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
       .then(res => res.json())
       .then(data => {
         if (data.success) {
-          setNotifications([]);
+          // Refetch notification history to update state
+          fetch(`${API_BASE_URL}/api/get-notification-history`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user.username })
+          })
+            .then(res => res.json())
+            .then(data => {
+              setNotifications(Array.isArray(data.history) ? data.history : []);
+            });
         }
       })
       .finally(() => setBulkLoading(false));
@@ -319,7 +340,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
     <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
       <h3 style={{ color: textColor }}>Notification History</h3>
       {/* Filter controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
         <label style={{ color: textColor, fontSize: 14 }}>
           Type:
           <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ marginLeft: 6, padding: '2px 8px', borderRadius: 4 }}>
@@ -333,9 +354,10 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
           Date:
           <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} style={{ marginLeft: 6, padding: '2px 8px', borderRadius: 4 }} />
         </label>
-        {/* Bulk actions */}
-        <button onClick={handleBulkDismiss} disabled={bulkLoading || filteredNotifications.length === 0} style={{ background: '#eee', color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}>Dismiss All</button>
-        <button onClick={handleBulkMarkRead} disabled={bulkLoading || filteredNotifications.length === 0} style={{ background: '#eee', color: '#080', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}>Mark All as Read</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleBulkDelete} disabled={bulkLoading || filteredNotifications.length === 0} style={{ background: '#eee', color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}>Delete All</button>
+          <button onClick={handleBulkMarkRead} disabled={bulkLoading || filteredNotifications.length === 0} style={{ background: '#eee', color: '#080', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}>Mark All as Read</button>
+        </div>
       </div>
       {loading ? (
         <div style={{ color: '#888' }}>Loading notifications...</div>
@@ -357,7 +379,37 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
               gap: 10
             }}>
               <div>
-                <div style={{ fontWeight: 600 }}>{n.title}</div>
+                <div style={{ fontWeight: 600 }}>
+                  {n.link ? (
+                    <a
+                      href={n.link}
+                      style={{ color: textColor, textDecoration: 'underline', cursor: 'pointer' }}
+                      onClick={async e => {
+                        e.preventDefault();
+                        // Mark as read if not already
+                        if (!n.read) {
+                          await fetch(`${API_BASE_URL}/api/mark-notification-read`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username: user.username, notificationId: n.id, read: true })
+                          });
+                        }
+                        // Mark as dismissed so it disappears from dropdown, but do NOT delete from history
+                        await fetch(`${API_BASE_URL}/api/dismiss-notification`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ username: user.username, notificationId: n.id })
+                        });
+                        setNotifications(notifications => notifications.map(notif => notif.id === n.id ? { ...notif, read: true, dismissed: true } : notif));
+                        window.location.href = n.link;
+                      }}
+                    >
+                      {n.title}
+                    </a>
+                  ) : (
+                    n.title
+                  )}
+                </div>
                 <div style={{ fontSize: 13, color: '#888' }}>{n.body}</div>
                 <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{new Date(n.timestamp).toLocaleString()}</div>
               </div>

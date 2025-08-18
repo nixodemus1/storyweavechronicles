@@ -173,6 +173,7 @@ export default function App() {
 
     // Dismiss notification
     const handleDismiss = async (id) => {
+      // Dismiss only the clicked notification
       await fetch(`/api/delete-notification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -186,18 +187,9 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success && Array.isArray(data.history)) {
-        setNotifications(data.history);
-        lastIdsRef.current = data.history.map(n => n.id).sort();
-      }
-      // Update user profile notifications
-      if (typeof window.setUser === 'function') {
-        window.setUser(u => {
-          if (!u) return u;
-          return {
-            ...u,
-            notifications: notifications.filter(n => n.id !== id)
-          };
-        });
+        // Only update with non-dismissed notifications
+        setNotifications(data.history.filter(n => !n.dismissed));
+        lastIdsRef.current = data.history.filter(n => !n.dismissed).map(n => n.id).sort();
       }
     };
 
@@ -221,9 +213,23 @@ export default function App() {
 
   // Notification button and dropdown
   function NotificationButton() {
+    async function handleDismissAllDropdown() {
+      if (!user?.username) return;
+      try {
+        await fetch('/api/dismiss-all-notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user.username })
+        });
+        // Await refetch to ensure dropdown updates instantly
+        await fetchNotifications();
+      } catch (err) {
+        console.error('Failed to dismiss all notifications:', err);
+      }
+    }
     const [showDropdown, setShowDropdown] = useState(false);
     const dropdownRef = useRef(null);
-  const { notifications, loading, fetchNotifications, handleDismiss, handleNotificationClick } = useNotifications(user);
+  const { notifications, loading, fetchNotifications, handleDismiss, } = useNotifications(user);
     const appNavigate = useAppNavigate();
 
     // Close dropdown on outside click
@@ -239,8 +245,10 @@ export default function App() {
       }
     }, [showDropdown]);
 
-    // Only show unread indicator if there are unread and not dismissed notifications
-    const hasActiveUnread = notifications.some(n => !n.dismissed && !n.read);
+  // Filter out dismissed notifications for dropdown
+  const activeNotifications = notifications.filter(n => !n.dismissed);
+  // Only show unread indicator if there are unread and not dismissed notifications
+  const hasActiveUnread = activeNotifications.some(n => !n.read);
     // Helper to generate a unique key for each notification
     function getNotificationKey(n, idx) {
       // Use id if present, else fallback to timestamp + idx
@@ -249,7 +257,9 @@ export default function App() {
     // Modified notification click handler: dismiss on link click
     function handleNotificationClickAndDismiss(n, navigate) {
       if (n.link) {
-        handleDismiss(n.id || n.timestamp);
+        // Dismiss only the clicked notification, then navigate
+        handleDismiss(n.id);
+        setShowDropdown(false); // Close dropdown
         navigate(n.link);
       }
     }
@@ -270,8 +280,11 @@ export default function App() {
             color: hasActiveUnread ? '#f5c518' : headerButtonTextColor,
           }}
           onClick={() => {
-            setShowDropdown(v => !v);
-            if (!showDropdown) fetchNotifications();
+            setShowDropdown(prev => {
+              const next = !prev;
+              if (next) fetchNotifications();
+              return next;
+            });
           }}
           title="Notifications"
           aria-label="Notifications"
@@ -313,13 +326,18 @@ export default function App() {
                     onClick={fetchNotifications}
                     title="Refresh"
                   >⟳</button>
+                  <button
+                    style={{ background: '#eee', color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', marginLeft: 8 }}
+                    onClick={handleDismissAllDropdown}
+                    title="Dismiss all notifications"
+                  >Dismiss All</button>
                 </div>
                 {loading ? (
                   <div>Loading...</div>
-                ) : notifications.length === 0 ? (
+                ) : activeNotifications.length === 0 ? (
                   <div style={{ color: '#888', fontSize: 15 }}>No new notifications.</div>
                 ) : (
-                  notifications.filter(n => !n.dismissed).map((n, idx) => (
+                  activeNotifications.map((n, idx) => (
                     <div
                       key={getNotificationKey(n, idx)}
                       style={{ background: stepColor(headerButtonColor, theme, 1), color: headerButtonTextColor, borderRadius: 7, marginBottom: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
