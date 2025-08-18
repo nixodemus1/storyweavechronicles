@@ -17,8 +17,10 @@ import hashlib
 import datetime
 import json
 from dotenv import load_dotenv
-load_dotenv()
+from PIL import Image
 import logging
+
+load_dotenv()
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = (
@@ -441,14 +443,18 @@ def pdf_cover(file_id):
         try:
             doc = fitz.open(stream=file_content, filetype="pdf")
             page = doc.load_page(0)
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))  # Downscale for thumbnail
             img_bytes = io.BytesIO(pix.tobytes("png"))
-            return send_file(img_bytes, mimetype="image/png")
+            img = Image.open(img_bytes)
+            img = img.convert("RGB")
+            img.thumbnail((80, 120))  # Thumbnail size
+            out = io.BytesIO()
+            img.save(out, format="JPEG", quality=70) # <-- quality ammount
+            out.seek(0)
+            return send_file(out, mimetype="image/jpeg")
         except Exception:
-            # Not a valid PDF or cannot generate cover
             return send_file(os.path.join('..', 'client', 'public', 'no-cover.png'), mimetype="image/png"), 404
     except Exception as e:
-        # File not found or cannot access
         return send_file(os.path.join('..', 'client', 'public', 'no-cover.png'), mimetype="image/png"), 404
     
 @app.route('/api/pdf-text/<file_id>')
