@@ -4,6 +4,23 @@ import { ThemeContext } from "../themeContext";
 import { stepColor, getLuminance } from "../utils/colorUtils";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
+function getCoverFromCache(bookId) {
+  try {
+    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
+    return cache[bookId] || `${API_BASE_URL}/pdf-cover/${bookId}`;
+  } catch {
+    return `${API_BASE_URL}/pdf-cover/${bookId}`;
+  }
+}
+function setCoverInCache(bookId, url) {
+  try {
+    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
+    cache[bookId] = url;
+    localStorage.setItem('swc_cover_cache', JSON.stringify(cache));
+  } catch {
+    null;
+  }
+}
 
 export default function SearchResults() {
   const location = useLocation();
@@ -21,18 +38,20 @@ export default function SearchResults() {
     setQuery(params.get("query") || "");
   }, [location.search]);
 
-  // Fetch all books and filter by query
+
+  // Fetch all books metadata from DB, filter by query, then fetch details for matching IDs
   useEffect(() => {
     if (!query) return;
     setLoading(true);
-    fetch(`${API_BASE_URL}/list-pdfs/${import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID}`)
+    // Step 1: Get all book metadata (just IDs/titles) from DB
+    fetch(`${API_BASE_URL}/api/all-books`)
       .then(res => res.json())
       .then(data => {
         let filtered = [];
-        if (data.pdfs && Array.isArray(data.pdfs)) {
+        if (Array.isArray(data.books)) {
           // Partial and prefix match on title OR external_story_id
-          filtered = data.pdfs.filter(pdf => {
-            const q = query.toLowerCase();
+          const q = query.toLowerCase();
+          filtered = data.books.filter(pdf => {
             const titleMatch = pdf.title && (
               pdf.title.toLowerCase().includes(q) ||
               pdf.title.toLowerCase().startsWith(q)
@@ -44,7 +63,30 @@ export default function SearchResults() {
             return titleMatch || extIdMatch;
           });
         }
-        setResults(filtered);
+        // Step 2: Fetch full metadata for matching IDs
+        if (filtered.length > 0) {
+          const ids = filtered.map(b => b.id).filter(Boolean);
+          fetch(`${API_BASE_URL}/api/books?ids=${ids.join(',')}`)
+            .then(res2 => res2.json())
+            .then(data2 => {
+              if (Array.isArray(data2.books)) {
+                setResults(data2.books);
+              } else {
+                setResults([]);
+              }
+              setLoading(false);
+            })
+            .catch(() => {
+              setResults([]);
+              setLoading(false);
+            });
+        } else {
+          setResults([]);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        setResults([]);
         setLoading(false);
       });
     // Fetch bookmarks if user is logged in
@@ -85,6 +127,21 @@ export default function SearchResults() {
     return 0;
   });
 
+  // Preload covers and cache them in localStorage
+  useEffect(() => {
+    sortedResults.forEach(pdf => {
+      if (!pdf.id) return;
+      const cached = getCoverFromCache(pdf.id);
+      if (!cached || cached.startsWith(API_BASE_URL)) {
+        const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+        const img = new window.Image();
+        img.onload = () => setCoverInCache(pdf.id, url);
+        img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+        img.src = url;
+      }
+    });
+  }, [sortedResults]);
+
   // Container colors
   function getContainerBg(bg, theme, step = 1) {
     if (!bg) return theme === 'dark' ? '#232323' : '#f5f5f5';
@@ -120,12 +177,14 @@ export default function SearchResults() {
             {sortedResults.map(pdf => (
               <li key={pdf.id} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: containerBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
                 <img
-                  src={`${API_BASE_URL}/pdf-cover/${pdf.id}`}
+                  src={getCoverFromCache(pdf.id)}
                   alt={pdf.title}
                   style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                   onError={e => {
-                    e.target.onerror = null;
-                    e.target.src = '/no-cover.png';
+                    if (e.target.src !== '/no-cover.png') {
+                      setCoverInCache(pdf.id, '/no-cover.png');
+                      e.target.src = '/no-cover.png';
+                    }
                   }}
                 />
                 <div style={{ flex: 1 }}>

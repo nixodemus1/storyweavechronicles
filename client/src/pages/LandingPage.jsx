@@ -1,57 +1,42 @@
-// Custom hook to cache covers for a list of pdfs
-// In-memory cache for cover URLs
-const coverCache = {};
-
+// LocalStorage cover cache utilities
+const API_BASE_URL = import.meta.env.VITE_HOST_URL;
+function getCoverFromCache(bookId) {
+  try {
+    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
+    return cache[bookId] || `${API_BASE_URL}/pdf-cover/${bookId}`;
+  } catch {
+    return `${API_BASE_URL}/pdf-cover/${bookId}`;
+  }
+}
+function setCoverInCache(bookId, url) {
+  try {
+    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
+    cache[bookId] = url;
+    localStorage.setItem('swc_cover_cache', JSON.stringify(cache));
+  } catch {
+    null;
+  }
+}
 function useCachedCovers(pdfs) {
   const [covers, setCovers] = React.useState({});
-
-  // LINT WARNING: covers is intentionally NOT included in the dependency array to avoid infinite loop and site freeze.
-  // This is safe because covers is managed by setCovers and not an external prop.
   React.useEffect(() => {
     let isMounted = true;
-    // Revoke previous blob URLs before setting new covers
-    const prevBlobUrls = Object.values(covers).filter(url => url && url.startsWith('blob:'));
-    prevBlobUrls.forEach(url => {
-      try { URL.revokeObjectURL(url); } catch {console.log("Error revoking blob URL:", url);}
-    });
-
-    const fetchCovers = async () => {
-      const newCovers = {};
-      // console.log('[useCachedCovers] Fetching covers for pdfs:', pdfs.map(p => p.id));
-      await Promise.all(
-        pdfs.map(async (pdf) => {
-          if (!pdf.id) return;
-          if (coverCache[pdf.id]) {
-            newCovers[pdf.id] = coverCache[pdf.id];
-            return;
-          }
-          try {
-            const res = await fetch(`${import.meta.env.VITE_HOST_URL}/pdf-cover/${pdf.id}`);
-            if (!res.ok) throw new Error('Failed to fetch');
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            coverCache[pdf.id] = url;
-            newCovers[pdf.id] = url;
-          } catch {
-            coverCache[pdf.id] = '/no-cover.png';
-            newCovers[pdf.id] = '/no-cover.png';
-          }
-        })
-      );
-      if (isMounted) {
-        // console.log('[useCachedCovers] Setting covers:', Object.keys(newCovers));
-        setCovers(newCovers);
+    const newCovers = {};
+    pdfs.forEach(pdf => {
+      if (!pdf.id) return;
+      const cached = getCoverFromCache(pdf.id);
+      newCovers[pdf.id] = cached;
+      // If not cached or is a direct API url, preload and cache
+      if (!cached || cached.startsWith(API_BASE_URL)) {
+        const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+        const img = new window.Image();
+        img.onload = () => setCoverInCache(pdf.id, url);
+        img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+        img.src = url;
       }
-    };
-    fetchCovers();
-    return () => {
-      isMounted = false;
-      // Revoke blob URLs on unmount
-      const blobUrls = Object.values(covers).filter(url => url && url.startsWith('blob:'));
-      blobUrls.forEach(url => {
-        try { URL.revokeObjectURL(url); } catch {console.log("Error revoking blob URL:", url);}
-      });
-    };
+    });
+    if (isMounted) setCovers(newCovers);
+    return () => { isMounted = false; };
   }, [pdfs]);
   return covers;
 }
@@ -93,8 +78,8 @@ function SearchBar({ pdfs, navigate }) {
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     if (!searchInput.trim()) return;
-    const q = searchInput.toLowerCase();
-    // Exact match on title or external_story_id
+  const q = searchInput.toLowerCase();
+  // Exact match on title or external_story_id
     const exactMatches = pdfs.filter(pdf =>
       (pdf.title && pdf.title.toLowerCase() === q) ||
       (pdf.external_story_id && pdf.external_story_id.toLowerCase() === q)
@@ -190,6 +175,7 @@ function SearchBar({ pdfs, navigate }) {
               onMouseDown={e => e.preventDefault()}
               onClick={() => handleAutocompleteClick(pdf)}
             >
+              {/* Only show title, no cover icon */}
               {pdf.title}
             </div>
           ))}
@@ -215,12 +201,14 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
             .map((pdf) => (
               <SteppedContainer depth={depth + 1} key={pdf.id} className="carousel-item" style={{ cursor: 'pointer' }}>
                 <img
-                  src={covers[pdf.id] || `${import.meta.env.VITE_HOST_URL}/pdf-cover/${pdf.id}`}
+                  src={covers[pdf.id]}
                   alt={pdf.title}
                   className="book-cover"
                   onError={e => {
-                    e.target.onerror = null;
-                    e.target.src = '/no-cover.png';
+                    if (e.target.src !== '/no-cover.png') {
+                      setCoverInCache(pdf.id, '/no-cover.png');
+                      e.target.src = '/no-cover.png';
+                    }
                   }}
                 />
                 <SteppedContainer depth={depth + 2} className="book-title" style={{ padding: '0.25em 0.5em', borderRadius: 4, marginTop: 8 }}>
@@ -257,9 +245,15 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
           <ol>
             {topNewest.map((pdf) => (
               <li key={pdf.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <img src={coversNewest[pdf.id] || `${import.meta.env.VITE_HOST_URL}/pdf-cover/${pdf.id}`}
+                <img src={coversNewest[pdf.id]}
                   alt={pdf.title}
-                  style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }} />
+                  style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }}
+                  onError={e => {
+                    if (e.target.src !== '/no-cover.png') {
+                      setCoverInCache(pdf.id, '/no-cover.png');
+                      e.target.src = '/no-cover.png';
+                    }
+                  }} />
                 <SteppedContainer depth={depth + 2} style={{ display: 'inline-block', borderRadius: 4 }}>
                   <button
                     className="top-list-link"
@@ -278,9 +272,15 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
           <ol>
             {topVoted.map((pdf) => (
               <li key={pdf.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <img src={coversVoted[pdf.id] || `${import.meta.env.VITE_HOST_URL}/pdf-cover/${pdf.id}`}
+                <img src={coversVoted[pdf.id]}
                   alt={pdf.title}
-                  style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }} />
+                  style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }}
+                  onError={e => {
+                    if (e.target.src !== '/no-cover.png') {
+                      setCoverInCache(pdf.id, '/no-cover.png');
+                      e.target.src = '/no-cover.png';
+                    }
+                  }} />
                 <SteppedContainer depth={depth + 2} style={{ display: 'inline-block', borderRadius: 4 }}>
                   <button
                     className="top-list-link"
@@ -302,10 +302,11 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
 export default function LandingPage() {
   const navigate = useNavigate();
   const { theme, backgroundColor: _backgroundColor, textColor } = useContext(ThemeContext);
+
   const [pdfs, setPdfs] = useState([]);
   const [topNewest, setTopNewest] = useState([]);
   const [topVoted, setTopVoted] = useState([]);
-  const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
+  const [loadingPdfs, setLoadingPdfs] = useState(false);
   const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
   const settings = {
@@ -323,62 +324,67 @@ export default function LandingPage() {
     ],
   };
 
+  // Fetch top 20 newest book IDs from /api/all-books (or paginated /list-pdfs if needed)
   useEffect(() => {
-    if (!folderId) return;
-    function computeHash(pdfs) {
-      if (!pdfs || !Array.isArray(pdfs)) return '';
-      return pdfs.map(pdf => `${pdf.id}:${pdf.createdTime || ''}`).sort().join('|');
-    }
-    const cached = localStorage.getItem('swc_pdfs_cache');
-    const cachedHash = localStorage.getItem('swc_pdfs_hash');
-    let usedCache = false;
-    if (cached && cachedHash) {
-      try {
-        const parsed = JSON.parse(cached);
-        setPdfs(parsed);
-        setTopNewest(parsed.slice(0, 10));
-        usedCache = true;
-      } catch {return}
-    }
-    fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
+    setLoadingPdfs(true);
+    fetch(`${API_BASE_URL}/api/all-books`)
       .then(res => res.json())
       .then(data => {
-        if (data.pdfs) {
-          const sorted = data.pdfs.slice().sort((a, b) => {
-            if (a.createdTime && b.createdTime) {
-              return new Date(b.createdTime) - new Date(a.createdTime);
-            }
-            return 0;
-          });
-          const hash = computeHash(sorted);
-          if (!usedCache || hash !== cachedHash) {
-            setPdfs(sorted);
-            setTopNewest(sorted.slice(0, 10));
-            localStorage.setItem('swc_pdfs_cache', JSON.stringify(sorted));
-            localStorage.setItem('swc_pdfs_hash', hash);
+        if (Array.isArray(data.books)) {
+          // Get top 20 newest IDs
+          const newestIds = data.books.slice(0, 20).map(b => b.id);
+          if (newestIds.length > 0) {
+            fetch(`${API_BASE_URL}/api/books?ids=${newestIds.join(',')}`)
+              .then(res2 => res2.json())
+              .then(data2 => {
+                if (Array.isArray(data2.books)) {
+                  setPdfs(data2.books);
+                  setTopNewest(data2.books.slice(0, 10));
+                }
+                setLoadingPdfs(false);
+              })
+              .catch(err => {
+                console.error("Error fetching books by ids:", err);
+                setLoadingPdfs(false);
+              });
+          } else {
+            setLoadingPdfs(false);
           }
+        } else {
+          setLoadingPdfs(false);
         }
       })
-      .catch(err => console.error("Error fetching PDFs:", err));
-  }, [folderId, API_BASE_URL]);
+      .catch(err => {
+        console.error("Error fetching all books:", err);
+        setLoadingPdfs(false);
+      });
+  }, [API_BASE_URL]);
 
-  // Fetch top voted books from backend and match with pdfs
+  // Fetch top voted book IDs and then fetch their details
   useEffect(() => {
-    if (!pdfs || pdfs.length === 0) return;
     fetch(`${API_BASE_URL}/api/top-voted-books`)
       .then(res => res.json())
       .then(data => {
         if (data.success && Array.isArray(data.books)) {
-          // Match returned book IDs to pdfs
-          const topVotedBooks = data.books
-            .map(b => pdfs.find(pdf => pdf.id === b.id || pdf.id === b.book_id))
-            .filter(Boolean)
-            .slice(0, 10);
-          setTopVoted(topVotedBooks);
+          const votedIds = data.books.map(b => b.id || b.book_id).filter(Boolean);
+          if (votedIds.length > 0) {
+            fetch(`${API_BASE_URL}/api/books?ids=${votedIds.join(',')}`)
+              .then(res2 => res2.json())
+              .then(data2 => {
+                if (Array.isArray(data2.books)) {
+                  setTopVoted(data2.books.slice(0, 10));
+                }
+              })
+              .catch(err => {
+                console.error("Error fetching voted books by ids:", err);
+              });
+          }
         }
       })
-      .catch(err => console.error("Error fetching top voted books:", err));
-  }, [pdfs, API_BASE_URL]);
+      .catch(err => {
+        console.error("Error fetching top voted books:", err);
+      });
+  }, [API_BASE_URL]);
 
   return (
     <ContainerDepthProvider>
@@ -387,6 +393,9 @@ export default function LandingPage() {
           <SearchBar pdfs={pdfs} navigate={navigate} depth={1} />
           <CarouselSection pdfs={pdfs} navigate={navigate} settings={settings} depth={1} />
           <TopListsSection topNewest={topNewest} topVoted={topVoted} navigate={navigate} depth={1} />
+          {loadingPdfs && (
+            <div style={{ textAlign: 'center', color: '#888', margin: 24 }}>Loading more books...</div>
+          )}
         </div>
       </SteppedContainer>
     </ContainerDepthProvider>

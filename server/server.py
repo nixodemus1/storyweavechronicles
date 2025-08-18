@@ -349,82 +349,80 @@ def update_external_id():
         return jsonify({'success': True, 'message': 'External ID updated.', 'external_story_id': new_external_id})
     return jsonify({'success': True, 'message': 'No update needed.', 'external_story_id': book.external_story_id})
 
+
+# Paginated PDF list endpoint
 @app.route('/list-pdfs/<folder_id>')
 def list_pdfs(folder_id):
     try:
-        service = get_drive_service()
-        query = f"'{folder_id}' in parents and mimeType='application/pdf'"
-        results = service.files().list(q=query, fields="files(id, name, createdTime)").execute()
-        files = results.get('files', [])
-        books = []
-        for f in files:
-            # Check if book already exists in DB
-            book = Book.query.filter_by(drive_id=f['id']).first()
-            if not book:
-                # Download PDF to extract story ID
-                try:
-                    request = service.files().get_media(fileId=f['id'])
-                    file_content = io.BytesIO(request.execute())
-                    story_id = extract_story_id_from_pdf(file_content)
-                except Exception:
-                    story_id = None
-                # Truncate external_story_id if too long
-                if story_id and isinstance(story_id, str) and len(story_id) > 128:
-                    story_id = ""
-                try:
-                    book = Book(
-                        drive_id=f['id'],
-                        title=f.get('name', 'Untitled'),
-                        external_story_id=story_id,
-                        version_history=json.dumps([{'created': f.get('createdTime')}])
-                    )
-                    db.session.add(book)
-                    db.session.commit()
-                except Exception as db_exc:
-                    # If error is string too long, set external_story_id to blank and retry
-                    if "value too long for type character varying(128)" in str(db_exc):
-                        book = Book(
-                            drive_id=f['id'],
-                            title=f.get('name', 'Untitled'),
-                            external_story_id="",
-                            version_history=json.dumps([{'created': f.get('createdTime')}])
-                        )
-                        db.session.add(book)
-                        db.session.commit()
-                    else:
-                        raise db_exc
-            # Always provide createdTime and modifiedTime for frontend fallback
+        # Get pagination params
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 50))
+        if page_size > 200:
+            page_size = 200  # Prevent excessive memory usage
+        offset = (page - 1) * page_size
+
+        # Query PDFs from database (Book model)
+        total_count = Book.query.count()
+        pdfs = Book.query.order_by(Book.created_at.desc()).offset(offset).limit(page_size).all()
+        pdf_list = []
+        for book in pdfs:
+            # Try to get createdTime and modifiedTime from version_history if present
             created_time = None
             modified_time = None
-            # Try to get from version_history if present
             try:
                 history = json.loads(book.version_history) if book.version_history else []
                 if history and isinstance(history, list):
                     created_time = history[0].get('created')
             except Exception:
                 pass
-            # Fallbacks
             if not created_time:
                 created_time = book.created_at.isoformat() if book.created_at else None
             if book.updated_at:
                 modified_time = book.updated_at.isoformat()
             else:
                 modified_time = created_time
-            books.append({
+            pdf_list.append({
                 'id': book.drive_id,
                 'title': book.title,
                 'external_story_id': book.external_story_id,
                 'createdTime': created_time,
                 'modifiedTime': modified_time,
-                'created_at': book.created_at.isoformat(),
+                'created_at': book.created_at.isoformat() if book.created_at else None,
                 'updated_at': book.updated_at.isoformat() if book.updated_at else None
             })
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
         logging.info(f"[list-pdf] Memory usage: {mem:.2f} MB for folder_id={folder_id}")
-        return jsonify(pdfs=books)
+        return jsonify({
+            'pdfs': pdf_list,
+            'page': page,
+            'page_size': page_size,
+            'total_count': total_count,
+            'has_more': offset + len(pdf_list) < total_count
+        })
     except Exception as e:
-        print(f"Error in list_pdfs: {e}")
-        return jsonify(error=str(e)), 500
+        logging.error(f"Error in paginated /list-pdfs/: {e}")
+        return jsonify({'error': 'Failed to list PDFs', 'details': str(e)}), 500
+
+# Optimized book fetch endpoint: returns only requested books by drive_id
+@app.route('/api/books', methods=['GET'])
+def get_books_by_ids():
+    ids_param = request.args.get('ids')
+    if not ids_param:
+        return jsonify({'error': 'Missing ids parameter'}), 400
+    ids = ids_param.split(',')
+    # Query books by drive_id
+    books = Book.query.filter(Book.drive_id.in_(ids)).all()
+    result = []
+    for book in books:
+        result.append({
+            'id': book.drive_id,
+            'title': book.title,
+            'external_story_id': book.external_story_id,
+            'created_at': book.created_at.isoformat() if book.created_at else None,
+            'updated_at': book.updated_at.isoformat() if book.updated_at else None,
+            # Add other fields as needed
+        })
+    return jsonify({'books': result})
 
 @app.route('/download-pdf/<file_id>')
 def download_pdf(file_id):
