@@ -25,7 +25,10 @@ function useCachedCovers(pdfs) {
     let isMounted = true;
     const newCovers = {};
     pdfs.forEach(pdf => {
-      if (!pdf.id) return;
+      if (!pdf.id) {
+        console.warn('[LandingPage] Skipping cover preload: invalid book id', pdf);
+        return;
+      }
       const cached = getCoverFromCache(pdf.id);
       newCovers[pdf.id] = cached;
       // Only preload if not cached or is direct API url, but NOT if cached is '/no-cover.png'
@@ -201,38 +204,42 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
           afterChange={() => { window._carouselDragged = false; }}
         >
           {pdfs20
-            .filter(pdf => pdf && pdf.id && pdf.title)
+            .filter(pdf => pdf && pdf.title)
             .map((pdf) => (
-              <SteppedContainer depth={depth + 1} key={pdf.id} className="carousel-item" style={{ cursor: 'pointer' }}>
-                <img
-                  src={covers[pdf.id]}
-                  alt={pdf.title}
-                  className="book-cover"
-                  onError={e => {
-                    if (e.target.src !== '/no-cover.png') {
-                      setCoverInCache(pdf.id, '/no-cover.png');
-                      e.target.src = '/no-cover.png';
-                    }
-                  }}
-                  onClick={e => {
-                    // Only retry if cached is /no-cover.png
-                    if (covers[pdf.id] === '/no-cover.png') {
-                      const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-                      const img = new window.Image();
-                      img.onload = () => setCoverInCache(pdf.id, url);
-                      img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                      img.src = url;
-                      setTimeout(() => {
-                        e.target.src = getCoverFromCache(pdf.id);
-                      }, 500);
-                    }
-                  }}
-                />
+              <SteppedContainer depth={depth + 1} key={pdf.id || Math.random()} className="carousel-item" style={{ cursor: 'pointer' }}>
+                {pdf.id ? (
+                  <img
+                    src={covers[pdf.id]}
+                    alt={pdf.title}
+                    className="book-cover"
+                    onError={e => {
+                      if (e.target.src !== '/no-cover.png') {
+                        setCoverInCache(pdf.id, '/no-cover.png');
+                        e.target.src = '/no-cover.png';
+                      }
+                    }}
+                    onClick={e => {
+                      // Only retry if cached is /no-cover.png
+                      if (covers[pdf.id] === '/no-cover.png') {
+                        const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                        const img = new window.Image();
+                        img.onload = () => setCoverInCache(pdf.id, url);
+                        img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+                        img.src = url;
+                        setTimeout(() => {
+                          e.target.src = getCoverFromCache(pdf.id);
+                        }, 500);
+                      }
+                    }}
+                  />
+                ) : (
+                  <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
+                )}
                 <SteppedContainer depth={depth + 2} className="book-title" style={{ padding: '0.25em 0.5em', borderRadius: 4, marginTop: 8 }}>
                   <button
                     style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', fontSize: 'inherit' }}
                     onClick={() => {
-                      if (!window._carouselDragged) navigate(`/read/${pdf.id}`);
+                      if (!window._carouselDragged && pdf.id) navigate(`/read/${pdf.id}`);
                     }}
                     tabIndex={-1}
                     inert={false}
@@ -261,33 +268,38 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
           <h3>Top 10 Newest</h3>
           <ol>
             {topNewest.map((pdf) => (
-              <li key={pdf.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <img src={coversNewest[pdf.id]}
-                  alt={pdf.title}
-                  style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }}
-                  onError={e => {
-                    if (e.target.src !== '/no-cover.png') {
-                      setCoverInCache(pdf.id, '/no-cover.png');
-                      e.target.src = '/no-cover.png';
-                    }
-                  }}
-                  onClick={e => {
-                    if (coversNewest[pdf.id] === '/no-cover.png') {
-                      const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-                      const img = new window.Image();
-                      img.onload = () => setCoverInCache(pdf.id, url);
-                      img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                      img.src = url;
-                      setTimeout(() => {
-                        e.target.src = getCoverFromCache(pdf.id);
-                      }, 500);
-                    }
-                  }} />
+              <li key={pdf.id || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {pdf.id ? (
+                  <img src={coversNewest[pdf.id]}
+                    alt={pdf.title}
+                    style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }}
+                    onError={e => {
+                      if (e.target.src !== '/no-cover.png') {
+                        setCoverInCache(pdf.id, '/no-cover.png');
+                        e.target.src = '/no-cover.png';
+                      }
+                    }}
+                    onClick={e => {
+                      if (coversNewest[pdf.id] === '/no-cover.png') {
+                        const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                        const img = new window.Image();
+                        img.onload = () => setCoverInCache(pdf.id, url);
+                        img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+                        img.src = url;
+                        setTimeout(() => {
+                          e.target.src = getCoverFromCache(pdf.id);
+                        }, 500);
+                      }
+                    }} />
+                ) : (
+                  <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span> &&
+                  (() => { console.warn('[LandingPage] TopNewest: invalid book id', pdf); })()
+                )}
                 <SteppedContainer depth={depth + 2} style={{ display: 'inline-block', borderRadius: 4 }}>
                   <button
                     className="top-list-link"
                     style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer' }}
-                    onClick={() => navigate(`/read/${pdf.id}`)}
+                    onClick={() => pdf.id && navigate(`/read/${pdf.id}`)}
                   >
                     {pdf.title}
                   </button>
@@ -300,33 +312,38 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
           <h3>Top 10 by Votes</h3>
           <ol>
             {topVoted.map((pdf) => (
-              <li key={pdf.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <img src={coversVoted[pdf.id]}
-                  alt={pdf.title}
-                  style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }}
-                  onError={e => {
-                    if (e.target.src !== '/no-cover.png') {
-                      setCoverInCache(pdf.id, '/no-cover.png');
-                      e.target.src = '/no-cover.png';
-                    }
-                  }}
-                  onClick={e => {
-                    if (coversVoted[pdf.id] === '/no-cover.png') {
-                      const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-                      const img = new window.Image();
-                      img.onload = () => setCoverInCache(pdf.id, url);
-                      img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                      img.src = url;
-                      setTimeout(() => {
-                        e.target.src = getCoverFromCache(pdf.id);
-                      }, 500);
-                    }
-                  }} />
+              <li key={pdf.id || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {pdf.id ? (
+                  <img src={coversVoted[pdf.id]}
+                    alt={pdf.title}
+                    style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }}
+                    onError={e => {
+                      if (e.target.src !== '/no-cover.png') {
+                        setCoverInCache(pdf.id, '/no-cover.png');
+                        e.target.src = '/no-cover.png';
+                      }
+                    }}
+                    onClick={e => {
+                      if (coversVoted[pdf.id] === '/no-cover.png') {
+                        const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                        const img = new window.Image();
+                        img.onload = () => setCoverInCache(pdf.id, url);
+                        img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+                        img.src = url;
+                        setTimeout(() => {
+                          e.target.src = getCoverFromCache(pdf.id);
+                        }, 500);
+                      }
+                    }} />
+                ) : (
+                  <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span> &&
+                  (() => { console.warn('[LandingPage] TopVoted: invalid book id', pdf); })()
+                )}
                 <SteppedContainer depth={depth + 2} style={{ display: 'inline-block', borderRadius: 4 }}>
                   <button
                     className="top-list-link"
                     style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer' }}
-                    onClick={() => navigate(`/read/${pdf.id}`)}
+                    onClick={() => pdf.id && navigate(`/read/${pdf.id}`)}
                   >
                     {pdf.title}
                   </button>

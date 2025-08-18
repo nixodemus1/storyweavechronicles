@@ -95,62 +95,71 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
           <div style={{ color: '#888' }}>No bookmarks yet.</div>
         ) : (
           <ul style={{ listStyle: 'none', padding: 0 }}>
-            {bookmarkedBooks.map(book => (
-              <li
-                key={book.id}
-                style={{
-                  marginBottom: 14,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  background: book.unread ? '#ffe0e0' : 'transparent',
-                  borderRadius: 6,
-                  padding: '6px 8px',
-                  boxShadow: book.unread ? '0 0 4px #c00' : 'none',
-                }}
-              >
-                <Link to={`/read/${book.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
-                  <img
-                    src={getCoverFromCache(book.id)}
-                    alt={book.name}
-                    style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                    onError={e => {
-                      // Only set fallback and cache once
-                      if (e.target.src !== '/no-cover.png') {
-                        setCoverInCache(book.id, '/no-cover.png');
-                        e.target.src = '/no-cover.png';
-                      }
-                    }}
-                    onClick={e => {
-                      // Only retry if cached is /no-cover.png
-                      if (getCoverFromCache(book.id) === '/no-cover.png') {
-                        const url = `${API_BASE_URL}/pdf-cover/${book.id}`;
-                        const img = new window.Image();
-                        img.onload = () => setCoverInCache(book.id, url);
-                        img.onerror = () => setCoverInCache(book.id, '/no-cover.png');
-                        img.src = url;
-                        setTimeout(() => {
-                          e.target.src = getCoverFromCache(book.id);
-                        }, 500);
-                      }
-                    }}
-                  />
-                </Link>
-                {/* Clickable book title next to cover */}
-                <Link to={`/read/${book.id}`} style={{ color: textColor, textDecoration: 'underline', fontWeight: 600, fontSize: 16, marginLeft: 4 }}>
-                  {book.title || book.name || book.id}
-                </Link>
-                <span style={{ fontSize: 13, color: '#888' }}>
-                  Last updated: {book.last_updated ? book.last_updated : 'Never'}
-                </span>
-                <span style={{ fontSize: 13, color: '#888' }}>
-                  Last page read: {book.last_page}
-                </span>
-                {book.unread && (
-                  <span style={{ color: '#c00', fontWeight: 700, fontSize: 13 }}>Unread update!</span>
-                )}
-              </li>
-            ))}
+            {bookmarkedBooks.map(book => {
+              if (!book.id) {
+                console.warn('[AccountTabContent] BookmarksTab: invalid book id', book);
+              }
+              return (
+                <li
+                  key={book.id || Math.random()}
+                  style={{
+                    marginBottom: 14,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    background: book.unread ? '#ffe0e0' : 'transparent',
+                    borderRadius: 6,
+                    padding: '6px 8px',
+                    boxShadow: book.unread ? '0 0 4px #c00' : 'none',
+                  }}
+                >
+                  <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
+                    {book.id ? (
+                      <img
+                        src={getCoverFromCache(book.id)}
+                        alt={book.name}
+                        style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
+                        onError={e => {
+                          // Only set fallback and cache once
+                          if (e.target.src !== '/no-cover.png') {
+                            setCoverInCache(book.id, '/no-cover.png');
+                            e.target.src = '/no-cover.png';
+                          }
+                        }}
+                        onClick={e => {
+                          // Only retry if cached is /no-cover.png
+                          if (getCoverFromCache(book.id) === '/no-cover.png') {
+                            const url = `${API_BASE_URL}/pdf-cover/${book.id}`;
+                            const img = new window.Image();
+                            img.onload = () => setCoverInCache(book.id, url);
+                            img.onerror = () => setCoverInCache(book.id, '/no-cover.png');
+                            img.src = url;
+                            setTimeout(() => {
+                              e.target.src = getCoverFromCache(book.id);
+                            }, 500);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
+                    )}
+                  </Link>
+                  {/* Clickable book title next to cover */}
+                  <Link to={book.id ? `/read/${book.id}` : '#'} style={{ color: textColor, textDecoration: 'underline', fontWeight: 600, fontSize: 16, marginLeft: 4 }}>
+                    {book.title || book.name || book.id}
+                  </Link>
+                  <span style={{ fontSize: 13, color: '#888' }}>
+                    Last updated: {book.last_updated ? book.last_updated : 'Never'}
+                  </span>
+                  <span style={{ fontSize: 13, color: '#888' }}>
+                    Last page read: {book.last_page}
+                  </span>
+                  {book.unread && (
+                    <span style={{ color: '#c00', fontWeight: 700, fontSize: 13 }}>Unread update!</span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )
       )}
@@ -167,14 +176,7 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
     if (!user?.username) return;
     setLoading(true);
     fetch(`${API_BASE_URL}/api/user-top-voted-books?username=${user.username}`)
-      .then(res => {
-        if (res.status === 404) {
-          setBooks([]);
-          setLoading(false);
-          return null;
-        }
-        return res.json();
-      })
+      .then(res => res.json())
       .then(data => {
         if (data && Array.isArray(data.books)) {
           setBooks(data.books);
@@ -185,12 +187,10 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
       });
   }, [user?.username]);
 
-  // Preload covers and cache them in localStorage
   React.useEffect(() => {
     books.forEach(book => {
       const bookId = book.id;
       const cached = getCoverFromCache(bookId);
-      // Only preload if not cached or is direct API url, but NOT if cached is '/no-cover.png'
       if (!cached || (cached.startsWith(API_BASE_URL) && cached !== '/no-cover.png')) {
         if (cached !== '/no-cover.png') {
           const url = book.cover_url || `${API_BASE_URL}/pdf-cover/${bookId}`;
@@ -214,50 +214,57 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
         <div style={{ color: '#888' }}>No top voted books yet.</div>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0 }}>
-          {books.map(book => (
-            <li key={book.id} style={{
-              marginBottom: 14,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              background: stepColor(containerBg, 'dark', 1, 1),
-              borderRadius: 6,
-              padding: '6px 8px',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-            }}>
-              <Link to={`/read/${book.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
-                <img
-                  src={getCoverFromCache(book.id)}
-                  alt={book.name}
-                  style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                  onError={e => {
-                    // Only set fallback and cache once
-                    if (e.target.src !== '/no-cover.png') {
-                      setCoverInCache(book.id, '/no-cover.png');
-                      e.target.src = '/no-cover.png';
-                    }
-                  }}
-                  onClick={e => {
-                    // Only retry if cached is /no-cover.png
-                    if (getCoverFromCache(book.id) === '/no-cover.png') {
-                      const url = book.cover_url || `${API_BASE_URL}/pdf-cover/${book.id}`;
-                      const img = new window.Image();
-                      img.onload = () => setCoverInCache(book.id, url);
-                      img.onerror = () => setCoverInCache(book.id, '/no-cover.png');
-                      img.src = url;
-                      setTimeout(() => {
-                        e.target.src = getCoverFromCache(book.id);
-                      }, 500);
-                    }
-                  }}
-                />
+          {books.map(book => {
+            if (!book.id) {
+              console.warn('[AccountTabContent] UserTopVotedBooksTab: invalid book id', book);
+            }
+            return (
+              <li key={book.id || Math.random()} style={{
+                marginBottom: 14,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                background: stepColor(containerBg, 'dark', 1, 1),
+                borderRadius: 6,
+                padding: '6px 8px',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+              }}>
+                <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
+                  {book.id ? (
+                    <img
+                      src={getCoverFromCache(book.id)}
+                      alt={book.name}
+                      style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
+                      onError={e => {
+                        if (e.target.src !== '/no-cover.png') {
+                          setCoverInCache(book.id, '/no-cover.png');
+                          e.target.src = '/no-cover.png';
+                        }
+                      }}
+                      onClick={e => {
+                        if (getCoverFromCache(book.id) === '/no-cover.png') {
+                          const url = book.cover_url || `${API_BASE_URL}/pdf-cover/${book.id}`;
+                          const img = new window.Image();
+                          img.onload = () => setCoverInCache(book.id, url);
+                          img.onerror = () => setCoverInCache(book.id, '/no-cover.png');
+                          img.src = url;
+                          setTimeout(() => {
+                            e.target.src = getCoverFromCache(book.id);
+                          }, 500);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
+                  )}
+                </Link>
                 <span style={{ fontWeight: 600, textDecoration: 'underline', fontSize: 16 }}>{book.name}</span>
-              </Link>
-              <span style={{ fontSize: 13, color: '#888' }}>
-                Votes: {book.votes}
-              </span>
-            </li>
-          ))}
+                <span style={{ fontSize: 13, color: '#888' }}>
+                  Votes: {book.votes}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -291,12 +298,10 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
       });
   }, []);
 
-  // Preload covers for commented books
   React.useEffect(() => {
     comments.forEach(comment => {
       const bookId = comment.book_id;
       const cached = getCoverFromCache(bookId);
-      // Only preload if not cached or is direct API url, but NOT if cached is '/no-cover.png'
       if (!cached || (cached.startsWith(API_BASE_URL) && cached !== '/no-cover.png')) {
         if (cached !== '/no-cover.png') {
           const url = `${API_BASE_URL}/pdf-cover/${bookId}`;
@@ -309,7 +314,6 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
     });
   }, [comments]);
 
-  // Helper to get book title from id
   function getBookTitle(bookId) {
     const book = books.find(b => b.id === bookId);
     return book ? (book.title || book.name || bookId) : bookId;
@@ -349,10 +353,8 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
 const AccountTabContent = React.memo(function AccountTabContent({ user }) {
   const { backgroundColor, theme } = useContext(ThemeContext);
   const overviewBg = stepColor(backgroundColor, theme, 1);
-  // Cover cache shared for all tabs
   return (
     <>
-      {/* Account Overview: Primary and Secondary Emails */}
       <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: overviewBg, borderRadius: 8, padding: '18px 16px' }}>
         <h3 style={{ marginBottom: 10 }}>Account Overview</h3>
         <div style={{ marginBottom: 8 }}>

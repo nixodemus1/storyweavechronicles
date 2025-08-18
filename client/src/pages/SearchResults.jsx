@@ -129,10 +129,13 @@ export default function SearchResults() {
     return 0;
   });
 
-  // Preload covers and cache them in localStorage
+  // Preload covers and cache them in localStorage, but skip if cached is '/no-cover.png'
   useEffect(() => {
     sortedResults.forEach(pdf => {
-      if (!pdf.id) return;
+      if (!pdf.id) {
+        console.warn('[SearchResults] Skipping cover preload: invalid book id', pdf);
+        return;
+      }
       const cached = getCoverFromCache(pdf.id);
       // Only preload if not cached or is direct API url, but NOT if cached is '/no-cover.png'
       if (!cached || (cached.startsWith(API_BASE_URL) && cached !== '/no-cover.png')) {
@@ -179,55 +182,65 @@ export default function SearchResults() {
           <div>No books found matching your search.</div>
         ) : (
           <ul style={{ listStyle: 'none', padding: 0 }}>
-            {sortedResults.map(pdf => (
-              <li key={pdf.id} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: containerBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-                <img
-                  src={getCoverFromCache(pdf.id)}
-                  alt={pdf.title}
-                  style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                  onError={e => {
-                    if (e.target.src !== '/no-cover.png') {
-                      setCoverInCache(pdf.id, '/no-cover.png');
-                      e.target.src = '/no-cover.png';
-                    }
-                  }}
-                  onClick={e => {
-                    // Only retry if cached is /no-cover.png
-                    if (getCoverFromCache(pdf.id) === '/no-cover.png') {
-                      const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-                      const img = new window.Image();
-                      img.onload = () => setCoverInCache(pdf.id, url);
-                      img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                      img.src = url;
-                      setTimeout(() => {
-                        e.target.src = getCoverFromCache(pdf.id);
-                      }, 500);
-                    }
-                  }}
-                />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 18 }}>{pdf.title}</div>
-                  <div style={{ fontSize: 14, color: '#888' }}>
-                    Last updated: {
-                      pdf.modifiedTime
-                        ? new Date(pdf.modifiedTime).toLocaleString()
-                        : pdf.createdTime
-                          ? new Date(pdf.createdTime).toLocaleString()
-                          : pdf.created_at
-                            ? new Date(pdf.created_at).toLocaleString()
-                            : 'Unknown'
-                    }
+            {sortedResults.map(pdf => {
+              if (!pdf.id) {
+                console.warn('[SearchResults] Rendering: invalid book id', pdf);
+                return (
+                  <li key={Math.random()} style={{ color: '#c00', fontSize: 14, marginBottom: 18 }}>
+                    [No valid book id]
+                  </li>
+                );
+              }
+              return (
+                <li key={pdf.id || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: containerBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                  <img
+                    src={getCoverFromCache(pdf.id)}
+                    alt={pdf.title}
+                    style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
+                    onError={e => {
+                      if (e.target.src !== '/no-cover.png') {
+                        setCoverInCache(pdf.id, '/no-cover.png');
+                        e.target.src = '/no-cover.png';
+                      }
+                    }}
+                    onClick={e => {
+                      // Only retry if cached is /no-cover.png
+                      if (getCoverFromCache(pdf.id) === '/no-cover.png') {
+                        const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                        const img = new window.Image();
+                        img.onload = () => setCoverInCache(pdf.id, url);
+                        img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+                        img.src = url;
+                        setTimeout(() => {
+                          e.target.src = getCoverFromCache(pdf.id);
+                        }, 500);
+                      }
+                    }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 18 }}>{pdf.title}</div>
+                    <div style={{ fontSize: 14, color: '#888' }}>
+                      Last updated: {
+                        pdf.modifiedTime
+                          ? new Date(pdf.modifiedTime).toLocaleString()
+                          : pdf.createdTime
+                            ? new Date(pdf.createdTime).toLocaleString()
+                            : pdf.created_at
+                              ? new Date(pdf.created_at).toLocaleString()
+                              : 'Unknown'
+                      }
+                    </div>
                   </div>
-                </div>
-                {bookmarks.includes(pdf.id) && (
-                  <span style={{ color: '#0070f3', fontWeight: 600, fontSize: 15, marginRight: 8 }}>★ Favorited</span>
-                )}
-                <button
-                  style={{ background: '#e0f7ff', color: '#0070f3', border: '1px solid #0070f3', borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: 'pointer' }}
-                  onClick={() => navigate(`/read/${pdf.id}`)}
-                >Read</button>
-              </li>
-            ))}
+                  {bookmarks.includes(pdf.id) && (
+                    <span style={{ color: '#0070f3', fontWeight: 600, fontSize: 15, marginRight: 8 }}>★ Favorited</span>
+                  )}
+                  <button
+                    style={{ background: '#e0f7ff', color: '#0070f3', border: '1px solid #0070f3', borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: 'pointer' }}
+                    onClick={() => navigate(`/read/${pdf.id}`)}
+                  >Read</button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
