@@ -109,7 +109,13 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
                     src={getCoverFromCache(book.id)}
                     alt={book.name}
                     style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                    onError={e => { e.target.onerror = null; e.target.src = '/no-cover.png'; setCoverInCache(book.id, '/no-cover.png'); }}
+                      onError={e => {
+                        // Only set fallback and cache once
+                        if (e.target.src !== '/no-cover.png') {
+                          setCoverInCache(book.id, '/no-cover.png');
+                          e.target.src = '/no-cover.png';
+                        }
+                      }}
                   />
                 </Link>
                 {/* Clickable book title next to cover */}
@@ -203,7 +209,13 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                   src={getCoverFromCache(book.id)}
                   alt={book.name}
                   style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                  onError={e => { e.target.onerror = null; e.target.src = '/no-cover.png'; setCoverInCache(book.id, '/no-cover.png'); }}
+                    onError={e => {
+                      // Only set fallback and cache once
+                      if (e.target.src !== '/no-cover.png') {
+                        setCoverInCache(book.id, '/no-cover.png');
+                        e.target.src = '/no-cover.png';
+                      }
+                    }}
                 />
                 <span style={{ fontWeight: 600, textDecoration: 'underline', fontSize: 16 }}>{book.name}</span>
               </Link>

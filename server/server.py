@@ -473,7 +473,16 @@ def pdf_cover(file_id):
     except Exception as e:
         print(f"Error in pdf_cover: {e}")
         fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
-        response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
+        if not os.path.exists(fallback_path):
+            # Return a tiny blank PNG if no-cover.png is missing
+            from flask import send_file
+            import io
+            blank_png = io.BytesIO(
+                b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\xdac\xf8\x0f\x00\x01\x01\x01\x00\x18\xdd\x8d\x18\x00\x00\x00\x00IEND\xaeB`\x82'
+            )
+            response = make_response(send_file(blank_png, mimetype='image/png'), 404)
+        else:
+            response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
         response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
         return response
         
