@@ -1,7 +1,7 @@
 #server/server.py
 from apscheduler.schedulers.background import BackgroundScheduler
 import time
-from flask import Flask, jsonify, send_file, redirect, send_from_directory, request
+from flask import Flask, jsonify, send_file, redirect, send_from_directory, make_response, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_mail import Mail, Message
@@ -34,7 +34,7 @@ app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
-CORS(app)
+CORS(app, origins=["http://localhost:5173", "https://storyweavechronicles.onrender.com"])
 mail = Mail(app)
 
 service_account_info = {
@@ -430,9 +430,13 @@ def download_pdf(file_id):
         filename = file_metadata.get('name', 'downloaded.pdf')
         request = service.files().get_media(fileId=file_id)
         file_content = io.BytesIO(request.execute())
-        return send_file(file_content, mimetype='application/pdf', as_attachment=True, download_name=filename)
+        response = make_response(send_file(file_content, mimetype='application/pdf', as_attachment=True, download_name=filename))
+        response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+        return response
     except Exception as e:
-        return jsonify(error=str(e)), 500
+        response = make_response(jsonify(error=str(e)), 500)
+        response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+        return response
 
 @app.route('/pdf-cover/<file_id>')
 def pdf_cover(file_id):
@@ -449,14 +453,22 @@ def pdf_cover(file_id):
             img = img.convert("RGB")
             img.thumbnail((80, 120))  # Thumbnail size
             out = io.BytesIO()
-            img.save(out, format="JPEG", quality=70) # <-- quality ammount
+            img.save(out, format="JPEG", quality=70)
             out.seek(0)
-            return send_file(out, mimetype="image/jpeg")
+            response = make_response(send_file(out, mimetype="image/jpeg"))
+            response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+            return response
         except Exception:
-            return send_file(os.path.join('..', 'client', 'public', 'no-cover.png'), mimetype="image/png"), 404
+            fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
+            response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
+            response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+            return response
     except Exception as e:
-        return send_file(os.path.join('..', 'client', 'public', 'no-cover.png'), mimetype="image/png"), 404
-    
+        fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
+        response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
+        response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+        return response
+        
 @app.route('/api/pdf-text/<file_id>')
 def pdf_text(file_id):
     try:
