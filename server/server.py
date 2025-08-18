@@ -1,7 +1,7 @@
 #server/server.py
 from apscheduler.schedulers.background import BackgroundScheduler
 from drive_webhook import setup_drive_webhook
-import time
+import traceback
 from flask import Flask, jsonify, send_file, redirect, send_from_directory, make_response, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -61,8 +61,8 @@ class Book(db.Model):
     title = db.Column(db.String(256), nullable=False)
     external_story_id = db.Column(db.String(128), nullable=True)  # e.g. 'goodreads 2504839'
     version_history = db.Column(db.Text, nullable=True)  # JSON string of version info
-    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC), onupdate=lambda: datetime.datetime.now(datetime.UTC))
 
     # Relationships
     comments = db.relationship('Comment', backref='book', lazy=True, foreign_keys='Comment.book_id')
@@ -91,7 +91,7 @@ class Vote(db.Model):
     username = db.Column(db.String(80), nullable=False)
     book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
     value = db.Column(db.Integer, nullable=False)  # 1-5 stars
-    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
 
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -99,7 +99,7 @@ class Comment(db.Model):
     username = db.Column(db.String(80), nullable=False)
     parent_id = db.Column(db.Integer, nullable=True)  # null for top-level
     text = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
     edited = db.Column(db.Boolean, default=False)
     upvotes = db.Column(db.Integer, default=0)
     downvotes = db.Column(db.Integer, default=0)
@@ -183,7 +183,7 @@ def add_notification(user, type_, title, body, link=None):
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     import uuid
     history = json.loads(user.notification_history) if user.notification_history else []
-    timestamp = int(datetime.datetime.utcnow().timestamp() * 1000)
+    timestamp = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
     notification = {
         'id': str(uuid.uuid4()),  # Always use a UUID for uniqueness
         'type': type_,
@@ -994,8 +994,6 @@ def test_send_scheduled_notifications():
     Test endpoint to simulate scheduled notification emails for a user.
     POST data: {"username": ..., "frequency": "daily"|"weekly"|"monthly"}
     """
-    import datetime
-    import traceback
     try:
         data = request.get_json()
         username = data.get('username')
@@ -1010,7 +1008,7 @@ def test_send_scheduled_notifications():
         except Exception:
             history = []
         # Simulate aggregation logic (filter by frequency)
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.UTC)
         if frequency == 'daily':
             cutoff = now - datetime.timedelta(days=1)
         elif frequency == 'weekly':
@@ -1204,7 +1202,7 @@ def vote_book():
     vote = Vote.query.filter_by(username=username, book_id=book_id).first()
     if vote:
         vote.value = value
-        vote.timestamp = datetime.datetime.utcnow()
+        vote.timestamp = datetime.datetime.now(datetime.UTC)
     else:
         vote = Vote(username=username, book_id=book_id, value=value)
         db.session.add(vote)
@@ -1313,7 +1311,7 @@ def edit_comment():
             return jsonify({'success': False, 'message': 'Not authorized.'}), 403
     comment.text = text
     comment.edited = True
-    comment.timestamp = datetime.datetime.utcnow()
+    comment.timestamp = datetime.datetime.now(datetime.UTC)
     db.session.commit()
     return jsonify({'success': True, 'message': 'Comment edited.'})
 
