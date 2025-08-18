@@ -1,5 +1,6 @@
 #server/server.py
 from apscheduler.schedulers.background import BackgroundScheduler
+from drive_webhook import setup_drive_webhook
 import time
 from flask import Flask, jsonify, send_file, redirect, send_from_directory, make_response, request
 from flask_sqlalchemy import SQLAlchemy
@@ -1609,6 +1610,14 @@ def unban_user():
     return jsonify({'success': True, 'message': f'User {target_username} has been unbanned.'})
 
 if __name__ == '__main__':
+    # Register Google Drive webhook on startup
+    try:
+        folder_id = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
+        webhook_url = 'https://swcflaskbackend.onrender.com/api/drive-webhook'
+        setup_drive_webhook(folder_id, webhook_url)
+        logging.info("Google Drive webhook registered on startup.")
+    except Exception as e:
+        logging.error(f"Failed to register Google Drive webhook: {e}")
     # Start APScheduler for email notifications
     def send_scheduled_emails(frequency):
             with app.app_context():
