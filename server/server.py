@@ -36,7 +36,7 @@ app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
-CORS(app, origins=["http://localhost:5173", "https://storyweavechronicles.onrender.com"])
+CORS(app, origins=["http://localhost:5174", "https://storyweavechronicles.onrender.com"])
 mail = Mail(app)
 
 service_account_info = {
@@ -486,19 +486,21 @@ def pdf_cover(file_id):
     def send_fallback():
         fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
         if not os.path.exists(fallback_path):
-            blank_png = io.BytesIO(
-                b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\xdac\xf8\x0f\x00\x01\x01\x01\x00\x18\xdd\x8d\x18\x00\x00\x00\x00IEND\xaeB`\x82'
-            )
-            response = make_response(send_file(blank_png, mimetype='image/png'), 404)
-        else:
-            response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
+            logging.error(f"[pdf-cover] Fallback image not found at {fallback_path}")
+            return make_response(jsonify({'error': 'No cover available'}), 404)
+        logging.info(f"[pdf-cover] Serving fallback cover for file_id={file_id}")
+        response = make_response(send_file(fallback_path, mimetype='image/png'))
         response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+        response.status_code = 404
         return response
 
+    logging.info(f"[pdf-cover] Request for file_id={file_id}")
     try:
         service = get_drive_service()
+        logging.info(f"[pdf-cover] Got Drive service for file_id={file_id}")
         request = service.files().get_media(fileId=file_id)
         file_content = io.BytesIO(request.execute())
+        logging.info(f"[pdf-cover] Downloaded PDF for file_id={file_id}, size={file_content.getbuffer().nbytes} bytes")
         try:
             doc = fitz.open(stream=file_content, filetype="pdf")
             page = doc.load_page(0)
@@ -510,82 +512,16 @@ def pdf_cover(file_id):
             out = io.BytesIO()
             img.save(out, format="JPEG", quality=70)
             out.seek(0)
+            logging.info(f"[pdf-cover] Successfully generated cover for file_id={file_id}")
             response = make_response(send_file(out, mimetype="image/jpeg"))
             response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
             return response
         except Exception as e:
-            logging.error(f"Error generating cover for file_id={file_id}: {e}")
-            def send_fallback():
-                fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
-                if not os.path.exists(fallback_path):
-                    # If fallback not found, return 404 with message
-                    response = make_response(jsonify({'error': 'No cover available'}), 404)
-                    response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
-                    return response
-                else:
-                    response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
-                    response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
-                    return response
-
-            try:
-                service = get_drive_service()
-                request = service.files().get_media(fileId=file_id)
-                file_content = io.BytesIO(request.execute())
-                # Try to generate or locate cover image
-                # If cover generation fails, fallback
-                try:
-                    # Attempt to locate the book and cover file
-                    book = Book.query.filter_by(drive_id=file_id).first()
-                    if not book:
-                        return send_fallback()
-                    # Assume cover file is generated and stored in a known location
-                    cover_path = f"covers/{file_id}.png"
-                    if not os.path.exists(cover_path):
-                        return send_fallback()
-                    return send_file(cover_path, mimetype="image/png")
-                except Exception as e:
-                    logging.error(f"Error generating cover for file_id={file_id}: {e}", exc_info=True)
-                    return send_fallback()
-            except Exception as e:
-                logging.error(f"Error fetching file from Drive for file_id={file_id}: {e}")
-                return send_fallback()
-                if b[4].strip():
-                    paragraphs.append(b[4].strip())
-            page_text = '\n\n'.join(paragraphs)
-            images = []
-            for img in page.get_images(full=True):
-                xref = img[0]
-                base_image = doc.extract_image(xref)
-                img_bytes = base_image['image']
-                img_base64 = base64.b64encode(img_bytes).decode('utf-8')
-                img_ext = base_image['ext']
-                images.append(f"data:image/{img_ext};base64,{img_base64}")
-            pages.append({
-                'page': page_num + 1,
-                'text': page_text,
-                'images': images
-            })
-        # Try to get metadata (title, etc.)
-        title = doc.metadata.get('title') if doc.metadata else None
-        name = None
-        # Try to get file name from Drive
-        try:
-            file_metadata = service.files().get(fileId=file_id, fields='name').execute()
-            name = file_metadata.get('name')
-        except Exception:
-            pass
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[pdf-text] Memory usage: {mem:.2f} MB for file_id={file_id}")
-        return jsonify({
-            'success': True,
-            'id': file_id,
-            'title': title,
-            'name': name,
-            'totalPages': doc.page_count,
-            'pages': pages
-        })
+            logging.error(f"[pdf-cover] Error generating cover for file_id={file_id}: {e}")
+            return send_fallback()
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logging.error(f"[pdf-cover] Error fetching file from Drive for file_id={file_id}: {e}")
+        return send_fallback()
 
 @app.route('/api/update-colors', methods=['POST'])
 def update_colors():
@@ -1002,21 +938,7 @@ def remove_secondary_email():
     user.secondary_emails = json.dumps(secondary)
     db.session.commit()
     return jsonify({'success': True, 'message': 'Secondary email removed.', 'secondaryEmails': secondary})
-    try:
-        # Attempt to locate the book and cover file
-        book = Book.query.filter_by(drive_id=file_id).first()
-        if not book:
-            logging.warning(f"Book not found for file_id: {file_id}")
-            return jsonify({"error": "Book not found"}), 404
-        # Assume cover file is generated and stored in a known location
-        cover_path = f"covers/{file_id}.png"
-        if not os.path.exists(cover_path):
-            logging.info(f"Cover not found for file_id: {file_id}, returning no-cover.png")
-            return send_from_directory("../client/public", "no-cover.png"), 200
-        return send_file(cover_path, mimetype="image/png")
-    except Exception as e:
-        logging.error(f"Error in /pdf-cover/{file_id}: {e}", exc_info=True)
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
+
 @app.route('/api/drive-webhook', methods=['POST'])
 def drive_webhook():
     channel_id = request.headers.get('X-Goog-Channel-ID')
