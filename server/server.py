@@ -54,7 +54,7 @@ service_account_info = {
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
-#SQLAlchemy book model
+# --- SQLAlchemy Book Model ---
 class Book(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     drive_id = db.Column(db.String(128), unique=True, nullable=False)  # Google Drive file ID
@@ -68,7 +68,7 @@ class Book(db.Model):
     comments = db.relationship('Comment', backref='book', lazy=True, foreign_keys='Comment.book_id')
     votes = db.relationship('Vote', backref='book', lazy=True, foreign_keys='Vote.book_id')
 
-# SQLAlchemy User model
+# --- User Model ---
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -93,6 +93,7 @@ class Vote(db.Model):
     value = db.Column(db.Integer, nullable=False)  # 1-5 stars
     timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
 
+# --- Comment Model ---
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
@@ -106,6 +107,13 @@ class Comment(db.Model):
     deleted = db.Column(db.Boolean, default=False)  # for moderation
     background_color = db.Column(db.String(16), nullable=True)
     text_color = db.Column(db.String(16), nullable=True)
+
+# --- Webhook Model ---
+class Webhook(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    channel_id = db.Column(db.String(128), unique=True, nullable=False)
+    expiration = db.Column(db.BigInteger, nullable=True)  # ms since epoch
+    registered_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
 
 # Create tables if not exist
 with app.app_context():
@@ -165,6 +173,36 @@ def get_drive_service():
             scopes=SCOPES
         )
     return build('drive', 'v3', credentials=creds)
+
+def setup_drive_webhook(folder_id, webhook_url):
+    with app.app_context():
+        webhook = Webhook.query.first()
+        now_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+        # Only register if missing or expired
+        if not webhook or not webhook.expiration or webhook.expiration < now_ms:
+            channel_id = webhook.channel_id if webhook else 'storyweave-drive-channel'
+            creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
+            service = build('drive', 'v3', credentials=creds)
+            body = {
+                'id': channel_id,
+                'type': 'web_hook',
+                'address': webhook_url,
+            }
+            try:
+                response = service.files().watch(fileId=folder_id, body=body).execute()
+                expiration = int(response.get('expiration', now_ms + 24*60*60*1000))
+                if webhook:
+                    webhook.expiration = expiration
+                    webhook.registered_at = datetime.datetime.now(datetime.UTC)
+                else:
+                    webhook = Webhook(channel_id=channel_id, expiration=expiration)
+                    db.session.add(webhook)
+                db.session.commit()
+                logging.info(f"Webhook registered: {response}")
+            except Exception as e:
+                logging.error(f"Failed to register Google Drive webhook: {e}")
+        else:
+            logging.info(f"Existing webhook is still valid (expires at {webhook.expiration})")
 
 def send_notification_email(user, subject, body):
     if not user.email:
@@ -445,35 +483,9 @@ def download_pdf(file_id):
 
 @app.route('/pdf-cover/<file_id>')
 def pdf_cover(file_id):
-    try:
-        service = get_drive_service()
-        request = service.files().get_media(fileId=file_id)
-        file_content = io.BytesIO(request.execute())
-        try:
-            doc = fitz.open(stream=file_content, filetype="pdf")
-            page = doc.load_page(0)
-            pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))  # Downscale for thumbnail
-            img_bytes = io.BytesIO(pix.tobytes("png"))
-            img = Image.open(img_bytes)
-            img = img.convert("RGB")
-            img.thumbnail((80, 120))  # Thumbnail size
-            out = io.BytesIO()
-            img.save(out, format="JPEG", quality=70)
-            out.seek(0)
-            response = make_response(send_file(out, mimetype="image/jpeg"))
-            response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
-            return response
-        except Exception as e:
-            logging.error(f"Error in pdf_cover: {e}")
-            fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
-            response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
-            response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
-            return response
-    except Exception as e:
-        logging.error(f"Error in pdf_cover: {e}")
+    def send_fallback():
         fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
         if not os.path.exists(fallback_path):
-            # Return a tiny blank PNG if no-cover.png is missing
             blank_png = io.BytesIO(
                 b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\xdac\xf8\x0f\x00\x01\x01\x01\x00\x18\xdd\x8d\x18\x00\x00\x00\x00IEND\xaeB`\x82'
             )
@@ -482,7 +494,32 @@ def pdf_cover(file_id):
             response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
         response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
         return response
-        
+
+    try:
+        service = get_drive_service()
+        request = service.files().get_media(fileId=file_id)
+        file_content = io.BytesIO(request.execute())
+        try:
+            doc = fitz.open(stream=file_content, filetype="pdf")
+            page = doc.load_page(0)
+            pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
+            img_bytes = io.BytesIO(pix.tobytes("png"))
+            img = Image.open(img_bytes)
+            img = img.convert("RGB")
+            img.thumbnail((80, 120))
+            out = io.BytesIO()
+            img.save(out, format="JPEG", quality=70)
+            out.seek(0)
+            response = make_response(send_file(out, mimetype="image/jpeg"))
+            response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+            return response
+        except Exception as e:
+            logging.error(f"Error generating cover for file_id={file_id}: {e}")
+            return send_fallback()
+    except Exception as e:
+        logging.error(f"Error fetching file from Drive for file_id={file_id}: {e}")
+        return send_fallback()
+
 @app.route('/api/pdf-text/<file_id>')
 def pdf_text(file_id):
     try:
@@ -951,8 +988,21 @@ def remove_secondary_email():
     user.secondary_emails = json.dumps(secondary)
     db.session.commit()
     return jsonify({'success': True, 'message': 'Secondary email removed.', 'secondaryEmails': secondary})
-
-
+    try:
+        # Attempt to locate the book and cover file
+        book = Book.query.filter_by(drive_id=file_id).first()
+        if not book:
+            logging.warning(f"Book not found for file_id: {file_id}")
+            return jsonify({"error": "Book not found"}), 404
+        # Assume cover file is generated and stored in a known location
+        cover_path = f"covers/{file_id}.png"
+        if not os.path.exists(cover_path):
+            logging.info(f"Cover not found for file_id: {file_id}, returning no-cover.png")
+            return send_from_directory("../client/public", "no-cover.png"), 200
+        return send_file(cover_path, mimetype="image/png")
+    except Exception as e:
+        logging.error(f"Error in /pdf-cover/{file_id}: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500
 @app.route('/api/drive-webhook', methods=['POST'])
 def drive_webhook():
     channel_id = request.headers.get('X-Goog-Channel-ID')
