@@ -26,8 +26,8 @@ function useCachedCovers(pdfs) {
       if (!pdf.id) return;
       const cached = getCoverFromCache(pdf.id);
       newCovers[pdf.id] = cached;
-      // If not cached or is a direct API url, preload and cache
-      if (!cached || cached.startsWith(API_BASE_URL)) {
+            // Only preload if not cached or is direct API url, but NOT if cached is '/no-cover.png'
+            if (!cached || (cached.startsWith(API_BASE_URL) && cached !== '/no-cover.png')) {
         const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
         const img = new window.Image();
         img.onload = () => setCoverInCache(pdf.id, url);
@@ -208,6 +208,19 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
                     if (e.target.src !== '/no-cover.png') {
                       setCoverInCache(pdf.id, '/no-cover.png');
                       e.target.src = '/no-cover.png';
+                    }
+                  }}
+                  onClick={e => {
+                    // If cached is '/no-cover.png', retry cover fetch on click
+                    if (covers[pdf.id] === '/no-cover.png') {
+                      const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                      const img = new window.Image();
+                      img.onload = () => setCoverInCache(pdf.id, url);
+                      img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+                      img.src = url;
+                      setTimeout(() => {
+                        e.target.src = getCoverFromCache(pdf.id);
+                      }, 500);
                     }
                   }}
                 />

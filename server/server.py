@@ -463,13 +463,13 @@ def pdf_cover(file_id):
             response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
             return response
         except Exception:
-            print(f"Error in pdf_cover: {e}")
+            logging.error(f"Error in pdf_cover: {e}")
             fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
             response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
             response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
             return response
     except Exception as e:
-        print(f"Error in pdf_cover: {e}")
+        logging.error(f"Error in pdf_cover: {e}")
         fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
         if not os.path.exists(fallback_path):
             # Return a tiny blank PNG if no-cover.png is missing
@@ -648,8 +648,8 @@ def notification_history():
         history = []
     if dropdown_only:
         history = [n for n in history if not n.get('dismissed')]
-    print(f"[GET NOTIFICATION HISTORY] User: {username}, History count: {len(history)}")
-    print(f"[GET NOTIFICATION HISTORY] History: {history}")
+    logging.info(f"[GET NOTIFICATION HISTORY] User: {username}, History count: {len(history)}")
+    logging.info(f"[GET NOTIFICATION HISTORY] History: {history}")
     return jsonify({'success': True, 'history': history})
 
 # Add a GET handler to return JSON error
@@ -727,20 +727,20 @@ def delete_notification():
 def dismiss_all_notifications():
     data = request.get_json()
     username = data.get('username')
-    print(f"[DISMISS ALL] Request for user: {username}")
+    logging.info(f"[DISMISS ALL] Request for user: {username}")
     user = User.query.filter_by(username=username).first()
     if not user:
-        print(f"[DISMISS ALL] User not found: {username}")
+        logging.error(f"[DISMISS ALL] User not found: {username}")
         return jsonify({'success': False, 'message': 'User not found.'}), 404
     history = json.loads(user.notification_history) if user.notification_history else []
-    print(f"[DISMISS ALL] Initial history count: {len(history)}")
+    logging.info(f"[DISMISS ALL] Initial history count: {len(history)}")
     for n in history:
         n['dismissed'] = True
         if 'id' not in n:
             n['id'] = n.get('timestamp')
     user.notification_history = json.dumps(history)
     db.session.commit()
-    print(f"[DISMISS ALL] All notifications set to dismissed. History count: {len(history)}")
+    logging.info(f"[DISMISS ALL] All notifications set to dismissed. History count: {len(history)}")
     return jsonify({'success': True, 'message': 'All notifications dismissed.', 'history': history})
 
 # Mark a single notification as read/unread
@@ -769,19 +769,19 @@ def mark_notification_read():
 def delete_all_notification_history():
     data = request.get_json()
     username = data.get('username')
-    print(f"[DELETE ALL] Request for user: {username}")
+    logging.info(f"[DELETE ALL] Request for user: {username}")
     user = User.query.filter_by(username=username).first()
     if not user:
-        print(f"[DELETE ALL] User not found: {username}")
+        logging.error(f"[DELETE ALL] User not found: {username}")
         return jsonify({'success': False, 'message': 'User not found.'}), 404
-    print(f"[DELETE ALL] History BEFORE: {user.notification_history}")
+    logging.info(f"[DELETE ALL] History BEFORE: {user.notification_history}")
     user.notification_history = json.dumps([])
     db.session.commit()
-    print(f"[DELETE ALL] History AFTER: {user.notification_history}")
+    logging.info(f"[DELETE ALL] History AFTER: {user.notification_history}")
     # Double-check by reloading from DB
     user_check = User.query.filter_by(username=username).first()
-    print(f"[DELETE ALL] History AFTER COMMIT (reloaded): {user_check.notification_history}")
-    print(f"[DELETE ALL] Notification history cleared for user: {username}")
+    logging.info(f"[DELETE ALL] History AFTER COMMIT (reloaded): {user_check.notification_history}")
+    logging.info(f"[DELETE ALL] Notification history cleared for user: {username}")
     return jsonify({'success': True, 'message': 'All notifications deleted from history.', 'history': []})
 
 # Update font and timezone for user
@@ -960,28 +960,33 @@ def drive_webhook():
     resource_id = request.headers.get('X-Goog-Resource-ID')
     resource_state = request.headers.get('X-Goog-Resource-State')
     changed = request.headers.get('X-Goog-Changed')
-    print(f"[Drive Webhook] Channel: {channel_id}, Resource: {resource_id}, State: {resource_state}, Changed: {changed}")
-    if resource_state == 'update':
-        # Update Book version history in DB
+    logging.error(f"[Drive Webhook] Channel: {channel_id}, Resource: {resource_id}, State: {resource_state}, Changed: {changed}")
+
+    # Only handle 'update' or 'add' events
+    if resource_state in ['update', 'add']:
         try:
-            service = get_drive_service()
-            file_metadata = service.files().get(fileId=resource_id, fields='name, modifiedTime').execute()
-            book_title = file_metadata.get('name', 'A book in your favorites')
-            modified_time = file_metadata.get('modifiedTime', datetime.datetime.utcnow().isoformat())
-            book = Book.query.filter_by(drive_id=resource_id).first()
-            if book:
-                # Update version history
-                history = json.loads(book.version_history) if book.version_history else []
-                history.append({'modified': modified_time})
-                book.version_history = json.dumps(history)
-                book.updated_at = datetime.datetime.utcnow()
-                db.session.commit()
+                service = get_drive_service()
+                file = service.files().get(fileId=resource_id, fields='id, name, createdTime, modifiedTime').execute()
+                book = Book.query.filter_by(drive_id=resource_id).first()
+                if not book:
+                    new_book = Book(
+                        drive_id=file['id'],
+                        title=file['name'],
+                        created_at=file.get('createdTime'),
+                        updated_at=file.get('modifiedTime')
+                    )
+                    db.session.add(new_book)
+                    db.session.commit()
+                    logging.info(f"Added new book to DB: {file['name']}")
+                    notify_new_book(new_book.drive_id, new_book.title)
+                else:
+                    book.title = file['name']
+                    book.updated_at = file.get('modifiedTime')
+                    db.session.commit()
+                    logging.info(f"Updated book in DB: {file['name']}")
+                    notify_book_update(book.drive_id, book.title)
         except Exception as e:
-            print(f"[Drive Webhook] Error updating book version history: {e}")
-        # Notify users who bookmarked this book
-        notify_data = {'book_id': resource_id, 'book_title': book_title}
-        with app.test_request_context(json=notify_data):
-            notify_book_update()
+            logging.error(f"Error updating DB from webhook: {e}")
     return '', 200
 
 @app.route('/api/test-send-scheduled-notifications', methods=['POST'])
