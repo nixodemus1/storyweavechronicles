@@ -515,26 +515,40 @@ def pdf_cover(file_id):
             return response
         except Exception as e:
             logging.error(f"Error generating cover for file_id={file_id}: {e}")
-            return send_fallback()
-    except Exception as e:
-        logging.error(f"Error fetching file from Drive for file_id={file_id}: {e}")
-        return send_fallback()
+            def send_fallback():
+                fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
+                if not os.path.exists(fallback_path):
+                    # If fallback not found, return 404 with message
+                    response = make_response(jsonify({'error': 'No cover available'}), 404)
+                    response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+                    return response
+                else:
+                    response = make_response(send_file(fallback_path, mimetype="image/png"), 404)
+                    response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+                    return response
 
-@app.route('/api/pdf-text/<file_id>')
-def pdf_text(file_id):
-    try:
-        service = get_drive_service()
-        # Download PDF from Google Drive
-        request = service.files().get_media(fileId=file_id)
-        file_content = io.BytesIO(request.execute())
-        doc = fitz.open(stream=file_content, filetype="pdf")
-        pages = []
-        for page_num in range(doc.page_count):
-            page = doc.load_page(page_num)
-            # Get text blocks and join paragraphs with double newlines
-            blocks = page.get_text("blocks")
-            paragraphs = []
-            for b in blocks:
+            try:
+                service = get_drive_service()
+                request = service.files().get_media(fileId=file_id)
+                file_content = io.BytesIO(request.execute())
+                # Try to generate or locate cover image
+                # If cover generation fails, fallback
+                try:
+                    # Attempt to locate the book and cover file
+                    book = Book.query.filter_by(drive_id=file_id).first()
+                    if not book:
+                        return send_fallback()
+                    # Assume cover file is generated and stored in a known location
+                    cover_path = f"covers/{file_id}.png"
+                    if not os.path.exists(cover_path):
+                        return send_fallback()
+                    return send_file(cover_path, mimetype="image/png")
+                except Exception as e:
+                    logging.error(f"Error generating cover for file_id={file_id}: {e}", exc_info=True)
+                    return send_fallback()
+            except Exception as e:
+                logging.error(f"Error fetching file from Drive for file_id={file_id}: {e}")
+                return send_fallback()
                 if b[4].strip():
                     paragraphs.append(b[4].strip())
             page_text = '\n\n'.join(paragraphs)
@@ -675,8 +689,8 @@ def notification_history():
     dropdown_only = data.get('dropdownOnly', False)
     user = User.query.filter_by(username=username).first()
     if not user:
-        # If user not found, return empty history (do not 404)
-        return jsonify({'success': False, 'history': []})
+        # Always return valid JSON, even if user not found
+        return jsonify({'success': False, 'history': [], 'message': 'User not found.'})
     history = []
     try:
         history = json.loads(user.notification_history) if user.notification_history else []
