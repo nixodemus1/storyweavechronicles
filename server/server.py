@@ -451,6 +451,7 @@ def get_books_by_ids():
     ids = ids_param.split(',')
     # Query books by drive_id
     books = Book.query.filter(Book.drive_id.in_(ids)).all()
+    found_ids = set(b.drive_id for b in books)
     result = []
     for book in books:
         result.append({
@@ -459,7 +460,13 @@ def get_books_by_ids():
             'external_story_id': book.external_story_id,
             'created_at': book.created_at.isoformat() if book.created_at else None,
             'updated_at': book.updated_at.isoformat() if book.updated_at else None,
-            # Add other fields as needed
+            # ...other fields...
+        })
+    # Add stubs for missing books
+    for missing_id in set(ids) - found_ids:
+        result.append({
+            'id': missing_id,
+            'missing': True
         })
     return jsonify({'books': result})
 
@@ -484,6 +491,7 @@ def download_pdf(file_id):
 @app.route('/pdf-cover/<file_id>')
 def pdf_cover(file_id):
     def send_fallback():
+        logging.error(f"[pdf-cover] Fallback image used for file_id={file_id}")
         fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
         if not os.path.exists(fallback_path):
             logging.error(f"[pdf-cover] Fallback image not found at {fallback_path}")
@@ -1593,6 +1601,16 @@ def unban_user():
     db.session.commit()
     return jsonify({'success': True, 'message': f'User {target_username} has been unbanned.'})
 
+@app.route('/api/cover-exists/<file_id>', methods=['GET'])
+def cover_exists(file_id):
+    try:
+        service = get_drive_service()
+        # Only check if the file exists in Drive, not if a cover is generated
+        file_metadata = service.files().get(fileId=file_id, fields='id').execute()
+        return jsonify({'exists': True})
+    except Exception:
+        return jsonify({'exists': False})
+
 if __name__ == '__main__':
     # Register Google Drive webhook on startup
     try:
@@ -1601,6 +1619,7 @@ if __name__ == '__main__':
         setup_drive_webhook(folder_id, webhook_url)
         logging.info("Google Drive webhook registered on startup.")
     except Exception as e:
+
         logging.error(f"Failed to register Google Drive webhook: {e}")
     # Start APScheduler for email notifications
     def send_scheduled_emails(frequency):
@@ -1701,7 +1720,7 @@ if __name__ == '__main__':
                         if not prefs.get('muteAll', False) and prefs.get('newBooks', True):
                             body = f'A new book "{book.title}" is now available in the library.'
                             if book.external_story_id:
-                                body += f' External ID: {book.external_story_id}'
+                                body += f' External ID: {book.external_story_id}'(check_and_notify_new_books, 'interval', hours=1)
                             add_notification(user, 'newBook', 'New Book Added!', body, link=f'/read/{book.drive_id}')
                     logging.info(f"Notified users of new book: {book.title} ({book.drive_id})")
             except Exception as e:

@@ -39,19 +39,21 @@ function useCachedCovers(pdfs) {
     let isMounted = true;
     const newCovers = {};
     pdfs.forEach(pdf => {
-      if (!pdf.id) {
+      // Always try to fetch cover, even if pdf.missing is true
+      const bookId = pdf.id;
+      if (!bookId) {
         console.warn('[LandingPage] Skipping cover preload: invalid book id', pdf);
         return;
       }
-      const { url, expired } = getCoverFromCache(pdf.id);
-      newCovers[pdf.id] = url;
-      // Retry if expired or not cached
+      const { url, expired } = getCoverFromCache(bookId);
+      newCovers[bookId] = url;
+      // Always attempt to fetch cover if not cached or expired
       if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
         if (url !== '/no-cover.png' || expired) {
-          const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+          const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
           const img = new window.Image();
-          img.onload = () => setCoverInCache(pdf.id, coverUrl);
-          img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+          img.onload = () => setCoverInCache(bookId, coverUrl);
+          img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
           img.src = coverUrl;
         }
       }
@@ -222,37 +224,46 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
             .map((pdf) => (
               <SteppedContainer depth={depth + 1} key={pdf.id || Math.random()} className="carousel-item" style={{ cursor: 'pointer' }}>
                 {pdf.id ? (
-                  covers[pdf.id] === '/no-cover.png'
+                  pdf.missing
                     ? <div style={{
                         width: 38, height: 54,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: '#eee', color: '#888', borderRadius: 4,
+                        background: '#eee', color: '#c00', borderRadius: 4,
                         fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-                      }}>No Cover</div>
-                    : <img
-                        src={covers[pdf.id]}
-                        alt={pdf.title}
-                        className="book-cover"
-                        onError={e => {
-                          if (e.target.src !== '/no-cover.png') {
-                            setCoverInCache(pdf.id, '/no-cover.png');
-                            e.target.src = '/no-cover.png';
-                          }
-                        }}
-                        onClick={e => {
-                          const { url } = getCoverFromCache(pdf.id);
-                          if (url === '/no-cover.png') {
-                            const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-                            const img = new window.Image();
-                            img.onload = () => setCoverInCache(pdf.id, coverUrl);
-                            img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                            img.src = coverUrl;
-                            setTimeout(() => {
-                              e.target.src = getCoverFromCache(pdf.id).url;
-                            }, 500);
-                          }
-                        }}
-                      />
+                      }}>Missing Book</div>
+                    : covers[pdf.id] === '/no-cover.png'
+                      ? <div style={{
+                          width: 38, height: 54,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          background: '#eee', color: '#888', borderRadius: 4,
+                          fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+                        }}>No Cover</div>
+                      : <img
+                          src={covers[pdf.id]}
+                          alt={pdf.title}
+                          className="book-cover"
+                          style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
+                          onError={e => {
+                            if (e.target.src !== '/no-cover.png') {
+                              console.warn(`[Cover Fetch] Failed for book id: ${pdf.id}, title: ${pdf.title}`);
+                              setCoverInCache(pdf.id, '/no-cover.png');
+                              e.target.src = '/no-cover.png';
+                            }
+                          }}
+                          onClick={e => {
+                            const { url } = getCoverFromCache(pdf.id);
+                            if (url === '/no-cover.png') {
+                              const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                              const img = new window.Image();
+                              img.onload = () => setCoverInCache(pdf.id, coverUrl);
+                              img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+                              img.src = coverUrl;
+                              setTimeout(() => {
+                                e.target.src = getCoverFromCache(pdf.id).url;
+                              }, 500);
+                            }
+                          }}
+                        />
                 ) : (
                   <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
                 )}
@@ -419,19 +430,18 @@ export default function LandingPage() {
     ],
   };
 
-  // Fetch top 20 newest book IDs from /api/all-books (or paginated /list-pdfs if needed)
+  // Fetch top 20 newest book IDs from /api/all-books
   useEffect(() => {
     setLoadingPdfs(true);
     fetch(`${API_BASE_URL}/api/all-books`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data.books)) {
-          // Get top 20 newest IDs
           const newestIds = data.books.slice(0, 20).map(b => b.id);
           if (newestIds.length > 0) {
             fetch(`${API_BASE_URL}/api/books?ids=${newestIds.join(',')}`)
               .then(res2 => res2.json())
-              .then(data2 => {
+              .then (data2 => {
                 if (Array.isArray(data2.books)) {
                   setPdfs(data2.books);
                   setTopNewest(data2.books.slice(0, 10));
