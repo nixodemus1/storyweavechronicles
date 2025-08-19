@@ -19,6 +19,9 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
   const [banUser, setBanUser] = useState("");
   const [banStatus, setBanStatus] = useState("");
   const [banConfirm, setBanConfirm] = useState(false);
+  // Unban user state
+  const [unbanUser, setUnbanUser] = useState("");
+  const [unbanStatus, setUnbanStatus] = useState("");
 
   const containerBg = stepColor(backgroundColor, theme, 1);
 
@@ -141,7 +144,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
         {adminStatus && <div style={{ color: adminStatus.includes("granted") ? "#080" : adminStatus.includes("revoked") ? "#c00" : "#c00", marginTop: 8 }}>{adminStatus}</div>}
       </form>
       {/* Ban User Form */}
-      <form onSubmit={e => { e.preventDefault(); setBanConfirm(true); }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <form onSubmit={e => { e.preventDefault(); setBanConfirm(true); }} style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
         <label style={{ color: textColor }}>
           Username to Ban:
           <input
@@ -160,6 +163,45 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
           {saving ? "Processing..." : "Ban User"}
         </button>
         {banStatus && <div style={{ color: banStatus.includes("banned") ? "#080" : "#c00", marginTop: 8 }}>{banStatus}</div>}
+      </form>
+
+      {/* Unban User Form */}
+      <form onSubmit={async e => {
+        e.preventDefault();
+        setSaving(true);
+        setUnbanStatus("");
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/admin/unban-user`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ adminUsername: user.username, targetUsername: unbanUser })
+          });
+          const data = await res.json();
+          setUnbanStatus(data.message || (data.success ? `User ${unbanUser} unbanned.` : "Failed to unban user."));
+          setUnbanUser("");
+        } catch {
+          setUnbanStatus("Failed to unban user.");
+        }
+        setSaving(false);
+      }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <label style={{ color: textColor }}>
+          Username to Unban:
+          <input
+            type="text"
+            value={unbanUser}
+            onChange={e => setUnbanUser(e.target.value)}
+            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120 }}
+            required
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={saving || !unbanUser}
+          style={{ background: stepColor(containerBg, "dark", 1, 1), color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+        >
+          {saving ? "Processing..." : "Unban User"}
+        </button>
+        {unbanStatus && <div style={{ color: unbanStatus.includes("unbanned") ? "#080" : "#c00", marginTop: 8 }}>{unbanStatus}</div>}
       </form>
       {/* Confirmation Dialog */}
       {banConfirm && (
