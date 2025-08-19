@@ -3,17 +3,31 @@ const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 function getCoverFromCache(bookId) {
   try {
     const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
-  // Only return /no-cover.png if explicitly cached, otherwise return API URL
-  if (cache[bookId] === '/no-cover.png') return '/no-cover.png';
-  return cache[bookId] || `${API_BASE_URL}/pdf-cover/${bookId}`;
+    const entry = cache[bookId];
+    if (!entry) return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
+    if (typeof entry === 'string') {
+      // Legacy: treat as url, no timestamp
+      return { url: entry, expired: false };
+    }
+    // entry: { url, ts }
+    if (entry.url === '/no-cover.png') {
+      const now = Date.now();
+      const expired = !entry.ts || (now - entry.ts > 3600 * 1000); // 1 hour expiry
+      return { url: '/no-cover.png', expired };
+    }
+    return { url: entry.url, expired: false };
   } catch {
-    return `${API_BASE_URL}/pdf-cover/${bookId}`;
+    return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
   }
 }
 function setCoverInCache(bookId, url) {
   try {
     const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
-    cache[bookId] = url;
+    if (url === '/no-cover.png') {
+      cache[bookId] = { url, ts: Date.now() };
+    } else {
+      cache[bookId] = { url };
+    }
     localStorage.setItem('swc_cover_cache', JSON.stringify(cache));
   } catch {
     null;
@@ -29,16 +43,16 @@ function useCachedCovers(pdfs) {
         console.warn('[LandingPage] Skipping cover preload: invalid book id', pdf);
         return;
       }
-      const cached = getCoverFromCache(pdf.id);
-      newCovers[pdf.id] = cached;
-      // Only preload if not cached or is direct API url, but NOT if cached is '/no-cover.png'
-      if (!cached || (cached.startsWith(API_BASE_URL) && cached !== '/no-cover.png')) {
-        if (cached !== '/no-cover.png') {
-          const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+      const { url, expired } = getCoverFromCache(pdf.id);
+      newCovers[pdf.id] = url;
+      // Retry if expired or not cached
+      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
+        if (url !== '/no-cover.png' || expired) {
+          const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
           const img = new window.Image();
-          img.onload = () => setCoverInCache(pdf.id, url);
+          img.onload = () => setCoverInCache(pdf.id, coverUrl);
           img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-          img.src = url;
+          img.src = coverUrl;
         }
       }
     });
@@ -219,15 +233,16 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
                       }
                     }}
                     onClick={e => {
-                      // Only retry if cached is /no-cover.png
-                      if (covers[pdf.id] === '/no-cover.png') {
-                        const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                      // Always retry if cached is /no-cover.png
+                      const { url } = getCoverFromCache(pdf.id);
+                      if (url === '/no-cover.png') {
+                        const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
                         const img = new window.Image();
-                        img.onload = () => setCoverInCache(pdf.id, url);
+                        img.onload = () => setCoverInCache(pdf.id, coverUrl);
                         img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                        img.src = url;
+                        img.src = coverUrl;
                         setTimeout(() => {
-                          e.target.src = getCoverFromCache(pdf.id);
+                          e.target.src = getCoverFromCache(pdf.id).url;
                         }, 500);
                       }
                     }}
@@ -280,14 +295,15 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
                       }
                     }}
                     onClick={e => {
-                      if (coversNewest[pdf.id] === '/no-cover.png') {
-                        const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                      const { url } = getCoverFromCache(pdf.id);
+                      if (url === '/no-cover.png') {
+                        const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
                         const img = new window.Image();
-                        img.onload = () => setCoverInCache(pdf.id, url);
+                        img.onload = () => setCoverInCache(pdf.id, coverUrl);
                         img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                        img.src = url;
+                        img.src = coverUrl;
                         setTimeout(() => {
-                          e.target.src = getCoverFromCache(pdf.id);
+                          e.target.src = getCoverFromCache(pdf.id).url;
                         }, 500);
                       }
                     }} />
@@ -324,14 +340,15 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
                       }
                     }}
                     onClick={e => {
-                      if (coversVoted[pdf.id] === '/no-cover.png') {
-                        const url = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                      const { url } = getCoverFromCache(pdf.id);
+                      if (url === '/no-cover.png') {
+                        const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
                         const img = new window.Image();
-                        img.onload = () => setCoverInCache(pdf.id, url);
+                        img.onload = () => setCoverInCache(pdf.id, coverUrl);
                         img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                        img.src = url;
+                        img.src = coverUrl;
                         setTimeout(() => {
-                          e.target.src = getCoverFromCache(pdf.id);
+                          e.target.src = getCoverFromCache(pdf.id).url;
                         }, 500);
                       }
                     }} />

@@ -8,18 +8,29 @@ const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 function getCoverFromCache(bookId) {
   try {
     const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
-  // Only return /no-cover.png if explicitly cached, otherwise return API URL
-  if (cache[bookId] === '/no-cover.png') return '/no-cover.png';
-  return cache[bookId] || `${API_BASE_URL}/pdf-cover/${bookId}`;
+    const entry = cache[bookId];
+    if (!entry) return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
+    if (typeof entry === 'string') {
+      return { url: entry, expired: false };
+    }
+    if (entry.url === '/no-cover.png') {
+      const now = Date.now();
+      const expired = !entry.ts || (now - entry.ts > 3600 * 1000);
+      return { url: '/no-cover.png', expired };
+    }
+    return { url: entry.url, expired: false };
   } catch {
-    return `${API_BASE_URL}/pdf-cover/${bookId}`;
+    return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
   }
 }
-
 function setCoverInCache(bookId, url) {
   try {
     const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
-    cache[bookId] = url;
+    if (url === '/no-cover.png') {
+      cache[bookId] = { url, ts: Date.now() };
+    } else {
+      cache[bookId] = { url };
+    }
     localStorage.setItem('swc_cover_cache', JSON.stringify(cache));
   } catch {
     null;
@@ -61,15 +72,15 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
   React.useEffect(() => {
     bookmarks.forEach(bm => {
       const bookId = bm.id;
-      const cached = getCoverFromCache(bookId);
-      // Only preload if not cached or is direct API url, but NOT if cached is '/no-cover.png'
-      if (!cached || (cached.startsWith(API_BASE_URL) && cached !== '/no-cover.png')) {
-        if (cached !== '/no-cover.png') {
-          const url = `${API_BASE_URL}/pdf-cover/${bookId}`;
+      const { url, expired } = getCoverFromCache(bookId);
+      // Retry if expired or not cached
+      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
+        if (url !== '/no-cover.png' || expired) {
+          const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
           const img = new window.Image();
-          img.onload = () => setCoverInCache(bookId, url);
+          img.onload = () => setCoverInCache(bookId, coverUrl);
           img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
-          img.src = url;
+          img.src = coverUrl;
         }
       }
     });
@@ -116,26 +127,25 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
                   <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
                     {book.id ? (
                       <img
-                        src={getCoverFromCache(book.id)}
+                        src={getCoverFromCache(book.id).url}
                         alt={book.name}
                         style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                         onError={e => {
-                          // Only set fallback and cache once
                           if (e.target.src !== '/no-cover.png') {
                             setCoverInCache(book.id, '/no-cover.png');
                             e.target.src = '/no-cover.png';
                           }
                         }}
                         onClick={e => {
-                          // Only retry if cached is /no-cover.png
-                          if (getCoverFromCache(book.id) === '/no-cover.png') {
-                            const url = `${API_BASE_URL}/pdf-cover/${book.id}`;
+                          const { url } = getCoverFromCache(book.id);
+                          if (url === '/no-cover.png') {
+                            const coverUrl = `${API_BASE_URL}/pdf-cover/${book.id}`;
                             const img = new window.Image();
-                            img.onload = () => setCoverInCache(book.id, url);
+                            img.onload = () => setCoverInCache(book.id, coverUrl);
                             img.onerror = () => setCoverInCache(book.id, '/no-cover.png');
-                            img.src = url;
+                            img.src = coverUrl;
                             setTimeout(() => {
-                              e.target.src = getCoverFromCache(book.id);
+                              e.target.src = getCoverFromCache(book.id).url;
                             }, 500);
                           }
                         }}
@@ -190,14 +200,14 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
   React.useEffect(() => {
     books.forEach(book => {
       const bookId = book.id;
-      const cached = getCoverFromCache(bookId);
-      if (!cached || (cached.startsWith(API_BASE_URL) && cached !== '/no-cover.png')) {
-        if (cached !== '/no-cover.png') {
-          const url = book.cover_url || `${API_BASE_URL}/pdf-cover/${bookId}`;
+      const { url, expired } = getCoverFromCache(bookId);
+      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
+        if (url !== '/no-cover.png' || expired) {
+          const coverUrl = book.cover_url || `${API_BASE_URL}/pdf-cover/${bookId}`;
           const img = new window.Image();
-          img.onload = () => setCoverInCache(bookId, url);
+          img.onload = () => setCoverInCache(bookId, coverUrl);
           img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
-          img.src = url;
+          img.src = coverUrl;
         }
       }
     });
@@ -232,7 +242,7 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                 <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
                   {book.id ? (
                     <img
-                      src={getCoverFromCache(book.id)}
+                      src={getCoverFromCache(book.id).url}
                       alt={book.name}
                       style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                       onError={e => {
@@ -242,14 +252,15 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                         }
                       }}
                       onClick={e => {
-                        if (getCoverFromCache(book.id) === '/no-cover.png') {
-                          const url = book.cover_url || `${API_BASE_URL}/pdf-cover/${book.id}`;
+                        const { url } = getCoverFromCache(book.id);
+                        if (url === '/no-cover.png') {
+                          const coverUrl = book.cover_url || `${API_BASE_URL}/pdf-cover/${book.id}`;
                           const img = new window.Image();
-                          img.onload = () => setCoverInCache(book.id, url);
+                          img.onload = () => setCoverInCache(book.id, coverUrl);
                           img.onerror = () => setCoverInCache(book.id, '/no-cover.png');
-                          img.src = url;
+                          img.src = coverUrl;
                           setTimeout(() => {
-                            e.target.src = getCoverFromCache(book.id);
+                            e.target.src = getCoverFromCache(book.id).url;
                           }, 500);
                         }
                       }}
@@ -301,14 +312,14 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
   React.useEffect(() => {
     comments.forEach(comment => {
       const bookId = comment.book_id;
-      const cached = getCoverFromCache(bookId);
-      if (!cached || (cached.startsWith(API_BASE_URL) && cached !== '/no-cover.png')) {
-        if (cached !== '/no-cover.png') {
-          const url = `${API_BASE_URL}/pdf-cover/${bookId}`;
+      const { url, expired } = getCoverFromCache(bookId);
+      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
+        if (url !== '/no-cover.png' || expired) {
+          const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
           const img = new window.Image();
-          img.onload = () => setCoverInCache(bookId, url);
+          img.onload = () => setCoverInCache(bookId, coverUrl);
           img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
-          img.src = url;
+          img.src = coverUrl;
         }
       }
     });
