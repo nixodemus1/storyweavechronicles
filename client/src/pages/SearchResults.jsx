@@ -205,30 +205,45 @@ export default function SearchResults() {
               }
               return (
                 <li key={pdf.id || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: containerBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-                  <img
-                    src={getCoverFromCache(pdf.id).url}
-                    alt={pdf.title}
-                    style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                    onError={e => {
-                      if (e.target.src !== '/no-cover.png') {
-                        setCoverInCache(pdf.id, '/no-cover.png');
-                        e.target.src = '/no-cover.png';
-                      }
-                    }}
-                    onClick={e => {
-                      const { url } = getCoverFromCache(pdf.id);
-                      if (url === '/no-cover.png') {
-                        const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-                        const img = new window.Image();
-                        img.onload = () => setCoverInCache(pdf.id, coverUrl);
-                        img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                        img.src = coverUrl;
-                        setTimeout(() => {
-                          e.target.src = getCoverFromCache(pdf.id).url;
-                        }, 500);
-                      }
-                    }}
-                  />
+                  {/* Cover image or placeholder */}
+                  <div style={{ width: 60, height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {getCoverFromCache(pdf.id).url === '/no-cover.png'
+                      ? (
+                        <div style={{
+                          width: 60, height: 90,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          background: '#eee', color: '#888', borderRadius: 6,
+                          fontSize: 14, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+                        }}>No Cover</div>
+                      )
+                      : (
+                        <img
+                          src={getCoverFromCache(pdf.id).url}
+                          alt={pdf.title}
+                          style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
+                          onError={e => {
+                            if (e.target.src !== '/no-cover.png') {
+                              setCoverInCache(pdf.id, '/no-cover.png');
+                              e.target.src = '/no-cover.png';
+                            }
+                          }}
+                          onClick={e => {
+                            const { url } = getCoverFromCache(pdf.id);
+                            if (url === '/no-cover.png') {
+                              const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                              const img = new window.Image();
+                              img.onload = () => setCoverInCache(pdf.id, coverUrl);
+                              img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+                              img.src = coverUrl;
+                              setTimeout(() => {
+                                e.target.src = getCoverFromCache(pdf.id).url;
+                              }, 500);
+                            }
+                          }}
+                        />
+                      )
+                    }
+                  </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: 18 }}>{pdf.title}</div>
                     <div style={{ fontSize: 14, color: '#888' }}>

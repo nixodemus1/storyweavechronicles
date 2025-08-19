@@ -222,31 +222,37 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
             .map((pdf) => (
               <SteppedContainer depth={depth + 1} key={pdf.id || Math.random()} className="carousel-item" style={{ cursor: 'pointer' }}>
                 {pdf.id ? (
-                  <img
-                    src={covers[pdf.id]}
-                    alt={pdf.title}
-                    className="book-cover"
-                    onError={e => {
-                      if (e.target.src !== '/no-cover.png') {
-                        setCoverInCache(pdf.id, '/no-cover.png');
-                        e.target.src = '/no-cover.png';
-                      }
-                    }}
-                    onClick={e => {
-                      // Always retry if cached is /no-cover.png
-                      const { url } = getCoverFromCache(pdf.id);
-                      if (url === '/no-cover.png') {
-                        const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-                        const img = new window.Image();
-                        img.onload = () => setCoverInCache(pdf.id, coverUrl);
-                        img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                        img.src = coverUrl;
-                        setTimeout(() => {
-                          e.target.src = getCoverFromCache(pdf.id).url;
-                        }, 500);
-                      }
-                    }}
-                  />
+                  covers[pdf.id] === '/no-cover.png'
+                    ? <div style={{
+                        width: 38, height: 54,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: '#eee', color: '#888', borderRadius: 4,
+                        fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+                      }}>No Cover</div>
+                    : <img
+                        src={covers[pdf.id]}
+                        alt={pdf.title}
+                        className="book-cover"
+                        onError={e => {
+                          if (e.target.src !== '/no-cover.png') {
+                            setCoverInCache(pdf.id, '/no-cover.png');
+                            e.target.src = '/no-cover.png';
+                          }
+                        }}
+                        onClick={e => {
+                          const { url } = getCoverFromCache(pdf.id);
+                          if (url === '/no-cover.png') {
+                            const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                            const img = new window.Image();
+                            img.onload = () => setCoverInCache(pdf.id, coverUrl);
+                            img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+                            img.src = coverUrl;
+                            setTimeout(() => {
+                              e.target.src = getCoverFromCache(pdf.id).url;
+                            }, 500);
+                          }
+                        }}
+                      />
                 ) : (
                   <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
                 )}
@@ -285,28 +291,35 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
             {topNewest.map((pdf) => (
               <li key={pdf.id || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 {pdf.id ? (
-                  <img src={coversNewest[pdf.id]}
-                    alt={pdf.title}
-                    style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }}
-                    onError={e => {
-                      if (e.target.src !== '/no-cover.png') {
-                        setCoverInCache(pdf.id, '/no-cover.png');
-                        e.target.src = '/no-cover.png';
-                      }
-                    }}
-                    onClick={e => {
-                      const { url } = getCoverFromCache(pdf.id);
-                      if (url === '/no-cover.png') {
-                        const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-                        const img = new window.Image();
-                        img.onload = () => setCoverInCache(pdf.id, coverUrl);
-                        img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                        img.src = coverUrl;
-                        setTimeout(() => {
-                          e.target.src = getCoverFromCache(pdf.id).url;
-                        }, 500);
-                      }
-                    }} />
+                  coversNewest[pdf.id] === '/no-cover.png'
+                    ? <div style={{
+                        width: 32, height: 48,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: '#eee', color: '#888', borderRadius: 4,
+                        fontSize: 11, fontStyle: 'italic'
+                      }}>No Cover</div>
+                    : <img src={coversNewest[pdf.id]}
+                        alt={pdf.title}
+                        style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }}
+                        onError={e => {
+                          if (e.target.src !== '/no-cover.png') {
+                            setCoverInCache(pdf.id, '/no-cover.png');
+                            e.target.src = '/no-cover.png';
+                          }
+                        }}
+                        onClick={e => {
+                          const { url } = getCoverFromCache(pdf.id);
+                          if (url === '/no-cover.png') {
+                            const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                            const img = new window.Image();
+                            img.onload = () => setCoverInCache(pdf.id, coverUrl);
+                            img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+                            img.src = coverUrl;
+                            setTimeout(() => {
+                              e.target.src = getCoverFromCache(pdf.id).url;
+                            }, 500);
+                          }
+                        }} />
                 ) : (
                   <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span> &&
                   (() => { console.warn('[LandingPage] TopNewest: invalid book id', pdf); })()
@@ -330,28 +343,35 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
             {topVoted.map((pdf) => (
               <li key={pdf.id || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 {pdf.id ? (
-                  <img src={coversVoted[pdf.id]}
-                    alt={pdf.title}
-                    style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }}
-                    onError={e => {
-                      if (e.target.src !== '/no-cover.png') {
-                        setCoverInCache(pdf.id, '/no-cover.png');
-                        e.target.src = '/no-cover.png';
-                      }
-                    }}
-                    onClick={e => {
-                      const { url } = getCoverFromCache(pdf.id);
-                      if (url === '/no-cover.png') {
-                        const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-                        const img = new window.Image();
-                        img.onload = () => setCoverInCache(pdf.id, coverUrl);
-                        img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                        img.src = coverUrl;
-                        setTimeout(() => {
-                          e.target.src = getCoverFromCache(pdf.id).url;
-                        }, 500);
-                      }
-                    }} />
+                  coversVoted[pdf.id] === '/no-cover.png'
+                    ? <div style={{
+                        width: 32, height: 48,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: '#eee', color: '#888', borderRadius: 4,
+                        fontSize: 11, fontStyle: 'italic'
+                      }}>No Cover</div>
+                    : <img src={coversVoted[pdf.id]}
+                        alt={pdf.title}
+                        style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4 }}
+                        onError={e => {
+                          if (e.target.src !== '/no-cover.png') {
+                            setCoverInCache(pdf.id, '/no-cover.png');
+                            e.target.src = '/no-cover.png';
+                          }
+                        }}
+                        onClick={e => {
+                          const { url } = getCoverFromCache(pdf.id);
+                          if (url === '/no-cover.png') {
+                            const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+                            const img = new window.Image();
+                            img.onload = () => setCoverInCache(pdf.id, coverUrl);
+                            img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
+                            img.src = coverUrl;
+                            setTimeout(() => {
+                              e.target.src = getCoverFromCache(pdf.id).url;
+                            }, 500);
+                          }
+                        }} />
                 ) : (
                   <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span> &&
                   (() => { console.warn('[LandingPage] TopVoted: invalid book id', pdf); })()
