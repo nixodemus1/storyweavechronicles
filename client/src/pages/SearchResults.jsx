@@ -1,3 +1,39 @@
+// --- Unified cover cache logic from LandingPage.jsx ---
+function useCachedCovers(pdfs) {
+  const [covers, setCovers] = React.useState({});
+  React.useEffect(() => {
+    let isMounted = true;
+    const newCovers = {};
+    pdfs.forEach(pdf => {
+      if (!pdf || !pdf.id) return;
+      const { url, expired } = getCoverFromCache(pdf.id);
+      newCovers[pdf.id] = url;
+      // If expired or not cached, fetch cover
+      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
+        fetch(`${API_BASE_URL}/pdf-cover/${pdf.id}`)
+          .then(res => {
+            if (!res.ok) return '/no-cover.png';
+            return res.blob();
+          })
+          .then(blob => {
+            let coverUrl = '/no-cover.png';
+            if (blob && blob instanceof Blob && blob.type.startsWith('image/')) {
+              coverUrl = URL.createObjectURL(blob);
+            }
+            setCoverInCache(pdf.id, coverUrl);
+            if (isMounted) setCovers(c => ({ ...c, [pdf.id]: coverUrl }));
+          })
+          .catch(() => {
+            setCoverInCache(pdf.id, '/no-cover.png');
+            if (isMounted) setCovers(c => ({ ...c, [pdf.id]: '/no-cover.png' }));
+          });
+      }
+    });
+    if (isMounted) setCovers(newCovers);
+    return () => { isMounted = false; };
+  }, [pdfs]);
+  return covers;
+}
 import React, { useEffect, useState, useContext } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
@@ -141,26 +177,9 @@ export default function SearchResults() {
     return 0;
   });
 
-  // Preload covers and cache them in localStorage, but skip if cached is '/no-cover.png'
-  useEffect(() => {
-    sortedResults.forEach(pdf => {
-      if (!pdf.id) {
-        console.warn('[SearchResults] Skipping cover preload: invalid book id', pdf);
-        return;
-      }
-      const { url, expired } = getCoverFromCache(pdf.id);
-      // Retry if expired or not cached
-      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
-        if (url !== '/no-cover.png' || expired) {
-          const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-          const img = new window.Image();
-          img.onload = () => setCoverInCache(pdf.id, coverUrl);
-          img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-          img.src = coverUrl;
-        }
-      }
-    });
-  }, [sortedResults]);
+
+  // Use unified cover cache logic
+  const covers = useCachedCovers(sortedResults);
 
   // Container colors
   function getContainerBg(bg, theme, step = 1) {
@@ -203,11 +222,12 @@ export default function SearchResults() {
                   </li>
                 );
               }
+              const coverUrl = covers[pdf.id] || '/no-cover.png';
               return (
                 <li key={pdf.id || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: containerBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
                   {/* Cover image or placeholder */}
                   <div style={{ width: 60, height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {getCoverFromCache(pdf.id).url === '/no-cover.png'
+                    {coverUrl === '/no-cover.png'
                       ? (
                         <div style={{
                           width: 60, height: 90,
@@ -218,26 +238,13 @@ export default function SearchResults() {
                       )
                       : (
                         <img
-                          src={getCoverFromCache(pdf.id).url}
+                          src={coverUrl}
                           alt={pdf.title}
                           style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                           onError={e => {
                             if (e.target.src !== '/no-cover.png') {
                               setCoverInCache(pdf.id, '/no-cover.png');
                               e.target.src = '/no-cover.png';
-                            }
-                          }}
-                          onClick={e => {
-                            const { url } = getCoverFromCache(pdf.id);
-                            if (url === '/no-cover.png') {
-                              const coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
-                              const img = new window.Image();
-                              img.onload = () => setCoverInCache(pdf.id, coverUrl);
-                              img.onerror = () => setCoverInCache(pdf.id, '/no-cover.png');
-                              img.src = coverUrl;
-                              setTimeout(() => {
-                                e.target.src = getCoverFromCache(pdf.id).url;
-                              }, 500);
                             }
                           }}
                         />

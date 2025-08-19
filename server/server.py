@@ -622,7 +622,7 @@ def update_colors():
 def get_notification_prefs():
     data = request.get_json()
     username = data.get('username')
-    user = User.query.filter_by(username=username).first()
+    user = User.query.filter_by(username=username).first() if username else None
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
     if user.notification_prefs:
@@ -634,7 +634,7 @@ def get_notification_prefs():
             'updates': True,
             'announcements': True,
             'channels': ['primary'],
-            'emailFrequency': 'immediate'  # Add this line
+            'emailFrequency': 'immediate'
         }
         user.notification_prefs = json.dumps(prefs)
         db.session.commit()
@@ -681,11 +681,9 @@ def notification_history():
     data = request.get_json()
     username = data.get('username')
     dropdown_only = data.get('dropdownOnly', False)
-    user = User.query.filter_by(username=username).first()
+    user = User.query.filter_by(username=username).first() if username else None
     if not user:
-        # Always return valid JSON, even if user not found
         return jsonify({'success': False, 'history': [], 'message': 'User not found.'})
-    history = []
     try:
         history = json.loads(user.notification_history) if user.notification_history else []
     except Exception:

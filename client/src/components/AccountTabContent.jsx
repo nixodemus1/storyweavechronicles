@@ -1,3 +1,39 @@
+// --- Unified cover cache logic from LandingPage.jsx ---
+function useCachedCovers(pdfs) {
+  const [covers, setCovers] = React.useState({});
+  React.useEffect(() => {
+    let isMounted = true;
+    const newCovers = {};
+    pdfs.forEach(pdf => {
+      if (!pdf || !pdf.id) return;
+      const { url, expired } = getCoverFromCache(pdf.id);
+      newCovers[pdf.id] = url;
+      // If expired or not cached, fetch cover
+      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
+        fetch(`${API_BASE_URL}/pdf-cover/${pdf.id}`)
+          .then(res => {
+            if (!res.ok) return '/no-cover.png';
+            return res.blob();
+          })
+          .then(blob => {
+            let coverUrl = '/no-cover.png';
+            if (blob && blob instanceof Blob && blob.type.startsWith('image/')) {
+              coverUrl = URL.createObjectURL(blob);
+            }
+            setCoverInCache(pdf.id, coverUrl);
+            if (isMounted) setCovers(c => ({ ...c, [pdf.id]: coverUrl }));
+          })
+          .catch(() => {
+            setCoverInCache(pdf.id, '/no-cover.png');
+            if (isMounted) setCovers(c => ({ ...c, [pdf.id]: '/no-cover.png' }));
+          });
+      }
+    });
+    if (isMounted) setCovers(newCovers);
+    return () => { isMounted = false; };
+  }, [pdfs]);
+  return covers;
+}
 import React, { useContext, useState } from "react";
 import { Link } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
@@ -68,120 +104,92 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
       });
   }, []);
 
-  // Preload covers and cache them in localStorage
-  React.useEffect(() => {
-    bookmarks.forEach(bm => {
-      const bookId = bm.id;
-      const { url, expired } = getCoverFromCache(bookId);
-      // Retry if expired or not cached
-      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
-        if (url !== '/no-cover.png' || expired) {
-          const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
-          const img = new window.Image();
-          img.onload = () => setCoverInCache(bookId, coverUrl);
-          img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
-          img.src = coverUrl;
-        }
-      }
-    });
-  }, [bookmarks]);
 
-  const bookmarkedBooks = bookmarks
-    .map(bm => {
-      const book = books.find(b => b.id === bm.id);
-      return book ? { ...book, ...bm } : null;
-    })
-    .filter(Boolean)
-    .sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
+    // Use unified cover cache logic from LandingPage.jsx
+    const bookmarkedBooks = bookmarks
+      .map(bm => {
+        const book = books.find(b => b.id === bm.id);
+        return book ? { ...book, ...bm } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
+    const covers = useCachedCovers(bookmarkedBooks);
+    const containerBg = stepColor(backgroundColor, theme, 1);
 
-  const containerBg = stepColor(backgroundColor, theme, 1);
-
-  return (
-    <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
-      <h3>Your Bookmarked Books</h3>
-      {loading ? (
-        <div style={{ color: '#888' }}>Loading bookmarks...</div>
-      ) : (
-        bookmarkedBooks.length === 0 ? (
-          <div style={{ color: '#888' }}>No bookmarks yet.</div>
+    return (
+      <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
+        <h3>Your Bookmarked Books</h3>
+        {loading ? (
+          <div style={{ color: '#888' }}>Loading bookmarks...</div>
         ) : (
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {bookmarkedBooks.map(book => {
-              if (!book.id) {
-                console.warn('[AccountTabContent] BookmarksTab: invalid book id', book);
-              }
-              return (
-                <li
-                  key={book.id || Math.random()}
-                  style={{
-                    marginBottom: 14,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    background: book.unread ? '#ffe0e0' : 'transparent',
-                    borderRadius: 6,
-                    padding: '6px 8px',
-                    boxShadow: book.unread ? '0 0 4px #c00' : 'none',
-                  }}
-                >
-                  <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
-                    {book.id ? (
-                      getCoverFromCache(book.id).url === '/no-cover.png'
-                        ? <div style={{
-                            width: 38, height: 54,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: '#eee', color: '#888', borderRadius: 4,
-                            fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-                          }}>No Cover</div>
-                        : <img
-                            src={getCoverFromCache(book.id).url}
-                            alt={book.name}
-                            style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                            onError={e => {
-                              if (e.target.src !== '/no-cover.png') {
-                                setCoverInCache(book.id, '/no-cover.png');
-                                e.target.src = '/no-cover.png';
-                              }
-                            }}
-                            onClick={e => {
-                              const { url } = getCoverFromCache(book.id);
-                              if (url === '/no-cover.png') {
-                                const coverUrl = `${API_BASE_URL}/pdf-cover/${book.id}`;
-                                const img = new window.Image();
-                                img.onload = () => setCoverInCache(book.id, coverUrl);
-                                img.onerror = () => setCoverInCache(book.id, '/no-cover.png');
-                                img.src = coverUrl;
-                                setTimeout(() => {
-                                  e.target.src = getCoverFromCache(book.id).url;
-                                }, 500);
-                              }
-                            }}
-                          />
-                    ) : (
-                      <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
+          bookmarkedBooks.length === 0 ? (
+            <div style={{ color: '#888' }}>No bookmarks yet.</div>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0 }}>
+              {bookmarkedBooks.map(book => {
+                if (!book.id) {
+                  console.warn('[AccountTabContent] BookmarksTab: invalid book id', book);
+                }
+                const coverUrl = covers[book.id] || '/no-cover.png';
+                return (
+                  <li
+                    key={book.id || Math.random()}
+                    style={{
+                      marginBottom: 14,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      background: book.unread ? '#ffe0e0' : 'transparent',
+                      borderRadius: 6,
+                      padding: '6px 8px',
+                      boxShadow: book.unread ? '0 0 4px #c00' : 'none',
+                    }}
+                  >
+                    <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
+                      {book.id ? (
+                        coverUrl === '/no-cover.png'
+                          ? <div style={{
+                              width: 38, height: 54,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              background: '#eee', color: '#888', borderRadius: 4,
+                              fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+                            }}>No Cover</div>
+                          : <img
+                              src={coverUrl}
+                              alt={book.name}
+                              style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
+                              onError={e => {
+                                if (e.target.src !== '/no-cover.png') {
+                                  setCoverInCache(book.id, '/no-cover.png');
+                                  e.target.src = '/no-cover.png';
+                                }
+                              }}
+                            />
+                      ) : (
+                        <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
+                      )}
+                    </Link>
+                    {/* Clickable book title next to cover */}
+                    <Link to={book.id ? `/read/${book.id}` : '#'} style={{ color: textColor, textDecoration: 'underline', fontWeight: 600, fontSize: 16, marginLeft: 4 }}>
+                      {book.title || book.name || book.id}
+                    </Link>
+                    <span style={{ fontSize: 13, color: '#888' }}>
+                      Last updated: {book.last_updated ? book.last_updated : 'Never'}
+                    </span>
+                    <span style={{ fontSize: 13, color: '#888' }}>
+                      Last page read: {book.last_page}
+                    </span>
+                    {book.unread && (
+                      <span style={{ color: '#c00', fontWeight: 700, fontSize: 13 }}>Unread update!</span>
                     )}
-                  </Link>
-                  {/* Clickable book title next to cover */}
-                  <Link to={book.id ? `/read/${book.id}` : '#'} style={{ color: textColor, textDecoration: 'underline', fontWeight: 600, fontSize: 16, marginLeft: 4 }}>
-                    {book.title || book.name || book.id}
-                  </Link>
-                  <span style={{ fontSize: 13, color: '#888' }}>
-                    Last updated: {book.last_updated ? book.last_updated : 'Never'}
-                  </span>
-                  <span style={{ fontSize: 13, color: '#888' }}>
-                    Last page read: {book.last_page}
-                  </span>
-                  {book.unread && (
-                    <span style={{ color: '#c00', fontWeight: 700, fontSize: 13 }}>Unread update!</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )
-      )}
-    </div>
-  );
+                  </li>
+                );
+              })}
+            </ul>
+          )
+        )}
+      </div>
+    );
 });
 
 const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) {
@@ -204,22 +212,9 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
       });
   }, [user?.username]);
 
-  React.useEffect(() => {
-    books.forEach(book => {
-      const bookId = book.id;
-      const { url, expired } = getCoverFromCache(bookId);
-      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
-        if (url !== '/no-cover.png' || expired) {
-          const coverUrl = book.cover_url || `${API_BASE_URL}/pdf-cover/${bookId}`;
-          const img = new window.Image();
-          img.onload = () => setCoverInCache(bookId, coverUrl);
-          img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
-          img.src = coverUrl;
-        }
-      }
-    });
-  }, [books]);
 
+  // Use unified cover cache logic from LandingPage.jsx
+  const covers = useCachedCovers(books);
   const containerBg = stepColor(backgroundColor, theme, 1);
 
   return (
@@ -235,6 +230,7 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
             if (!book.id) {
               console.warn('[AccountTabContent] UserTopVotedBooksTab: invalid book id', book);
             }
+            const coverUrl = covers[book.id] || '/no-cover.png';
             return (
               <li key={book.id || Math.random()} style={{
                 marginBottom: 14,
@@ -248,7 +244,7 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
               }}>
                 <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
                   {book.id ? (
-                    getCoverFromCache(book.id).url === '/no-cover.png'
+                    coverUrl === '/no-cover.png'
                       ? <div style={{
                           width: 38, height: 54,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -256,26 +252,13 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                           fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
                         }}>No Cover</div>
                       : <img
-                          src={getCoverFromCache(book.id).url}
+                          src={coverUrl}
                           alt={book.name}
                           style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                           onError={e => {
                             if (e.target.src !== '/no-cover.png') {
                               setCoverInCache(book.id, '/no-cover.png');
                               e.target.src = '/no-cover.png';
-                            }
-                          }}
-                          onClick={e => {
-                            const { url } = getCoverFromCache(book.id);
-                            if (url === '/no-cover.png') {
-                              const coverUrl = book.cover_url || `${API_BASE_URL}/pdf-cover/${book.id}`;
-                              const img = new window.Image();
-                              img.onload = () => setCoverInCache(book.id, coverUrl);
-                              img.onerror = () => setCoverInCache(book.id, '/no-cover.png');
-                              img.src = coverUrl;
-                              setTimeout(() => {
-                                e.target.src = getCoverFromCache(book.id).url;
-                              }, 500);
                             }
                           }}
                         />
