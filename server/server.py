@@ -1625,8 +1625,8 @@ def ban_user():
     admin_username = data.get('adminUsername')
     target_username = data.get('targetUsername')
     if not is_admin(admin_username):
+        user = User.query.filter_by(username=target_username).first()
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-    user = User.query.filter_by(username=target_username).first()
     if not user:
         return jsonify({'success': False, 'message': 'Target user not found.'}), 404
     if user.is_admin:
@@ -1648,6 +1648,70 @@ def unban_user():
     user.banned = False
     db.session.commit()
     return jsonify({'success': True, 'message': f'User {target_username} has been unbanned.'})
+
+# --- Manual Seed Endpoint ---
+@app.route('/api/seed-drive-books', methods=['POST'])
+def seed_drive_books():
+    """
+    Manually repopulate the Book table from all PDFs in the configured Google Drive folder.
+    Returns: {success, added_count, skipped_count, errors}
+    """
+    try:
+        folder_id = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
+        if not folder_id:
+            return jsonify({'success': False, 'message': 'GOOGLE_DRIVE_FOLDER_ID not set.'}), 500
+        service = get_drive_service()
+        # List all PDFs in the folder
+        query = f"'{folder_id}' in parents and mimeType = 'application/pdf' and trashed = false"
+        files = []
+        page_token = None
+        while True:
+            response = service.files().list(
+                q=query,
+                spaces='drive',
+                fields='nextPageToken, files(id, name)',
+                pageToken=page_token
+            ).execute()
+            files.extend(response.get('files', []))
+            page_token = response.get('nextPageToken', None)
+            if not page_token:
+                break
+        added_count = 0
+        skipped_count = 0
+        errors = []
+        for f in files:
+            drive_id = f['id']
+            title = f['name']
+            # Check if already exists
+            if Book.query.filter_by(drive_id=drive_id).first():
+                skipped_count += 1
+                continue
+            # Try to extract external_story_id from PDF
+            try:
+                request = service.files().get_media(fileId=drive_id)
+                file_content = request.execute()
+                external_story_id = extract_story_id_from_pdf(file_content)
+            except Exception as e:
+                external_story_id = None
+                errors.append(f"Error extracting story ID for {title}: {e}")
+            book = Book(
+                drive_id=drive_id,
+                title=title,
+                external_story_id=external_story_id,
+                version_history=None
+            )
+            db.session.add(book)
+            added_count += 1
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'added_count': added_count,
+            'skipped_count': skipped_count,
+            'errors': errors,
+            'message': f'Seeded {added_count} new books, skipped {skipped_count} already present.'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/cover-exists/<file_id>', methods=['GET'])
 def cover_exists(file_id):
