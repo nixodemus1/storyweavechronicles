@@ -488,6 +488,19 @@ def download_pdf(file_id):
         response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
         return response
 
+def downscale_image(img_bytes, size=(80, 120), format="JPEG", quality=70):
+    """
+    Downscale and compress image bytes.
+    Returns BytesIO of the downscaled image.
+    """
+    img = Image.open(io.BytesIO(img_bytes))
+    img = img.convert("RGB")
+    img.thumbnail(size)
+    out = io.BytesIO()
+    img.save(out, format=format, quality=quality)
+    out.seek(0)
+    return out
+
 @app.route('/pdf-cover/<file_id>')
 def pdf_cover(file_id):
     def send_fallback():
@@ -513,13 +526,8 @@ def pdf_cover(file_id):
             doc = fitz.open(stream=file_content, filetype="pdf")
             page = doc.load_page(0)
             pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
-            img_bytes = io.BytesIO(pix.tobytes("png"))
-            img = Image.open(img_bytes)
-            img = img.convert("RGB")
-            img.thumbnail((80, 120))
-            out = io.BytesIO()
-            img.save(out, format="JPEG", quality=70)
-            out.seek(0)
+            img_bytes = pix.tobytes("png")
+            out = downscale_image(img_bytes, size=(200, 300), format="JPEG", quality=85)
             logging.info(f"[pdf-cover] Successfully generated cover for file_id={file_id}")
             response = make_response(send_file(out, mimetype="image/jpeg"))
             response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
@@ -531,6 +539,48 @@ def pdf_cover(file_id):
         logging.error(f"[pdf-cover] Error fetching file from Drive for file_id={file_id}: {e}")
         return send_fallback()
 
+@app.route('/api/pdf-text/<file_id>', methods=['GET'])
+def pdf_text(file_id):
+    """
+    Extracts all text and images from a PDF file in Google Drive by file_id.
+    Returns: {"success": True, "pages": [{"page": n, "text": ..., "images": [...]}, ...]} or error JSON.
+    """
+    try:
+        service = get_drive_service()
+        request = service.files().get_media(fileId=file_id)
+        file_content = io.BytesIO(request.execute())
+        doc = fitz.open(stream=file_content.getvalue(), filetype="pdf")
+        pages = []
+        for page_num in range(doc.page_count):
+            page = doc.load_page(page_num)
+            page_text = page.get_text("text")
+            images = []
+            for img_index, img in enumerate(page.get_images(full=True)):
+                xref = img[0]
+                try:
+                    base_image = doc.extract_image(xref)
+                    img_bytes = base_image["image"]
+                    # Downscale image for book pages
+                    out = downscale_image(img_bytes, size=(300, 400), format="JPEG", quality=70)
+                    img_b64 = base64.b64encode(out.read()).decode("utf-8")
+                    images.append({
+                        "index": img_index,
+                        "xref": xref,
+                        "base64": img_b64,
+                        "ext": "jpg"
+                    })
+                except Exception as img_e:
+                    logging.warning(f"[pdf-text] Failed to extract image xref={xref} on page={page_num}: {img_e}")
+            pages.append({
+                "page": page_num + 1,
+                "text": page_text,
+                "images": images
+            })
+        return jsonify({"success": True, "pages": pages})
+    except Exception as e:
+        logging.error(f"[pdf-text] Error extracting text for file_id={file_id}: {e}")
+        return jsonify({"success": False, "error": str(e)})
+    
 @app.route('/api/update-colors', methods=['POST'])
 def update_colors():
     data = request.get_json()
@@ -1720,7 +1770,7 @@ if __name__ == '__main__':
                         if not prefs.get('muteAll', False) and prefs.get('newBooks', True):
                             body = f'A new book "{book.title}" is now available in the library.'
                             if book.external_story_id:
-                                body += f' External ID: {book.external_story_id}'(check_and_notify_new_books, 'interval', hours=1)
+                                body += f' External ID: {book.external_story_id}'
                             add_notification(user, 'newBook', 'New Book Added!', body, link=f'/read/{book.drive_id}')
                     logging.info(f"Notified users of new book: {book.title} ({book.drive_id})")
             except Exception as e:

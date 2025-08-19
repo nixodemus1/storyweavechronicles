@@ -5,6 +5,40 @@ import { ThemeContext } from "../themeContext";
 import { SteppedContainer } from "../components/ContainerDepthContext.jsx";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
+const CACHE_LIMIT = 3; // Max number of books to cache
+
+function getBookCacheKey(id) {
+  return `storyweave_book_${id}`;
+}
+
+function getCachedBooksList() {
+  const raw = localStorage.getItem('storyweave_book_cache_list');
+  return raw ? JSON.parse(raw) : [];
+}
+
+function setCachedBooksList(list) {
+  localStorage.setItem('storyweave_book_cache_list', JSON.stringify(list));
+}
+
+function addBookToCache(id, data) {
+  localStorage.setItem(getBookCacheKey(id), JSON.stringify(data));
+  let list = getCachedBooksList();
+  // Remove if already present
+  list = list.filter(bid => bid !== id);
+  list.push(id);
+  // Evict oldest if over limit
+  while (list.length > CACHE_LIMIT) {
+    const oldest = list.shift();
+    localStorage.removeItem(getBookCacheKey(oldest));
+  }
+  setCachedBooksList(list);
+}
+
+function removeBookFromCache(id) {
+  localStorage.removeItem(getBookCacheKey(id));
+  let list = getCachedBooksList().filter(bid => bid !== id);
+  setCachedBooksList(list);
+}
 
 export default function PDFReader() {
   const { id } = useParams();
@@ -19,14 +53,54 @@ export default function PDFReader() {
   // Used to trigger comments refresh
   const [commentsRefresh, setCommentsRefresh] = useState(0);
 
+  // Color logic for containers and buttons
+  const baseBg = stepColor(backgroundColor, theme, 0);
+  const navButtonBg = stepColor(backgroundColor, theme, 1);
+  const navButtonText = textColor;
+  const pdfPageBg = stepColor(backgroundColor, theme, 1);
+  const bookMetaBg = stepColor(backgroundColor, theme, 2);
+  const commentsOuterBg = stepColor(backgroundColor, theme, 3);
+
   // Fetch PDF data
+  const [pdfError, setPdfError] = useState(null);
   useEffect(() => {
+    setPdfError(null);
+    const cacheKey = getBookCacheKey(id);
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const data = JSON.parse(cached);
+        setPdfData(data);
+        return;
+      } catch {
+        console.error("[pdfFetch] Failed to parse cached PDF data:", cached);
+      }
+    }
     fetch(`${API_BASE_URL}/api/pdf-text/${id}`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('PDF not found');
+        return res.json();
+      })
       .then(data => {
-        if (!data.error) setPdfData(data);
+        if (!data.error && data.pages) {
+          setPdfData(data);
+          addBookToCache(id, data);
+        } else {
+          setPdfError('PDF text not found for this book.');
+        }
+      })
+      .catch(() => {
+        setPdfError('PDF text not found for this book.');
+        setPdfData(null);
       });
   }, [id]);
+
+  // Remove book from cache when user reaches last page
+  useEffect(() => {
+    if (pdfData && currentPage === (pdfData.totalPages || pdfData.pages.length)) {
+      removeBookFromCache(id);
+    }
+  }, [pdfData, currentPage, id]);
 
   // Fetch book metadata
   useEffect(() => {
@@ -158,6 +232,113 @@ export default function PDFReader() {
 
   // Comments section
   function CommentsSection({ bookId, currentPage, commentsRefresh }) {
+    const [comments, setComments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [newComment, setNewComment] = useState("");
+    const [replyTo, setReplyTo] = useState(null);
+    const [editId, setEditId] = useState(null);
+    const [editText, setEditText] = useState("");
+    const [msg, setMsg] = useState("");
+
+    // Fetch comments
+    const fetchComments = () => {
+      setLoading(true);
+      fetch(`${API_BASE_URL}/api/get-comments?book_id=${bookId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.comments)) {
+            // Only update state if data is different
+            if (JSON.stringify(data.comments) !== JSON.stringify(comments)) {
+              setComments(data.comments);
+            }
+          }
+          setLoading(false);
+        });
+    };
+    useEffect(() => {
+      fetchComments();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [bookId, currentPage, commentsRefresh]);
+
+    // Add comment or reply
+    const handleAddComment = async () => {
+      if (!user || !user.username) {
+        setMsg("Log in to comment.");
+        return;
+      }
+      if (!newComment.trim()) return;
+      const res = await fetch(`${API_BASE_URL}/api/add-comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          book_id: bookId,
+          username: user.username,
+          text: newComment,
+          parent_id: replyTo
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNewComment("");
+        setReplyTo(null);
+        setMsg("");
+        // Trigger refresh
+        setCommentsRefresh(r => r + 1);
+      } else {
+        setMsg(data.message || "Failed to add comment.");
+      }
+    };
+
+    // Edit comment
+    const handleEditComment = async (commentId) => {
+      if (!editText.trim()) return;
+      const res = await fetch(`${API_BASE_URL}/api/edit-comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          comment_id: commentId,
+          username: user.username,
+          text: editText
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditId(null);
+        setEditText("");
+        setCommentsRefresh(r => r + 1);
+      } else {
+        setMsg(data.message || "Failed to edit comment.");
+      }
+    };
+
+    // Delete comment
+    const handleDeleteComment = async (commentId) => {
+      const res = await fetch(`${API_BASE_URL}/api/delete-comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          comment_id: commentId,
+          username: user.username
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCommentsRefresh(r => r + 1);
+      } else {
+        setMsg(data.message || "Failed to delete comment.");
+      }
+    };
+
+    // Vote comment
+    const handleVoteComment = async (commentId, value) => {
+      await fetch(`${API_BASE_URL}/api/vote-comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment_id: commentId, value })
+      });
+      setCommentsRefresh(r => r + 1);
+    };
+
     // Render comments recursively
     function renderComments(list, depth = 0) {
       return list.map(comment => {
@@ -307,115 +488,6 @@ export default function PDFReader() {
           </span>
         );
       }
-    const [comments, setComments] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [newComment, setNewComment] = useState("");
-    const [replyTo, setReplyTo] = useState(null);
-    const [editId, setEditId] = useState(null);
-    const [editText, setEditText] = useState("");
-    const [msg, setMsg] = useState("");
-
-    // Fetch comments
-    const fetchComments = () => {
-      setLoading(true);
-      fetch(`${API_BASE_URL}/api/get-comments?book_id=${bookId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && Array.isArray(data.comments)) {
-            // Only update state if data is different
-            if (JSON.stringify(data.comments) !== JSON.stringify(comments)) {
-              setComments(data.comments);
-            }
-          }
-          setLoading(false);
-        });
-    };
-    useEffect(() => {
-      fetchComments();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [bookId, currentPage, commentsRefresh]);
-
-    // Add comment or reply
-    const handleAddComment = async () => {
-      if (!user || !user.username) {
-        setMsg("Log in to comment.");
-        return;
-      }
-      if (!newComment.trim()) return;
-      const res = await fetch(`${API_BASE_URL}/api/add-comment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          book_id: bookId,
-          username: user.username,
-          text: newComment,
-          parent_id: replyTo
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setNewComment("");
-        setReplyTo(null);
-        setMsg("");
-        // Trigger refresh
-        setCommentsRefresh(r => r + 1);
-      } else {
-        setMsg(data.message || "Failed to add comment.");
-      }
-    };
-
-    // Edit comment
-    const handleEditComment = async (commentId) => {
-      if (!editText.trim()) return;
-      const res = await fetch(`${API_BASE_URL}/api/edit-comment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          comment_id: commentId,
-          username: user.username,
-          text: editText
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setEditId(null);
-        setEditText("");
-        setCommentsRefresh(r => r + 1);
-      } else {
-        setMsg(data.message || "Failed to edit comment.");
-      }
-    };
-
-    // Delete comment
-    const handleDeleteComment = async (commentId) => {
-      const res = await fetch(`${API_BASE_URL}/api/delete-comment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          comment_id: commentId,
-          username: user.username
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setCommentsRefresh(r => r + 1);
-      } else {
-        setMsg(data.message || "Failed to delete comment.");
-      }
-    };
-
-    // Vote comment
-    const handleVoteComment = async (commentId, value) => {
-      await fetch(`${API_BASE_URL}/api/vote-comment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment_id: commentId, value })
-      });
-      setCommentsRefresh(r => r + 1);
-    };
-
-    // ...existing renderComments and JSX...
-    // Comments container uses the same color for both outer and inner
     const commentsContainerBg = stepColor(backgroundColor, theme, 3);
     return (
       <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
@@ -425,7 +497,6 @@ export default function PDFReader() {
           <div>Loading comments...</div>
         ) : (
           <>
-            {/* Inner container matches outer container color */}
             <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
               {renderComments(comments)}
               <div style={{ marginTop: 18 }}>
@@ -454,19 +525,60 @@ export default function PDFReader() {
     );
   }
 
+  // Only render the current page
+  const pagesArr = pdfData?.pages && Array.isArray(pdfData.pages) ? pdfData.pages : [];
+  const renderPages = [];
+  const pageObj = pagesArr.find(p => p.page === currentPage);
+  if (pageObj) {
+    renderPages.push(pageObj);
+  }
+
+  // Helper to render page text: cover page is rendered as a single block, others use paragraph splitting
+  function renderPageText(pageObj) {
+    if (!pageObj.text) return null;
+    // If cover page (page 1), render as single block and ensure only one newline at the end
+    if (pageObj.page === 1) {
+      // Remove all trailing newlines, then add one
+      const trimmedText = pageObj.text.replace(/\n+$/g, '') + '\n';
+      return <div style={{ margin: '0 0 1em 0' }}>{trimmedText}</div>;
+    }
+    // Otherwise, split into paragraphs
+    const lines = pageObj.text.split(/\n+/);
+    const paras = [];
+    let current = '';
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      // If line ends with punctuation or is long, treat as paragraph end
+      if (/([.!?])$/.test(line) || line.length > 80) {
+        current += (current ? ' ' : '') + line;
+        paras.push(current);
+        current = '';
+      } else {
+        current += (current ? ' ' : '') + line;
+      }
+    }
+    if (current) paras.push(current);
+    return paras.map((para, idx) => (
+      <p key={idx} style={{ margin: '0 0 1em 0' }}>{para}</p>
+    ));
+  }
+  // Error and loading states
+  if (pdfError) {
+    const errorBg = stepColor(backgroundColor, theme, 0);
+    return (
+      <div className={`pdf-reader-error ${theme}-mode`} style={{ background: errorBg, color: textColor, minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <h2 style={{ color: '#c00', marginBottom: 16 }}>Error: {pdfError}</h2>
+        <div style={{ marginBottom: 24 }}>The book exists, but its text could not be loaded. Please check the backend or try again later.</div>
+        <button style={{ padding: '8px 20px', borderRadius: 6, border: '1px solid #bbb', background: '#fff', color: '#333', fontWeight: 600, cursor: 'pointer' }} onClick={() => window.location.reload()}>Retry</button>
+      </div>
+    );
+  }
   if (!pdfData) {
     const loadingBg = stepColor(backgroundColor, theme, 0);
     return <div className={`pdf-reader-loading ${theme}-mode`} style={{ background: loadingBg, color: textColor, minHeight: '100vh' }}>Loading PDF...</div>;
   }
 
-  const page = pdfData.pages.find(p => p.page === currentPage);
-  // Use stepColor for all major containers and navigation buttons
-  const baseBg = stepColor(backgroundColor, theme, 0);
-  const navButtonBg = stepColor(backgroundColor, theme, 1);
-  const navButtonText = textColor;
-  const pdfPageBg = stepColor(backgroundColor, theme, 1);
-  const bookMetaBg = stepColor(backgroundColor, theme, 2);
-  const commentsOuterBg = stepColor(backgroundColor, theme, 3);
   return (
     <SteppedContainer step={0} style={{ minHeight: '100vh', background: baseBg, color: textColor }} className={`pdf-reader-container ${theme}-mode`}>
       <header className="pdf-reader-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', marginBottom: 16 }}>
@@ -500,26 +612,62 @@ export default function PDFReader() {
       </div>
 
       <SteppedContainer step={1} style={{ borderRadius: 8, padding: 32, margin: 16, background: pdfPageBg, maxWidth: 1100, marginLeft: 'auto', marginRight: 'auto' }} className="pdf-reader-page">
-        {page.images && page.images.length > 0 && (
-          <div className="pdf-reader-images">
-            {page.images.map((src, idx) => (
-              <img key={idx} src={src.startsWith('/pdf-cover/') ? `${API_BASE_URL}${src}` : src} alt={`Page ${page.page} Image ${idx + 1}`} />
-            ))}
-          </div>
-        )}
+        {renderPages.map(page => (
+          <div key={page.page}>
+            {page.images && page.images.length > 0 && (
+              <div className="pdf-reader-images" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                {page.images.map((img, idx) => {
+                  let src, ext;
+                  if (typeof img === 'string') {
+                    src = img.startsWith('/pdf-cover/') ? `${API_BASE_URL}${img}` : img;
+                    ext = 'png';
+                  } else {
+                    ext = img.ext || 'png';
+                    src = `data:image/${ext};base64,${img.base64}`;
+                  }
+                  // If this is the cover page (page 1), make the image fill the container width without extra padding
+                  const isCover = page.page === 1 && idx === 0;
+                  return (
+                    <img
+                      key={idx}
+                      src={src}
+                      alt={`Page ${page.page} Image ${idx + 1}`}
+                      loading="lazy"
+                      style={isCover ? {
+                        width: '100%',
+                        height: 'auto',
+                        objectFit: 'cover',
+                        borderRadius: 16,
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
+                        margin: '0 auto',
+                        display: 'block'
+                      } : {
+                        maxWidth: '100%',
+                        maxHeight: '400px',
+                        width: 'auto',
+                        height: 'auto',
+                        objectFit: 'contain',
+                        borderRadius: 8,
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            )}
 
-        {page.text && (
-          <div className="pdf-reader-text" style={{ width: '100%', wordBreak: 'break-word', whiteSpace: 'pre-line' }}>
-            {page.text.split(/\n\n+/).map((para, idx) => (
-              <p key={idx} style={{ margin: '0 0 1em 0' }}>{para.replace(/\n/g, ' ')}</p>
-            ))}
+            {page.text && (
+              <div className="pdf-reader-text" style={{ width: '100%', wordBreak: 'break-word', whiteSpace: 'pre-line' }}>
+                {renderPageText(page)}
+              </div>
+            )}
           </div>
-        )}
+        ))}
       </SteppedContainer>
 
       <SteppedContainer step={2} style={{ margin: '0 auto', maxWidth: 900, borderRadius: 8, padding: 20, marginBottom: 32, marginTop: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', background: bookMetaBg }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 10 }}>
-          <span style={{ fontWeight: 700, fontSize: 22 }}>{bookMeta?.name || pdfData?.title || pdfData?.name || `Book ${id}`}</span>
+          <span style={{ fontWeight: 700, fontSize: 22 }}>{bookMeta?.title || pdfData?.title || pdfData?.name || `Book ${id}`}</span>
           {isBookmarked ? (
             <button
               onClick={handleUnbookmark}
