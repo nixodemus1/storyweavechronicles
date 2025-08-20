@@ -4,33 +4,59 @@ function useCachedCovers(pdfs) {
   React.useEffect(() => {
     let isMounted = true;
     const newCovers = {};
+    const fetchQueue = [];
     pdfs.forEach(pdf => {
       if (!pdf || !pdf.id) return;
       const { url, expired } = getCoverFromCache(pdf.id);
       newCovers[pdf.id] = url;
-      // If expired or not cached, fetch cover
-      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
-        fetch(`${API_BASE_URL}/pdf-cover/${pdf.id}`)
-          .then(res => {
-            if (!res.ok) return '/no-cover.png';
-            return res.blob();
-          })
-          .then(blob => {
-            let coverUrl = '/no-cover.png';
-            if (blob && blob instanceof Blob && blob.type.startsWith('image/')) {
-              coverUrl = URL.createObjectURL(blob);
-            }
-            setCoverInCache(pdf.id, coverUrl);
-            if (isMounted) setCovers(c => ({ ...c, [pdf.id]: coverUrl }));
-          })
-          .catch(() => {
-            setCoverInCache(pdf.id, '/no-cover.png');
-            if (isMounted) setCovers(c => ({ ...c, [pdf.id]: '/no-cover.png' }));
-          });
+      if (!url || expired) {
+        fetchQueue.push(pdf.id);
       }
     });
-    if (isMounted) setCovers(newCovers);
-    return () => { isMounted = false; };
+    setCovers(newCovers);
+
+    // Batch fetch covers in groups of 3 with a 300ms delay
+    function batchFetchCovers(queue, batchSize = 3, delay = 300) {
+      let i = 0;
+      function fetchBatch() {
+        const batch = queue.slice(i, i + batchSize);
+        batch.forEach(bookId => {
+          fetch(`${API_BASE_URL}/pdf-cover/${bookId}`)
+            .then(res => res.ok ? res.blob() : null)
+            .then(blob => {
+              let coverUrl = null;
+              if (blob && blob instanceof Blob && blob.type.startsWith('image/')) {
+                coverUrl = URL.createObjectURL(blob);
+                setCoverInCache(bookId, coverUrl);
+                if (isMounted) setCovers(c => ({ ...c, [bookId]: coverUrl }));
+              } else {
+                setCoverInCache(bookId, null);
+                if (isMounted) setCovers(c => ({ ...c, [bookId]: null }));
+              }
+            })
+            .catch(() => {
+              setCoverInCache(bookId, null);
+              if (isMounted) setCovers(c => ({ ...c, [bookId]: null }));
+            });
+        });
+        i += batchSize;
+        if (i < queue.length) {
+          setTimeout(fetchBatch, delay);
+        }
+      }
+      fetchBatch();
+    }
+    if (fetchQueue.length > 0) batchFetchCovers(fetchQueue);
+
+    return () => {
+      Object.values(covers).forEach(url => {
+        if (url && url.startsWith('blob:')) {
+          URL.revokeObjectURL(url);
+        }
+      });
+      isMounted = false;
+    };
+    // DO NOT ADD COVERS, IT CREATES A INFINITE LOOP THAT WILL FREEZE YOUR BROWSER
   }, [pdfs]);
   return covers;
 }
@@ -284,6 +310,7 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
   const [comments, setComments] = useState([]);
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const commentsPageSize = user?.comments_page_size || 10;
 
   React.useEffect(() => {
     if (!user?.username) return;
@@ -327,6 +354,15 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
     return book ? (book.title || book.name || bookId) : bookId;
   }
 
+  // Helper: get page number for a comment in its book
+  function getCommentPage(comment) {
+    // Comments are sorted by timestamp ascending in backend
+    const bookComments = comments.filter(c => c.book_id === comment.book_id);
+    const idx = bookComments.findIndex(c => c.id === comment.id);
+    if (idx === -1) return 1;
+    return Math.floor(idx / commentsPageSize) + 1;
+  }
+
   const containerBg = stepColor(backgroundColor, theme, 1);
 
   return (
@@ -340,7 +376,10 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
         <ul style={{ listStyle: 'none', padding: 0 }}>
           {comments.map(comment => (
             <li key={comment.id} style={{ marginBottom: 14, background: comment.deleted ? '#ffe0e0' : 'transparent', borderRadius: 6, padding: '6px 8px' }}>
-              <Link to={`/read/${comment.book_id}`} style={{ color: textColor, textDecoration: 'underline', fontWeight: 600 }}>
+              <Link
+                to={`/read/${comment.book_id}?comment=${comment.id}&commentsPage=${getCommentPage(comment)}`}
+                style={{ color: textColor, textDecoration: 'underline', fontWeight: 600 }}
+              >
                 {getBookTitle(comment.book_id)}
               </Link>
               <div style={{ fontSize: 14, color: textColor, marginTop: 4 }}>
@@ -358,9 +397,36 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
   );
 });
 
-const AccountTabContent = React.memo(function AccountTabContent({ user }) {
+const AccountTabContent = React.memo(function AccountTabContent({ user, setUser }) {
   const { backgroundColor, theme } = useContext(ThemeContext);
   const overviewBg = stepColor(backgroundColor, theme, 1);
+  // Comments page size state
+  const [commentsPageSize, setCommentsPageSize] = useState(user?.comments_page_size || 10);
+  const [savingPageSize, setSavingPageSize] = useState(false);
+
+  // Save page size to backend
+  const handlePageSizeChange = async (e) => {
+    const val = parseInt(e.target.value);
+    setCommentsPageSize(val);
+    if (!user?.username) return;
+    setSavingPageSize(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/update-profile-settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, comments_page_size: val })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUser && setUser(u => u ? { ...u, comments_page_size: val } : u);
+      }
+    } catch (e) {
+      console.error('Failed to save comments page size:', e);
+      // Optionally show an error message to the user
+    }
+    setSavingPageSize(false);
+  };
+
   return (
     <>
       <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: overviewBg, borderRadius: 8, padding: '18px 16px' }}>
@@ -379,6 +445,20 @@ const AccountTabContent = React.memo(function AccountTabContent({ user }) {
           ) : (
             <span style={{ marginLeft: 8 }}>None</span>
           )}
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <strong>Comments per page:</strong>
+          <select
+            value={commentsPageSize}
+            onChange={handlePageSizeChange}
+            style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 4 }}
+            disabled={savingPageSize}
+          >
+            {[5, 10, 15, 20].map(n => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+          {savingPageSize && <span style={{ marginLeft: 8, color: '#888' }}>Saving...</span>}
         </div>
       </div>
       <BookmarksTab user={user} />

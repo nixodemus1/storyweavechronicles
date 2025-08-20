@@ -129,35 +129,40 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [hasUnread, setHasUnread] = useState(false);
     const lastIdsRef = useRef([]);
+    const [allLoaded, setAllLoaded] = useState(false);
 
-    // Fetch notifications only if user changes or on manual trigger
+    // Fetch notifications in batches (pages of 100)
     const fetchNotifications = async () => {
       if (!user || !user.username) return;
       setLoading(true);
+      let all = [];
+      let page = 1;
+      let page_size = 100;
+      let total_pages = 1;
+      setAllLoaded(false);
       try {
-        const res = await fetch('/api/get-notification-history', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: user.username })
-        });
-        const text = await res.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (err) {
-          console.log('Error parsing notifications response:', err);
-          setLoading(false);
-          setNotifications([]);
-          return;
-        }
-        if (data.success && Array.isArray(data.history)) {
-          const newIds = data.history.map(n => n.id).sort();
-          if (JSON.stringify(newIds) !== JSON.stringify(lastIdsRef.current)) {
-            setNotifications(data.history);
-            lastIdsRef.current = newIds;
-            setHasUnread(data.history.some(n => !n.read));
+        do {
+          const res = await fetch('/api/get-notification-history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user.username, page, page_size })
+          });
+          const data = await res.json();
+          if (data.success && Array.isArray(data.notifications)) {
+            all = all.concat(data.notifications);
+            total_pages = data.total_pages || 1;
+            page++;
+            // Show partial results as each batch loads
+            setNotifications([...all]);
+            setHasUnread(all.some(n => !n.read && !n.dismissed));
+            if (page > total_pages) break;
+          } else {
+            break;
           }
-        }
+        } while (page <= total_pages);
+        setAllLoaded(true);
+        // Track last loaded IDs for change detection
+        lastIdsRef.current = all.map(n => n.id).sort();
       } catch (err) {
         console.log('Error fetching notifications:', err);
         setNotifications([]);
@@ -208,7 +213,7 @@ export default function App() {
       }
     };
 
-    return { notifications, loading, hasUnread, fetchNotifications, handleDismiss, handleNotificationClick };
+    return { notifications, loading, hasUnread, fetchNotifications, handleDismiss, handleNotificationClick, allLoaded };
   }
 
   // Notification button and dropdown
@@ -229,7 +234,7 @@ export default function App() {
     }
     const [showDropdown, setShowDropdown] = useState(false);
     const dropdownRef = useRef(null);
-  const { notifications, loading, fetchNotifications, handleDismiss, } = useNotifications(user);
+    const { notifications, loading, fetchNotifications, handleDismiss, allLoaded } = useNotifications(user);
     const appNavigate = useAppNavigate();
 
     // Close dropdown on outside click
@@ -245,10 +250,10 @@ export default function App() {
       }
     }, [showDropdown]);
 
-  // Filter out dismissed notifications for dropdown
-  const activeNotifications = notifications.filter(n => !n.dismissed);
-  // Only show unread indicator if there are unread and not dismissed notifications
-  const hasActiveUnread = activeNotifications.some(n => !n.read);
+    // Filter out dismissed notifications for dropdown
+    const activeNotifications = notifications.filter(n => !n.dismissed);
+    // Only show unread indicator if there are unread and not dismissed notifications
+    const hasActiveUnread = activeNotifications.some(n => !n.read);
     // Helper to generate a unique key for each notification
     function getNotificationKey(n, idx) {
       // Use id if present, else fallback to timestamp + idx
@@ -332,42 +337,51 @@ export default function App() {
                     title="Dismiss all notifications"
                   >Dismiss All</button>
                 </div>
-                {loading ? (
-                  <div>Loading...</div>
-                ) : activeNotifications.length === 0 ? (
+                {loading && (
+                  <div style={{ color: '#888', fontSize: 15 }}>Loading notifications...</div>
+                )}
+                {!loading && notifications.length === 0 && (
                   <div style={{ color: '#888', fontSize: 15 }}>No new notifications.</div>
-                ) : (
-                  activeNotifications.map((n, idx) => (
-                    <div
-                      key={getNotificationKey(n, idx)}
-                      style={{ background: stepColor(headerButtonColor, theme, 1), color: headerButtonTextColor, borderRadius: 7, marginBottom: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                      onClick={() => n.link ? handleNotificationClickAndDismiss(n, appNavigate) : null}
-                    >
-                      {n.link ? (
-                        <div style={{ flex: 1, marginRight: 10, cursor: 'pointer' }}>
-                          <div style={{ fontWeight: 600 }}>{n.title || 'Notification'}</div>
-                          <div style={{ fontSize: 14 }}>{n.message}</div>
-                          <div style={{ fontSize: 12, color: '#888' }}>{new Date(n.timestamp).toLocaleString()}</div>
-                        </div>
-                      ) : (
-                        <div style={{ flex: 1, marginRight: 10 }}>
-                          <div style={{ fontWeight: 600 }}>{n.title || 'Notification'}</div>
-                          <div style={{ fontSize: 14 }}>{n.message}</div>
-                          <div style={{ fontSize: 12, color: '#888' }}>{new Date(n.timestamp).toLocaleString()}</div>
-                        </div>
-                      )}
-                      {!n.link && (
-                        <button
-                          style={{ background: '#ffe0e0', color: '#c00', border: '1px solid #c00', borderRadius: 6, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', marginLeft: 8 }}
-                          onClick={e => {
-                            e.stopPropagation();
-                            handleDismiss(n.id || n.timestamp);
-                          }}
-                          title="Dismiss"
-                        >Dismiss</button>
-                      )}
-                    </div>
-                  ))
+                )}
+                {!loading && notifications.length > 0 && (
+                  notifications
+                    .filter(n => !n.dismissed)
+                    .map((n, idx) => (
+                      <div
+                        key={getNotificationKey(n, idx)}
+                        style={{ background: stepColor(headerButtonColor, theme, 1), color: headerButtonTextColor, borderRadius: 7, marginBottom: 10, padding: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                        onClick={() => n.link ? handleNotificationClickAndDismiss(n, appNavigate) : null}
+                      >
+                        {n.link ? (
+                          <div style={{ flex: 1, marginRight: 10, cursor: 'pointer' }}>
+                            <div style={{ fontWeight: 600 }}>{n.title || 'Notification'}</div>
+                            <div style={{ fontSize: 14 }}>{n.message}</div>
+                            <div style={{ fontSize: 12, color: '#888' }}>{new Date(n.timestamp).toLocaleString()}</div>
+                          </div>
+                        ) : (
+                          <div style={{ flex: 1, marginRight: 10 }}>
+                            <div style={{ fontWeight: 600 }}>{n.title || 'Notification'}</div>
+                            <div style={{ fontSize: 14 }}>{n.message}</div>
+                            <div style={{ fontSize: 12, color: '#888' }}>{new Date(n.timestamp).toLocaleString()}</div>
+                          </div>
+                        )}
+                        {!n.link && (
+                          <button
+                            style={{ background: '#ffe0e0', color: '#c00', border: '1px solid #c00', borderRadius: 6, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', marginLeft: 8 }}
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleDismiss(n.id || n.timestamp);
+                            }}
+                            title="Dismiss"
+                          >Dismiss</button>
+                        )}
+                      </div>
+                    ))
+                )}
+                {!allLoaded && (
+                  <div style={{ color: '#888', fontSize: 14, marginTop: 8 }}>
+                    Loading more notifications...
+                  </div>
                 )}
               </div>,
               document.body

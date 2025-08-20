@@ -56,6 +56,7 @@ export default defineConfig({
       '/api/admin/send-emergency-email': 'http://localhost:5000',
       '/api/admin/make-admin': 'http://localhost:5000',
       '/api/all-books': 'http://localhost:5000',
+      '/api/cover-queue-health': 'http://localhost:5000',
     }
   }
 })

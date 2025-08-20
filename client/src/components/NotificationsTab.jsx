@@ -224,6 +224,9 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   const [filterType, setFilterType] = useState('all');
   const [filterDate, setFilterDate] = useState('');
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 50;
+  const [totalPages, setTotalPages] = useState(1);
 
   React.useEffect(() => {
     if (!user?.username) return;
@@ -231,14 +234,15 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
     fetch(`${API_BASE_URL}/api/get-notification-history`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username })
+      body: JSON.stringify({ username: user.username, page, page_size: pageSize })
     })
       .then(res => res.json())
       .then(data => {
-        setNotifications(Array.isArray(data.history) ? data.history : []);
+        setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+        setTotalPages(data.total_pages || 1);
         setLoading(false);
       });
-  }, [user?.username]);
+  }, [user?.username, page]);
 
   const containerBg = stepColor(backgroundColor, theme, 1);
 
@@ -339,6 +343,21 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   return (
     <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
       <h3 style={{ color: textColor }}>Notification History</h3>
+      {/* Pagination controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <button
+          onClick={() => setPage(p => Math.max(1, p - 1))}
+          disabled={page <= 1 || loading}
+          style={{ background: '#eee', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}
+        >Prev</button>
+        <span style={{ color: textColor, fontSize: 14 }}>Page {page} of {totalPages}</span>
+        <button
+          onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+          disabled={page >= totalPages || loading}
+          style={{ background: '#eee', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}
+        >Next</button>
+        {/* ...existing filter controls... */}
+      </div>
       {/* Filter controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
         <label style={{ color: textColor, fontSize: 14 }}>
@@ -361,73 +380,83 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
       </div>
       {loading ? (
         <div style={{ color: '#888' }}>Loading notifications...</div>
-      ) : filteredNotifications.length === 0 ? (
+      ) : notifications.length === 0 ? (
         <div style={{ color: '#888' }}>No notifications yet.</div>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0 }}>
-          {filteredNotifications.map(n => (
-            <li key={n.id} style={{
-              marginBottom: 12,
-              background: stepColor(containerBg, 'dark', n.read ? 1 : 0, 1),
-              color: textColor,
-              borderRadius: 6,
-              padding: '8px 12px',
-              boxShadow: n.read ? '0 0 4px #aaa' : 'none',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 10
-            }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>
-                  {n.link ? (
-                    <a
-                      href={n.link}
-                      style={{ color: textColor, textDecoration: 'underline', cursor: 'pointer' }}
-                      onClick={async e => {
-                        e.preventDefault();
-                        // Mark as read if not already
-                        if (!n.read) {
-                          await fetch(`${API_BASE_URL}/api/mark-notification-read`, {
+          {notifications
+            .filter(n => {
+              let typeMatch = filterType === 'all' || n.type === filterType;
+              let dateMatch = true;
+              if (filterDate) {
+                const notifDate = new Date(n.timestamp).toISOString().slice(0, 10);
+                dateMatch = notifDate === filterDate;
+              }
+              return typeMatch && dateMatch;
+            })
+            .map(n => (
+              <li key={n.id} style={{
+                marginBottom: 12,
+                background: stepColor(containerBg, 'dark', n.read ? 1 : 0, 1),
+                color: textColor,
+                borderRadius: 6,
+                padding: '8px 12px',
+                boxShadow: n.read ? '0 0 4px #aaa' : 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10
+              }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>
+                    {n.link ? (
+                      <a
+                        href={n.link}
+                        style={{ color: textColor, textDecoration: 'underline', cursor: 'pointer' }}
+                        onClick={async e => {
+                          e.preventDefault();
+                          // Mark as read if not already
+                          if (!n.read) {
+                            await fetch(`${API_BASE_URL}/api/mark-notification-read`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ username: user.username, notificationId: n.id, read: true })
+                            });
+                          }
+                          // Mark as dismissed so it disappears from dropdown, but do NOT delete from history
+                          await fetch(`${API_BASE_URL}/api/dismiss-notification`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username: user.username, notificationId: n.id, read: true })
+                            body: JSON.stringify({ username: user.username, notificationId: n.id })
                           });
-                        }
-                        // Mark as dismissed so it disappears from dropdown, but do NOT delete from history
-                        await fetch(`${API_BASE_URL}/api/dismiss-notification`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ username: user.username, notificationId: n.id })
-                        });
-                        setNotifications(notifications => notifications.map(notif => notif.id === n.id ? { ...notif, read: true, dismissed: true } : notif));
-                        window.location.href = n.link;
-                      }}
-                    >
-                      {n.title}
-                    </a>
-                  ) : (
-                    n.title
-                  )}
+                          setNotifications(notifications => notifications.map(notif => notif.id === n.id ? { ...notif, read: true, dismissed: true } : notif));
+                          window.location.href = n.link;
+                        }}
+                      >
+                        {n.title}
+                      </a>
+                    ) : (
+                      n.title
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#888' }}>{n.body}</div>
+                  <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{new Date(n.timestamp).toLocaleString()}</div>
                 </div>
-                <div style={{ fontSize: 13, color: '#888' }}>{n.body}</div>
-                <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{new Date(n.timestamp).toLocaleString()}</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button
-                  onClick={() => handleMarkRead(n.id, !n.read)}
-                  style={{ background: n.read ? '#eee' : '#ffe0e0', color: n.read ? '#080' : '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}
-                  title={n.read ? 'Mark as Unread' : 'Mark as Read'}
-                >{n.read ? 'Mark Unread' : 'Mark Read'}</button>
-                <button
-                  onClick={() => handleDismiss(n.id)}
-                  disabled={deleting === n.id}
-                  style={{ background: '#eee', color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', opacity: deleting === n.id ? 0.6 : 1 }}
-                  title="Delete notification from history"
-                >{deleting === n.id ? 'Deleting...' : 'Delete'}</button>
-              </div>
-            </li>
-          ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    onClick={() => handleMarkRead(n.id, !n.read)}
+                    style={{ background: n.read ? '#eee' : '#ffe0e0', color: n.read ? '#080' : '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}
+                    title={n.read ? 'Mark as Unread' : 'Mark as Read'}
+                  >{n.read ? 'Mark Unread' : 'Mark Read'}</button>
+                  <button
+                    onClick={() => handleDismiss(n.id)}
+                    disabled={deleting === n.id}
+                    style={{ background: '#eee', color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', opacity: deleting === n.id ? 0.6 : 1 }}
+                    title="Delete notification from history"
+                  >{deleting === n.id ? 'Deleting...' : 'Delete'}</button>
+                </div>
+              </li>
+            ))}
         </ul>
       )}
     </div>

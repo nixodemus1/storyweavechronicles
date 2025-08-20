@@ -1,6 +1,7 @@
 // --- Unified cover cache logic from LandingPage.jsx ---
 function useCachedCovers(pdfs) {
   const [covers, setCovers] = React.useState({});
+  const { user } = React.useContext(ThemeContext);
   React.useEffect(() => {
     let isMounted = true;
     const newCovers = {};
@@ -10,7 +11,13 @@ function useCachedCovers(pdfs) {
       newCovers[pdf.id] = url;
       // If expired or not cached, fetch cover
       if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
-        fetch(`${API_BASE_URL}/pdf-cover/${pdf.id}`)
+        // Attach session_id as query param if available
+        let sessionId = (user && user.sessionId) || localStorage.getItem('swc_session_id');
+        let coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+        if (sessionId) {
+          coverUrl += `?session_id=${encodeURIComponent(sessionId)}`;
+        }
+        fetch(coverUrl)
           .then(res => {
             if (!res.ok) return '/no-cover.png';
             return res.blob();
@@ -31,7 +38,7 @@ function useCachedCovers(pdfs) {
     });
     if (isMounted) setCovers(newCovers);
     return () => { isMounted = false; };
-  }, [pdfs]);
+  }, [pdfs, user]);
   return covers;
 }
 import React, { useEffect, useState, useContext } from "react";

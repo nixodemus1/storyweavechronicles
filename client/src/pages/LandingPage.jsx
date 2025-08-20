@@ -35,12 +35,13 @@ function setCoverInCache(bookId, url) {
 }
 function useCachedCovers(pdfs) {
   const [covers, setCovers] = React.useState({});
+  const { user } = React.useContext(ThemeContext);
   React.useEffect(() => {
     let isMounted = true;
     const newCovers = {};
     pdfs.forEach(pdf => {
       // Always try to fetch cover, even if pdf.missing is true
-  const bookId = pdf.drive_id || pdf.id;
+      const bookId = pdf.drive_id || pdf.id;
       if (!bookId) {
         console.warn('[LandingPage] Skipping cover preload: invalid book id', pdf);
         return;
@@ -50,7 +51,11 @@ function useCachedCovers(pdfs) {
       // Always attempt to fetch cover if not cached or expired
       if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
         if (url !== '/no-cover.png' || expired) {
-          const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
+          let sessionId = (user && user.sessionId) || localStorage.getItem('swc_session_id');
+          let coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
+          if (sessionId) {
+            coverUrl += `?session_id=${encodeURIComponent(sessionId)}`;
+          }
           const img = new window.Image();
           img.onload = () => setCoverInCache(bookId, coverUrl);
           img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
@@ -60,7 +65,7 @@ function useCachedCovers(pdfs) {
     });
     if (isMounted) setCovers(newCovers);
     return () => { isMounted = false; };
-  }, [pdfs]);
+  }, [pdfs, user]);
   return covers;
 }
 import React, { useEffect, useState, useContext } from "react";

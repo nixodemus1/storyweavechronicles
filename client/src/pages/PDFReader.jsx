@@ -42,7 +42,19 @@ function removeBookFromCache(id) {
 
 export default function PDFReader() {
   const { id } = useParams();
-  const [pdfData, setPdfData] = useState(null);
+  // Parse query params for comment deep-linking
+  const [commentToScroll, setCommentToScroll] = useState(null);
+  const [commentsPageFromQuery, setCommentsPageFromQuery] = useState(null);
+  useEffect(() => {
+    const search = window.location.search;
+    const params = new URLSearchParams(search);
+    const commentId = params.get('comment');
+    const commentsPage = params.get('commentsPage');
+    if (commentId) setCommentToScroll(commentId);
+    if (commentsPage) setCommentsPageFromQuery(parseInt(commentsPage));
+  }, [id]);
+  const [pages, setPages] = useState([]);
+  const [loadingBook, setLoadingBook] = useState(false);
   const [bookMeta, setBookMeta] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const { theme, textColor, backgroundColor, user, setUser } = useContext(ThemeContext);
@@ -61,46 +73,63 @@ export default function PDFReader() {
   const bookMetaBg = stepColor(backgroundColor, theme, 2);
   const commentsOuterBg = stepColor(backgroundColor, theme, 3);
 
-  // Fetch PDF data
+  // Fetch all pages sequentially and store in localStorage
   const [pdfError, setPdfError] = useState(null);
   useEffect(() => {
-    setPdfError(null);
-    const cacheKey = getBookCacheKey(id);
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
+  setPdfError(null);
+  setPages([]);
+  setLoadingBook(true);
+  let sessionId = (user && user.sessionId) || localStorage.getItem('swc_session_id');
+  let fetchedPages = [];
+  let pageNum = 1;
+  let stop = false;
+  async function fetchAllPages() {
+    while (!stop) {
+      const params = new URLSearchParams();
+      params.set('page', pageNum);
+      if (sessionId) params.set('session_id', sessionId);
       try {
-        const data = JSON.parse(cached);
-        setPdfData(data);
-        return;
-      } catch {
-        console.error("[pdfFetch] Failed to parse cached PDF data:", cached);
+        const res = await fetch(`${API_BASE_URL}/api/pdf-text/${id}?${params.toString()}`);
+        const data = await res.json();
+        if (data.success === true) {
+          // Always push the page, even if text is empty (image-only pages)
+          fetchedPages.push({
+            page: data.page,
+            text: data.text || '',
+            images: data.images || []
+          });
+          pageNum++;
+          // Stop if we've reached a page with no text and no images (end of book)
+          if ((data.text == null || data.text === '') && (!data.images || data.images.length === 0)) {
+            break;
+          }
+        } else {
+          // Stop on error (invalid page, etc)
+          break;
+        }
+      } catch (e) {
+        setPdfError('Failed to load book pages.', e);
+        break;
       }
     }
-    fetch(`${API_BASE_URL}/api/pdf-text/${id}`)
-      .then(res => {
-        if (!res.ok) throw new Error('PDF not found');
-        return res.json();
-      })
-      .then(data => {
-        if (!data.error && data.pages) {
-          setPdfData(data);
-          addBookToCache(id, data);
-        } else {
-          setPdfError('PDF text not found for this book.');
-        }
-      })
-      .catch(() => {
-        setPdfError('PDF text not found for this book.');
-        setPdfData(null);
-      });
-  }, [id]);
+    if (fetchedPages.length > 0) {
+      setPages(fetchedPages);
+      addBookToCache(id, fetchedPages);
+    } else {
+      setPdfError('No pages found in this book.');
+    }
+    setLoadingBook(false);
+  }
+  fetchAllPages();
+  return () => { stop = true; };
+}, [id, user]);
 
   // Remove book from cache when user reaches last page
   useEffect(() => {
-    if (pdfData && currentPage === (pdfData.totalPages || pdfData.pages.length)) {
+    if (pages.length > 0 && currentPage === pages.length) {
       removeBookFromCache(id);
     }
-  }, [pdfData, currentPage, id]);
+  }, [pages, currentPage, id]);
 
   // Fetch book metadata
   useEffect(() => {
@@ -231,7 +260,7 @@ export default function PDFReader() {
   };
 
   // Comments section
-  function CommentsSection({ bookId, currentPage, commentsRefresh }) {
+  function CommentsSection({ bookId, commentsRefresh }) {
     const [comments, setComments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [newComment, setNewComment] = useState("");
@@ -239,26 +268,54 @@ export default function PDFReader() {
     const [editId, setEditId] = useState(null);
     const [editText, setEditText] = useState("");
     const [msg, setMsg] = useState("");
+    // Pagination state
+    const commentsPageSize = user?.comments_page_size || 10;
+  const [commentsPage, setCommentsPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
 
     // Fetch comments
     const fetchComments = () => {
       setLoading(true);
-      fetch(`${API_BASE_URL}/api/get-comments?book_id=${bookId}`)
+      const params = new URLSearchParams();
+      params.set('book_id', bookId);
+      params.set('page', commentsPage);
+      params.set('page_size', commentsPageSize);
+      fetch(`${API_BASE_URL}/api/get-comments?${params.toString()}`)
         .then(res => res.json())
         .then(data => {
           if (data.success && Array.isArray(data.comments)) {
-            // Only update state if data is different
-            if (JSON.stringify(data.comments) !== JSON.stringify(comments)) {
-              setComments(data.comments);
-            }
+            setComments(data.comments);
+            setTotalPages(data.total_pages || 1);
           }
           setLoading(false);
         });
     };
+    // Handle deep-linking to a specific comments page
+    useEffect(() => {
+      if (commentsPageFromQuery && commentsPageFromQuery !== commentsPage) {
+        setCommentsPage(commentsPageFromQuery);
+      }
+      // Only set once per mount
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [commentsPageFromQuery]);
+
     useEffect(() => {
       fetchComments();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [bookId, currentPage, commentsRefresh]);
+    }, [bookId, commentsPage, commentsPageSize, commentsRefresh]);
+    // Auto-scroll to comment if commentToScroll is present
+    useEffect(() => {
+      if (!commentToScroll) return;
+      // Wait for comments to render
+      setTimeout(() => {
+        const el = document.getElementById(`comment-${commentToScroll}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.style.boxShadow = '0 0 0 3px #0070f3';
+          setTimeout(() => { el.style.boxShadow = ''; }, 2000);
+        }
+      }, 400);
+    }, [comments, commentToScroll]);
 
     // Add comment or reply
     const handleAddComment = async () => {
@@ -345,16 +402,14 @@ export default function PDFReader() {
         const commentBg = stepColor(backgroundColor, theme, 4 + depth);
         const buttonBg = stepColor(backgroundColor, theme, 5 + depth);
         const commentText = textColor;
-  // Avatar uses comment's saved background and text color from backend
-  const avatarBg = comment.background_color || stepColor(commentBg, theme, 1);
-  const avatarTextColor = comment.text_color || textColor;
-        // If comment is deleted, show placeholder text and hide actions
+        const avatarBg = comment.background_color || stepColor(commentBg, theme, 1);
+        const avatarTextColor = comment.text_color || textColor;
         const isDeleted = comment.deleted;
-    const isAdmin = user?.is_admin;
-          // Ban button only for admins, only for non-admin users
-          const showBanButton = isAdmin && !comment.deleted && !comment.is_admin && comment.username !== user?.username;
+        const isAdmin = user?.is_admin;
+        const showBanButton = isAdmin && !comment.deleted && !comment.is_admin && comment.username !== user?.username;
+        // Add id for auto-scroll
         return (
-          <div key={comment.id} style={{
+          <div key={comment.id} id={`comment-${comment.id}`} style={{
             background: commentBg,
             color: commentText,
             borderRadius: 6,
@@ -438,9 +493,9 @@ export default function PDFReader() {
                       >Delete</button>
                     </>
                   )}
-                    {showBanButton && (
-                      <BanUserButton targetUsername={comment.username} />
-                    )}
+                  {showBanButton && (
+                    <BanUserButton targetUsername={comment.username} />
+                  )}
                 </div>
               )}
               {comment.replies && comment.replies.length > 0 && renderComments(comment.replies, depth + 1)}
@@ -488,11 +543,31 @@ export default function PDFReader() {
           </span>
         );
       }
+    // Pagination controls
+    function renderPagination() {
+      if (totalPages <= 1) return null;
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <button
+            onClick={() => setCommentsPage(p => Math.max(1, p - 1))}
+            disabled={commentsPage === 1}
+            style={{ background: '#eee', color: '#333', border: '1px solid #bbb', borderRadius: 4, padding: '4px 10px', cursor: commentsPage === 1 ? 'not-allowed' : 'pointer' }}
+          >Prev</button>
+          <span style={{ fontWeight: 600 }}>Page {commentsPage} / {totalPages}</span>
+          <button
+            onClick={() => setCommentsPage(p => Math.min(totalPages, p + 1))}
+            disabled={commentsPage === totalPages}
+            style={{ background: '#eee', color: '#333', border: '1px solid #bbb', borderRadius: 4, padding: '4px 10px', cursor: commentsPage === totalPages ? 'not-allowed' : 'pointer' }}
+          >Next</button>
+        </div>
+      );
+    }
     const commentsContainerBg = stepColor(backgroundColor, theme, 3);
     return (
       <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
         <h3 style={{ marginBottom: 10 }}>Comments</h3>
         {msg && <div style={{ color: '#c00', marginBottom: 8 }}>{msg}</div>}
+        {renderPagination()}
         {loading ? (
           <div>Loading comments...</div>
         ) : (
@@ -526,12 +601,7 @@ export default function PDFReader() {
   }
 
   // Only render the current page
-  const pagesArr = pdfData?.pages && Array.isArray(pdfData.pages) ? pdfData.pages : [];
-  const renderPages = [];
-  const pageObj = pagesArr.find(p => p.page === currentPage);
-  if (pageObj) {
-    renderPages.push(pageObj);
-  }
+  const pageObj = pages && pages.length > 0 ? pages[currentPage - 1] : null;
 
   // Helper to render page text: cover page is rendered as a single block, others use paragraph splitting
   function renderPageText(pageObj) {
@@ -574,9 +644,9 @@ export default function PDFReader() {
       </div>
     );
   }
-  if (!pdfData) {
+  if (loadingBook && !pdfError) {
     const loadingBg = stepColor(backgroundColor, theme, 0);
-    return <div className={`pdf-reader-loading ${theme}-mode`} style={{ background: loadingBg, color: textColor, minHeight: '100vh' }}>Loading PDF...</div>;
+    return <div className={`pdf-reader-loading ${theme}-mode`} style={{ background: loadingBg, color: textColor, minHeight: '100vh' }}>Loading book...</div>;
   }
 
   return (
@@ -599,24 +669,24 @@ export default function PDFReader() {
           ◀ Prev
         </button>
         <span className="pdf-reader-page-indicator" style={{ fontWeight: 600, fontSize: 18 }}>
-          Page {currentPage} / {pdfData.totalPages || pdfData.pages.length}
+          Page {currentPage} / {pages.length}
         </span>
         <button
           className="pdf-reader-btn"
-          onClick={() => setCurrentPage(p => Math.min((pdfData.totalPages || pdfData.pages.length), p + 1))}
-          disabled={currentPage === (pdfData.totalPages || pdfData.pages.length)}
-          style={{ background: navButtonBg, color: navButtonText, border: `1px solid ${navButtonText}`, borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: currentPage === (pdfData.totalPages || pdfData.pages.length) ? 'not-allowed' : 'pointer', marginLeft: 8 }}
+          onClick={() => setCurrentPage(p => Math.min(pages.length, p + 1))}
+          disabled={currentPage === pages.length}
+          style={{ background: navButtonBg, color: navButtonText, border: `1px solid ${navButtonText}`, borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: currentPage === pages.length ? 'not-allowed' : 'pointer', marginLeft: 8 }}
         >
           Next ▶
         </button>
       </div>
 
       <SteppedContainer step={1} style={{ borderRadius: 8, padding: 32, margin: 16, background: pdfPageBg, maxWidth: 1100, marginLeft: 'auto', marginRight: 'auto' }} className="pdf-reader-page">
-        {renderPages.map(page => (
-          <div key={page.page}>
-            {page.images && page.images.length > 0 && (
+        {pageObj && (
+          <div key={pageObj.page}>
+            {pageObj.images && pageObj.images.length > 0 && (
               <div className="pdf-reader-images" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-                {page.images.map((img, idx) => {
+                {pageObj.images.map((img, idx) => {
                   let src, ext;
                   if (typeof img === 'string') {
                     src = img.startsWith('/pdf-cover/') ? `${API_BASE_URL}${img}` : img;
@@ -625,13 +695,12 @@ export default function PDFReader() {
                     ext = img.ext || 'png';
                     src = `data:image/${ext};base64,${img.base64}`;
                   }
-                  // If this is the cover page (page 1), make the image fill the container width without extra padding
-                  const isCover = page.page === 1 && idx === 0;
+                  const isCover = pageObj.page === 1 && idx === 0;
                   return (
                     <img
                       key={idx}
                       src={src}
-                      alt={`Page ${page.page} Image ${idx + 1}`}
+                      alt={`Page ${pageObj.page} Image ${idx + 1}`}
                       loading="lazy"
                       style={isCover ? {
                         width: '100%',
@@ -655,19 +724,18 @@ export default function PDFReader() {
                 })}
               </div>
             )}
-
-            {page.text && (
+            {pageObj.text && (
               <div className="pdf-reader-text" style={{ width: '100%', wordBreak: 'break-word', whiteSpace: 'pre-line' }}>
-                {renderPageText(page)}
+                {renderPageText(pageObj)}
               </div>
             )}
           </div>
-        ))}
+        )}
       </SteppedContainer>
 
       <SteppedContainer step={2} style={{ margin: '0 auto', maxWidth: 900, borderRadius: 8, padding: 20, marginBottom: 32, marginTop: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', background: bookMetaBg }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 10 }}>
-          <span style={{ fontWeight: 700, fontSize: 22 }}>{bookMeta?.title || pdfData?.title || pdfData?.name || `Book ${id}`}</span>
+          <span style={{ fontWeight: 700, fontSize: 22 }}>{bookMeta?.title || `Book ${id}`}</span>
           {isBookmarked ? (
             <button
               onClick={handleUnbookmark}

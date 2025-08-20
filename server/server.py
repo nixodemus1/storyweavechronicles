@@ -3,6 +3,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from drive_webhook import setup_drive_webhook
 import traceback
 from flask import Flask, jsonify, send_file, redirect, send_from_directory, make_response, request
+import threading
+import time
+import uuid
+from collections import deque
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_mail import Mail, Message
@@ -21,10 +25,73 @@ from dotenv import load_dotenv
 from PIL import Image
 import psutil
 import logging
+import gc
 
 load_dotenv()
 
 app = Flask(__name__)
+
+# --- Fair Queuing for Cover Requests ---
+cover_request_queue = deque()  # Each entry: {session_id, file_id, timestamp}
+cover_queue_lock = threading.Lock()
+cover_queue_active = None  # Currently processing: {session_id, file_id, timestamp}
+cover_queue_last_cleanup = 0
+
+# --- Fair Queuing for Text Requests ---
+text_request_queue = deque()  # Each entry: {session_id, file_id, page_num, timestamp}
+text_queue_lock = threading.Lock()
+text_queue_active = None  # Currently processing: {session_id, file_id, page_num, timestamp}
+text_queue_last_cleanup = 0
+
+def cleanup_text_queue():
+    now = time.time()
+    to_remove = set()
+    for entry in list(text_request_queue):
+        sid = entry['session_id']
+        if sid not in session_last_seen or now - session_last_seen[sid] > SESSION_TIMEOUT:
+            to_remove.add(sid)
+    with text_queue_lock:
+        text_request_queue[:] = [e for e in text_request_queue if e['session_id'] not in to_remove]
+        if text_queue_active and text_queue_active['session_id'] in to_remove:
+            text_queue_active = None
+
+def get_text_queue_status():
+    with text_queue_lock:
+        return {
+            'active': text_queue_active,
+            'queue': list(text_request_queue),
+            'queue_length': len(text_request_queue),
+            'sessions': list(session_last_seen.keys()),
+        }
+
+# Session heartbeat tracking
+session_last_seen = {}  # session_id: last_seen_timestamp
+SESSION_TIMEOUT = 60  # seconds
+
+def cleanup_cover_queue():
+    """Remove queue entries for sessions that have timed out."""
+    now = time.time()
+    to_remove = set()
+    for entry in list(cover_request_queue):
+        sid = entry['session_id']
+        if sid not in session_last_seen or now - session_last_seen[sid] > SESSION_TIMEOUT:
+            to_remove.add(sid)
+    with cover_queue_lock:
+        cover_request_queue[:] = [e for e in cover_request_queue if e['session_id'] not in to_remove]
+        if cover_queue_active and cover_queue_active['session_id'] in to_remove:
+            cover_queue_active = None
+
+def heartbeat(session_id):
+    session_last_seen[session_id] = time.time()
+
+def get_queue_status():
+    with cover_queue_lock:
+        return {
+            'active': cover_queue_active,
+            'queue': list(cover_request_queue),
+            'queue_length': len(cover_request_queue),
+            'sessions': list(session_last_seen.keys()),
+        }
 app.config['SQLALCHEMY_DATABASE_URI'] = (
     f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
     f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
@@ -36,7 +103,7 @@ app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
-CORS(app, origins=["http://localhost:5174", "https://storyweavechronicles.onrender.com"])
+CORS(app, origins=["http://localhost:5173", "https://storyweavechronicles.onrender.com"])
 mail = Mail(app)
 
 service_account_info = {
@@ -82,6 +149,7 @@ class User(db.Model):
     timezone = db.Column(db.String(64), nullable=True)
     notification_prefs = db.Column(db.Text, nullable=True)  # JSON string
     notification_history = db.Column(db.Text, nullable=True)  # JSON string
+    comments_page_size = db.Column(db.Integer, default=10)  # per-user comments page size
     is_admin = db.Column(db.Boolean, default=False)  # admin privileges
     banned = db.Column(db.Boolean, default=False)  # user ban status
 
@@ -153,6 +221,19 @@ def extract_story_id_from_pdf(file_content):
 def hash_password(password):
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
+def downscale_image(img_bytes, size=(80, 120), format="JPEG", quality=70):
+    """
+    Downscale and compress image bytes.
+    Returns BytesIO of the downscaled image.
+    """
+    img = Image.open(io.BytesIO(img_bytes))
+    img = img.convert("RGB")
+    img.thumbnail(size)
+    out = io.BytesIO()
+    img.save(out, format=format, quality=quality)
+    out.seek(0)
+    return out
+
 def get_drive_service():
     creds = None
     # Build credentials from .env
@@ -207,14 +288,33 @@ def setup_drive_webhook(folder_id, webhook_url):
 def send_notification_email(user, subject, body):
     if not user.email:
         logging.warning(f"User {user.id} has no email address. Skipping email send.")
-        return
+        return False
     msg = Message(subject, sender=app.config['MAIL_USERNAME'], recipients=[user.email])
     msg.body = body
     try:
         mail.send(msg)
         logging.info(f"Sent email to {user.email} with subject '{subject}'")
+        return True
     except Exception as e:
         logging.error(f"Failed to send email to {user.email}: {e}")
+        return False
+# --- Scheduled Email Rollout with Batching ---
+def send_scheduled_emails(subject, body, frequency='daily', batch_size=20, sleep_time=2):
+    """
+    Send scheduled emails to users in batches to minimize RAM usage.
+    """
+    with app.app_context():
+        users = User.query.filter_by(banned=False).all()
+        total = len(users)
+        logging.info(f"Starting scheduled email rollout: {total} users, batch_size={batch_size}, sleep_time={sleep_time}s")
+        for i in range(0, total, batch_size):
+            batch = users[i:i+batch_size]
+            for user in batch:
+                # You can add per-user frequency/prefs check here
+                send_notification_email(user, subject, body)
+            logging.info(f"Sent batch {i//batch_size+1} ({i+1}-{min(i+batch_size,total)})")
+            time.sleep(sleep_time)
+        logging.info("Scheduled email rollout complete.")
 
 # --- Notification Utility ---
 def add_notification(user, type_, title, body, link=None):
@@ -477,32 +577,59 @@ def download_pdf(file_id):
         file_metadata = service.files().get(fileId=file_id, fields='name').execute()
         filename = file_metadata.get('name', 'downloaded.pdf')
         request = service.files().get_media(fileId=file_id)
-        file_content = io.BytesIO(request.execute())
-        response = make_response(send_file(file_content, mimetype='application/pdf', as_attachment=True, download_name=filename))
-        response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+        def generate():
+            downloader = request
+            chunk_size = 1024 * 64  # 64KB
+            data = downloader.execute()
+            buf = memoryview(data)
+            offset = 0
+            while offset < len(buf):
+                yield buf[offset:offset+chunk_size]
+                offset += chunk_size
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[download-pdf] Memory usage: {mem:.2f} MB for file_id={file_id}")
+        logging.info(f"[download-pdf] Memory usage: {mem:.2f} MB for file_id={file_id}, filename={filename}")
+        response = make_response(generate())
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
         return response
     except Exception as e:
         response = make_response(jsonify(error=str(e)), 500)
         response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
         return response
 
-def downscale_image(img_bytes, size=(80, 120), format="JPEG", quality=70):
-    """
-    Downscale and compress image bytes.
-    Returns BytesIO of the downscaled image.
-    """
-    img = Image.open(io.BytesIO(img_bytes))
-    img = img.convert("RGB")
-    img.thumbnail(size)
-    out = io.BytesIO()
-    img.save(out, format=format, quality=quality)
-    out.seek(0)
-    return out
+# --- Health Check for Cover Queue ---
+@app.route('/api/cover-queue-health', methods=['GET'])
+def cover_queue_health():
+    status = get_queue_status()
+    return jsonify({
+        'success': True,
+        'active': status['active'],
+        'queue_length': status['queue_length'],
+        'queue': status['queue'],
+        'sessions': status['sessions'],
+    })
 
-@app.route('/pdf-cover/<file_id>')
+@app.route('/pdf-cover/<file_id>', methods=['GET'])
 def pdf_cover(file_id):
+    session_id = request.args.get('session_id') or request.headers.get('X-Session-Id')
+    if not session_id:
+        # Generate a random session if not provided (not recommended for fairness)
+        session_id = str(uuid.uuid4())
+    heartbeat(session_id)
+    entry = {'session_id': session_id, 'file_id': file_id, 'timestamp': time.time()}
+    with cover_queue_lock:
+        cover_request_queue.append(entry)
+    # Wait until this request is at the front of the queue and no active request
+    while True:
+        cleanup_cover_queue()
+        with cover_queue_lock:
+            if cover_request_queue and cover_request_queue[0]['session_id'] == session_id and cover_request_queue[0]['file_id'] == file_id:
+                if cover_queue_active is None:
+                    cover_queue_active = entry
+                    break
+        time.sleep(0.05)
+    # --- Actual cover extraction logic ---
     def send_fallback():
         logging.error(f"[pdf-cover] Fallback image used for file_id={file_id}")
         fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
@@ -516,67 +643,117 @@ def pdf_cover(file_id):
         return response
 
     logging.info(f"[pdf-cover] Request for file_id={file_id}")
+    import gc
     try:
         service = get_drive_service()
         logging.info(f"[pdf-cover] Got Drive service for file_id={file_id}")
-        request = service.files().get_media(fileId=file_id)
-        file_content = io.BytesIO(request.execute())
-        logging.info(f"[pdf-cover] Downloaded PDF for file_id={file_id}, size={file_content.getbuffer().nbytes} bytes")
-        try:
-            doc = fitz.open(stream=file_content, filetype="pdf")
-            page = doc.load_page(0)
-            pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
-            img_bytes = pix.tobytes("png")
-            out = downscale_image(img_bytes, size=(200, 300), format="JPEG", quality=85)
-            logging.info(f"[pdf-cover] Successfully generated cover for file_id={file_id}")
-            response = make_response(send_file(out, mimetype="image/jpeg"))
-            response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
-            return response
-        except Exception as e:
-            logging.error(f"[pdf-cover] Error generating cover for file_id={file_id}: {e}")
-            return send_fallback()
+        request_drive = service.files().get_media(fileId=file_id)
+        data = request_drive.execute()
+        doc = fitz.open(stream=data, filetype="pdf")
+        page = doc.load_page(0)
+        pix = page.get_pixmap(matrix=fitz.Matrix(2,2))
+        img_bytes = pix.tobytes("jpeg")
+        # Downscale and compress
+        out = downscale_image(img_bytes, size=(200, 300), format="JPEG", quality=85)
+        out.seek(0)
+        # Clean up large objects before streaming
+        page = None
+        pix = None
+        doc.close()
+        del doc
+        del data
+        del img_bytes
+        gc.collect()
+        def generate():
+            while True:
+                chunk = out.read(1024 * 1024)  # 1MB chunks
+                if not chunk:
+                    break
+                yield chunk
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
+        response = make_response(generate())
+        response.headers["Content-Type"] = "image/jpeg"
+        response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+        return response
     except Exception as e:
         logging.error(f"[pdf-cover] Error fetching file from Drive for file_id={file_id}: {e}")
         return send_fallback()
+    finally:
+        with cover_queue_lock:
+            if cover_request_queue and cover_request_queue[0] == entry:
+                cover_request_queue.popleft()
+            if cover_queue_active == entry:
+                cover_queue_active = None
 
 @app.route('/api/pdf-text/<file_id>', methods=['GET'])
 def pdf_text(file_id):
     """
-    Extracts all text and images from a PDF file in Google Drive by file_id.
-    Returns: {"success": True, "pages": [{"page": n, "text": ..., "images": [...]}, ...]} or error JSON.
+    Extracts text and images from a single PDF page in Google Drive by file_id and page number.
+    Query params: page (1-based), session_id (optional)
+    Returns: {"success": True, "page": n, "text": ..., "images": [...]} or error JSON.
     """
+    session_id = request.args.get('session_id') or request.headers.get('X-Session-Id')
+    page_str = request.args.get('page')
     try:
+        if session_id:
+            heartbeat(session_id)
+        # --- Fair Queue for Text Requests ---
+        page_num = int(page_str) if page_str and page_str.isdigit() else 1
+        entry = {'session_id': session_id, 'file_id': file_id, 'page_num': page_num, 'timestamp': time.time()}
+        with text_queue_lock:
+            text_request_queue.append(entry)
+        # Wait until this request is at the front of the queue and no active request
+        while True:
+            with text_queue_lock:
+                cleanup_text_queue()
+                if text_request_queue and text_request_queue[0] == entry and (text_queue_active is None or text_queue_active == entry):
+                    text_queue_active = entry
+                    break
+            time.sleep(0.05)
+        # --- Actual text extraction logic ---
+        page_num = int(page_str) if page_str and page_str.isdigit() else 1
         service = get_drive_service()
-        request = service.files().get_media(fileId=file_id)
-        file_content = io.BytesIO(request.execute())
+        request_drive = service.files().get_media(fileId=file_id)
+        file_content = io.BytesIO(request_drive.execute())
         doc = fitz.open(stream=file_content.getvalue(), filetype="pdf")
-        pages = []
-        for page_num in range(doc.page_count):
-            page = doc.load_page(page_num)
-            page_text = page.get_text("text")
-            images = []
-            for img_index, img in enumerate(page.get_images(full=True)):
-                xref = img[0]
-                try:
-                    base_image = doc.extract_image(xref)
-                    img_bytes = base_image["image"]
-                    # Downscale image for book pages
-                    out = downscale_image(img_bytes, size=(300, 400), format="JPEG", quality=70)
-                    img_b64 = base64.b64encode(out.read()).decode("utf-8")
-                    images.append({
-                        "index": img_index,
-                        "xref": xref,
-                        "base64": img_b64,
-                        "ext": "jpg"
-                    })
-                except Exception as img_e:
-                    logging.warning(f"[pdf-text] Failed to extract image xref={xref} on page={page_num}: {img_e}")
-            pages.append({
-                "page": page_num + 1,
-                "text": page_text,
-                "images": images
-            })
-        return jsonify({"success": True, "pages": pages})
+        if page_num < 1 or page_num > doc.page_count:
+            doc.close()
+            return jsonify({"success": False, "error": "Invalid page number."})
+        page = doc.load_page(page_num - 1)
+        page_text = page.get_text("text")
+        images = []
+        for img_index, img in enumerate(page.get_images(full=True)):
+            xref = img[0]
+            try:
+                base_image = doc.extract_image(xref)
+                img_bytes = base_image["image"]
+                out = downscale_image(img_bytes, size=(300, 400), format="JPEG", quality=70)
+                img_b64 = base64.b64encode(out.read()).decode("utf-8")
+                images.append({
+                    "index": img_index,
+                    "xref": xref,
+                    "base64": img_b64,
+                    "ext": "jpg"
+                })
+            except Exception as img_e:
+                logging.warning(f"[pdf-text] Failed to extract image xref={xref} on page={page_num}: {img_e}")
+        # Clean up memory for this page
+        page = None
+        doc.close()
+        del doc
+        del file_content
+        gc.collect()
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[pdf-text] Memory usage: {mem:.2f} MB for file_id={file_id} page={page_num}")
+        response = jsonify({"success": True, "page": page_num, "text": page_text, "images": images})
+        # Remove from queue and clear active
+        with text_queue_lock:
+            if text_request_queue and text_request_queue[0] == entry:
+                text_request_queue.popleft()
+            if text_queue_active == entry:
+                text_queue_active = None
+        return response
     except Exception as e:
         logging.error(f"[pdf-text] Error extracting text for file_id={file_id}: {e}")
         return jsonify({"success": False, "error": str(e)})
@@ -676,23 +853,38 @@ def update_notification_prefs():
     db.session.commit()
     return jsonify({'success': True, 'message': 'Notification preferences updated.'})
 
+
+# Paginated notification history endpoint
 @app.route('/api/get-notification-history', methods=['POST'])
-def notification_history():
-    data = request.get_json()
+def get_notification_history():
+    data = request.get_json(force=True)
     username = data.get('username')
-    dropdown_only = data.get('dropdownOnly', False)
-    user = User.query.filter_by(username=username).first() if username else None
+    page = int(data.get('page', 1))
+    page_size = int(data.get('page_size', 100))  # Large default chunk, but not all at once
+    user = User.query.filter_by(username=username).first()
     if not user:
-        return jsonify({'success': False, 'history': [], 'message': 'User not found.'})
-    try:
-        history = json.loads(user.notification_history) if user.notification_history else []
-    except Exception:
-        history = []
-    if dropdown_only:
-        history = [n for n in history if not n.get('dismissed')]
-    logging.info(f"[GET NOTIFICATION HISTORY] User: {username}, History count: {len(history)}")
-    logging.info(f"[GET NOTIFICATION HISTORY] History: {history}")
-    return jsonify({'success': True, 'history': history})
+        return jsonify({'success': False, 'message': 'User not found', 'notifications': []})
+    # Load notification history from user
+    history = []
+    if user.notification_history:
+        try:
+            history = json.loads(user.notification_history)
+        except Exception:
+            history = []
+    # Sort by timestamp descending (newest first)
+    history.sort(key=lambda n: n.get('timestamp', 0), reverse=True)
+    total = len(history)
+    start = (page - 1) * page_size
+    end = start + page_size
+    chunk = history[start:end]
+    return jsonify({
+        'success': True,
+        'notifications': chunk,
+        'total': total,
+        'page': page,
+        'page_size': page_size,
+        'total_pages': (total + page_size - 1) // page_size
+    })
 
 # Add a GET handler to return JSON error
 @app.route('/api/notification-history', methods=['GET'])
@@ -833,6 +1025,7 @@ def update_profile_settings():
     username = data.get('username')
     font = data.get('font')
     timezone = data.get('timezone')
+    comments_page_size = data.get('comments_page_size')
     user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
@@ -840,8 +1033,15 @@ def update_profile_settings():
         user.font = font
     if timezone is not None:
         user.timezone = timezone
+    if comments_page_size is not None:
+        try:
+            val = int(comments_page_size)
+            if 1 <= val <= 20:
+                user.comments_page_size = val
+        except Exception:
+            pass
     db.session.commit()
-    return jsonify({'success': True, 'message': 'Profile settings updated.', 'font': user.font, 'timezone': user.timezone})
+    return jsonify({'success': True, 'message': 'Profile settings updated.', 'font': user.font, 'timezone': user.timezone, 'comments_page_size': user.comments_page_size})
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -1033,64 +1233,19 @@ def drive_webhook():
 @app.route('/api/test-send-scheduled-notifications', methods=['POST'])
 def test_send_scheduled_notifications():
     """
-    Test endpoint to simulate scheduled notification emails for a user.
-    POST data: {"username": ..., "frequency": "daily"|"weekly"|"monthly"}
+    Test endpoint to simulate scheduled notification emails for all users in batches.
+    POST data: {"frequency": "daily"|"weekly"|"monthly", "batch_size": 20, "sleep_time": 2}
     """
     try:
         data = request.get_json()
-        username = data.get('username')
         frequency = data.get('frequency', 'daily')
-        user = User.query.filter_by(username=username).first()
-        if not user or not user.email:
-            return jsonify({'success': False, 'message': 'User not found or no email.'}), 404
-        # Load notification history
-        history = []
-        try:
-            history = json.loads(user.notification_history) if user.notification_history else []
-        except Exception:
-            history = []
-        # Simulate aggregation logic (filter by frequency)
-        now = datetime.datetime.now(datetime.UTC)
-        if frequency == 'daily':
-            cutoff = now - datetime.timedelta(days=1)
-        elif frequency == 'weekly':
-            cutoff = now - datetime.timedelta(weeks=1)
-        elif frequency == 'monthly':
-            cutoff = now - datetime.timedelta(days=30)
-        else:
-            cutoff = now - datetime.timedelta(days=1)
-        # Only include notifications newer than cutoff
-        notifications_to_send = []
-        for n in history:
-            ts = n.get('timestamp')
-            if ts is None:
-                continue
-            try:
-                dt = datetime.datetime.fromtimestamp(ts / 1000)
-                if dt > cutoff:
-                    notifications_to_send.append(n)
-            except Exception:
-                continue
-        # Compose email body (simple text for now)
-        if not notifications_to_send:
-            email_body = f"No new notifications for {frequency} period."
-        else:
-            email_body = f"Scheduled {frequency} notification summary for {user.username}:\n\n"
-            for n in notifications_to_send:
-                ts_str = ''
-                try:
-                    ts_val = n.get('timestamp')
-                    if ts_val:
-                        ts_str = datetime.datetime.fromtimestamp(ts_val / 1000).strftime('%Y-%m-%d %H:%M')
-                except Exception:
-                    ts_str = ''
-                email_body += f"- [{ts_str}] {n.get('title', n.get('type', 'Notification'))}: {n.get('body', '')}\n"
-        # Send email
-        try:
-            send_notification_email(user, f"Your {frequency.capitalize()} Notification Summary", email_body)
-        except Exception as e:
-            return jsonify({'success': False, 'message': f'Email send failed: {str(e)}', 'email_body': email_body}), 500
-        return jsonify({'success': True, 'message': f'Scheduled notification email sent for {frequency}.', 'email_body': email_body, 'count': len(notifications_to_send)})
+        batch_size = int(data.get('batch_size', 20))
+        sleep_time = int(data.get('sleep_time', 2))
+        # Compose subject and body for all users
+        subject = f"Your {frequency.capitalize()} Notification Summary"
+        body = f"This is your {frequency} notification summary from Storyweave Chronicles."
+        send_scheduled_emails(subject, body, frequency, batch_size, sleep_time)
+        return jsonify({'success': True, 'message': f'Scheduled notification emails sent in batches of {batch_size}.'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e), 'trace': traceback.format_exc()}), 500
 
@@ -1376,16 +1531,21 @@ def delete_comment():
 @app.route('/api/get-comments', methods=['GET'])
 def get_comments():
     book_id = request.args.get('book_id')
+    page = int(request.args.get('page', 1))
+    page_size = int(request.args.get('page_size', 20))
     if not book_id:
         return jsonify({'success': False, 'message': 'Book ID required.'}), 400
-    comments = Comment.query.filter_by(book_id=book_id).order_by(Comment.timestamp.asc()).all()
-    # Build nested replies
+    # Query all comments for the book, ordered by timestamp ascending
+    query = Comment.query.filter_by(book_id=book_id).order_by(Comment.timestamp.asc())
+    total_comments = query.count()
+    total_pages = (total_comments + page_size - 1) // page_size
+    comments = query.offset((page - 1) * page_size).limit(page_size).all()
+    # Build nested replies for only the current page
     comment_map = {}
     tree = []
     for c in comments:
         if c.deleted:
             continue
-        # Fetch user colors
         user = User.query.filter_by(username=c.username).first()
         item = {
             'id': c.id,
@@ -1408,7 +1568,14 @@ def get_comments():
             comment_map[item['parent_id']]['replies'].append(item)
         else:
             tree.append(item)
-    return jsonify({'success': True, 'comments': tree})
+    return jsonify({
+        'success': True,
+        'comments': tree,
+        'page': page,
+        'page_size': page_size,
+        'total_comments': total_comments,
+        'total_pages': total_pages
+    })
 
 @app.route('/api/vote-comment', methods=['POST'])
 def vote_comment():
@@ -1841,6 +2008,7 @@ if __name__ == '__main__':
     scheduler.add_job(lambda: send_scheduled_emails('daily'), 'cron', hour=8)
     scheduler.add_job(lambda: send_scheduled_emails('weekly'), 'cron', day_of_week='mon', hour=8)
     scheduler.add_job(lambda: send_scheduled_emails('monthly'), 'cron', day=1, hour=8)
-    scheduler.add_job(check_and_notify_new_books, 'interval', hours=1)
+    # Change from hourly to daily for backup new book check
+    scheduler.add_job(check_and_notify_new_books, 'cron', hour=9)
     scheduler.start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
