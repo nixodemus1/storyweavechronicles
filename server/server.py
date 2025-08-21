@@ -715,16 +715,20 @@ def pdf_cover(file_id):
         del doc
         del data
         del img_bytes
-        gc.collect()
-        def generate():
-            while True:
-                chunk = out.read(1024 * 1024)  # 1MB chunks
-                if not chunk:
-                    break
-                yield chunk
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
         logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
-        response = make_response(generate())
+        def generate_and_cleanup():
+            try:
+                while True:
+                    chunk = out.read(1024 * 1024)  # 1MB chunks
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                out.close()
+                del out
+                gc.collect()
+        response = make_response(generate_and_cleanup())
         response.headers["Content-Type"] = "image/jpeg"
         response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
         return response
@@ -842,7 +846,8 @@ def pdf_text(file_id):
                 response = jsonify({
                     "success": False,
                     "error": f"Page {page_num} is out of range.",
-                    "total_pages": doc.page_count
+                    "total_pages": doc.page_count,
+                    "stop": True  # Signal to frontend to stop requesting more pages
                 })
                 # Remove from queue and clear active (INSIDE LOCK, FAST, always)
                 acquired = text_queue_lock.acquire(timeout=5)

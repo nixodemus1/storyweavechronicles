@@ -175,9 +175,9 @@ export default function PDFReader() {
     let stopped = false;
     let totalPagesFromBackend = null;
     const requestedPages = new Set();
-    async function fetchAllPages() {
-      while (!stopped) {
-        if (stopped) break;
+      async function fetchAllPages() {
+        while (!stopped) {
+          if (stopped) return;
         // If we know totalPagesFromBackend, only fetch while pageNum <= totalPagesFromBackend
         if (totalPagesFromBackend !== null && pageNum > totalPagesFromBackend) {
           stopped = true;
