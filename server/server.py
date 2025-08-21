@@ -695,8 +695,8 @@ def pdf_cover(file_id):
         return response
 
     logging.info(f"[pdf-cover] Request for file_id={file_id}")
-    import gc
     try:
+        logging.info(f"[pdf-cover] Queue entry: session_id={session_id}, file_id={file_id}")
         service = get_drive_service()
         logging.info(f"[pdf-cover] Got Drive service for file_id={file_id}")
         request_drive = service.files().get_media(fileId=file_id)
@@ -715,33 +715,26 @@ def pdf_cover(file_id):
         del doc
         del data
         del img_bytes
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
-        def generate_and_cleanup():
-            out = None
+        gc.collect()
+        def generate():
+            logging.info(f"[pdf-cover] Generator START: session_id={session_id}, file_id={file_id}")
             try:
-                out = out if 'out' in locals() else None
-                if out is None:
-                    # If out is not set, something failed above
-                    raise Exception("Cover image not available")
                 while True:
                     chunk = out.read(1024 * 1024)  # 1MB chunks
                     if not chunk:
                         break
                     yield chunk
-            except Exception as e:
-                logging.error(f"Error generating cover for {file_id}: {e}")
-                # fallback: send no-cover image
-                fallback_path = os.path.join(app.root_path, 'client', 'public', 'no-cover.png')
-                try:
-                    with open(fallback_path, 'rb') as f:
-                        yield f.read()
-                except Exception as e2:
-                    logging.error(f"Error sending fallback cover: {e2}")
+                logging.info(f"[pdf-cover] Generator FINISH: session_id={session_id}, file_id={file_id}")
+            except Exception as gen_e:
+                logging.error(f"[pdf-cover] Generator ERROR: session_id={session_id}, file_id={file_id}, error={gen_e}")
+                raise
             finally:
-                if out is not None:
-                    out.close()
-        response = make_response(generate_and_cleanup())
+                out.close()
+                gc.collect()
+                logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
+        response = make_response(generate())
         response.headers["Content-Type"] = "image/jpeg"
         response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
         return response
