@@ -116,34 +116,25 @@ function SearchBar({ pdfs, navigate }) {
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     if (!searchInput.trim()) return;
-  const q = searchInput.toLowerCase();
-  // Exact match on title or external_story_id
-    const exactMatches = pdfs.filter(pdf =>
-      (pdf.title && pdf.title.toLowerCase() === q) ||
-      (pdf.external_story_id && pdf.external_story_id.toLowerCase() === q)
-    );
-    if (exactMatches.length === 1) {
-      navigate(`/read/${exactMatches[0].drive_id}`);
+    const q = searchInput.toLowerCase();
+    // Build autocomplete results (same logic as in useEffect)
+    const autocompleteResults = pdfs.filter(pdf => {
+      const titleMatch = pdf.title && (
+        pdf.title.toLowerCase().includes(q) ||
+        pdf.title.toLowerCase().startsWith(q)
+      );
+      const extIdMatch = pdf.external_story_id && (
+        pdf.external_story_id.toLowerCase().includes(q) ||
+        pdf.external_story_id.toLowerCase().startsWith(q)
+      );
+      return titleMatch || extIdMatch;
+    });
+    // If only one autocomplete result, go directly to book
+    if (autocompleteResults.length === 1) {
+      navigate(`/read/${autocompleteResults[0].drive_id}`);
       return;
     }
-    // Prefix match on title or external_story_id
-    const prefixMatches = pdfs.filter(pdf =>
-      (pdf.title && pdf.title.toLowerCase().startsWith(q)) ||
-      (pdf.external_story_id && pdf.external_story_id.toLowerCase().startsWith(q))
-    );
-    if (prefixMatches.length === 1) {
-      navigate(`/read/${prefixMatches[0].drive_id}`);
-      return;
-    }
-    // Partial match on title or external_story_id
-    const partialMatches = pdfs.filter(pdf =>
-      (pdf.title && pdf.title.toLowerCase().includes(q)) ||
-      (pdf.external_story_id && pdf.external_story_id.toLowerCase().includes(q))
-    );
-    if (partialMatches.length === 1) {
-      navigate(`/read/${partialMatches[0].drive_id}`);
-      return;
-    }
+    // If multiple results, go to search page
     navigate(`/search?query=${encodeURIComponent(searchInput)}`);
   };
 
@@ -224,13 +215,46 @@ function SearchBar({ pdfs, navigate }) {
 }
 
 function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
+  // Always show a maximum of 20 covers in the carousel
   const pdfs20 = React.useMemo(() => pdfs.slice(0, 20), [pdfs]);
   const { covers, loadingCovers } = useCachedCovers(pdfs20);
-  // console.log('[CarouselSection] Rendering with covers:', covers);
+  const [isMobile, setIsMobile] = React.useState(window.innerWidth <= 700);
+  React.useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth <= 700);
+    }
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // For mobile, each dot = 1 book, so slidesToShow/slidesToScroll = 1, dots = pdfs20.length > 1
+  const mobileSettings = {
+    ...settings,
+    slidesToShow: 1,
+    slidesToScroll: 1,
+    centerMode: false,
+    infinite: false,
+    dots: pdfs20.length > 1,
+    speed: 350,
+    centerPadding: '0px',
+    responsive: [],
+  };
+  const appliedSettings = isMobile ? mobileSettings : settings;
+
+  const coverStyle = isMobile
+    ? { width: 110, height: 160, objectFit: 'cover', borderRadius: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', marginBottom: '0.5rem' }
+    : { width: 170, height: 260, objectFit: 'cover', borderRadius: 6, boxShadow: '0 2px 16px rgba(0,0,0,0.12)' };
+  const itemStyle = isMobile
+    ? { cursor: 'pointer', minWidth: 0, maxWidth: '98vw', borderRadius: 8 }
+    : { cursor: 'pointer' };
+  const titleStyle = isMobile
+    ? { fontSize: '0.95rem', maxWidth: 110, marginTop: '0.3rem', padding: '0.15em 0.3em', borderRadius: 4 }
+    : { fontSize: '1.1rem', maxWidth: 180, marginTop: 8, padding: '0.25em 0.5em', borderRadius: 4 };
+
   return (
     <SteppedContainer depth={depth} style={{ marginBottom: 32 }}>
       <div className="carousel-container">
-        <Slider {...settings}
+        <Slider {...appliedSettings}
           beforeChange={() => { window._carouselDragged = false; }}
           afterChange={() => { window._carouselDragged = false; }}
         >
@@ -241,34 +265,34 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
               const coverUrl = covers[bookId];
               const isLoading = loadingCovers[bookId];
               return (
-                <SteppedContainer depth={depth + 1} key={bookId || Math.random()} className="carousel-item" style={{ cursor: 'pointer' }}>
+                <SteppedContainer depth={depth + 1} key={bookId || Math.random()} className="carousel-item" style={itemStyle}>
                   {bookId ? (
                     pdf.missing
                       ? <div style={{
-                          width: 180, height: 270,
+                          width: coverStyle.width, height: coverStyle.height,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: '#eee', color: '#c00', borderRadius: 6,
-                          fontSize: 18, fontStyle: 'italic', boxShadow: '0 2px 16px rgba(0,0,0,0.12)'
+                          background: '#eee', color: '#c00', borderRadius: coverStyle.borderRadius,
+                          fontSize: 18, fontStyle: 'italic', boxShadow: coverStyle.boxShadow
                         }}>Missing Book</div>
                       : isLoading
                         ? <div style={{
-                            width: 180, height: 270,
+                            width: coverStyle.width, height: coverStyle.height,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: '#e0ffe0', color: '#080', borderRadius: 6,
-                            fontSize: 18, fontStyle: 'italic', boxShadow: '0 2px 16px rgba(0,0,0,0.12)'
+                            background: '#e0ffe0', color: '#080', borderRadius: coverStyle.borderRadius,
+                            fontSize: 18, fontStyle: 'italic', boxShadow: coverStyle.boxShadow
                           }}>Loading Cover...</div>
                         : coverUrl === '/no-cover.png'
                           ? <div style={{
-                              width: 180, height: 270,
+                              width: coverStyle.width, height: coverStyle.height,
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              background: '#ffe0e0', color: '#c00', borderRadius: 6,
-                              fontSize: 18, fontStyle: 'italic', boxShadow: '0 2px 16px rgba(0,0,0,0.12)'
+                              background: '#ffe0e0', color: '#c00', borderRadius: coverStyle.borderRadius,
+                              fontSize: 18, fontStyle: 'italic', boxShadow: coverStyle.boxShadow
                             }}>No Cover</div>
                           : <img
                               src={coverUrl}
                               alt={pdf.title}
                               className="book-cover"
-                              style={{ width: 170, height: 260, objectFit: 'cover', borderRadius: 6, boxShadow: '0 2px 16px rgba(0,0,0,0.12)' }}
+                              style={coverStyle}
                               onError={e => {
                                 if (e.target.src !== '/no-cover.png') {
                                   setCoverInCache(bookId, '/no-cover.png');
@@ -292,7 +316,7 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
                   ) : (
                     <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
                   )}
-                  <SteppedContainer depth={depth + 2} className="book-title" style={{ padding: '0.25em 0.5em', borderRadius: 4, marginTop: 8 }}>
+                  <SteppedContainer depth={depth + 2} className="book-title" style={titleStyle}>
                     <button
                       style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', fontSize: 'inherit' }}
                       onClick={() => {
@@ -472,6 +496,7 @@ export default function LandingPage() {
     speed: 500,
     slidesToShow: 10,
     slidesToScroll: 1,
+    totalSlides: 20,
     centerMode: true,
     centerPadding: '40px',
     swipeToSlide: true,

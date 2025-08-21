@@ -39,4 +39,8 @@
   .header > div > div {
     gap: 0 !important;
   }
+  /* Hide header title on mobile (use .header .header-title for specificity) */
+  .header .header-title {
+    display: none !important;
+  }
 }
