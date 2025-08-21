@@ -48,3 +48,46 @@
   line-height: 1.7;
   font-size: 18px;
 }
+
+/* --- Mobile Responsive Styles --- */
+@media (max-width: 700px) {
+  .pdf-reader-container {
+    max-width: 100vw;
+    padding: 0.5rem;
+  }
+  .pdf-reader-header {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 0 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .pdf-reader-page {
+    padding: 0.5rem;
+    margin: 0.5rem;
+    box-shadow: none;
+    border-radius: 6px;
+  }
+  .pdf-reader-btn {
+    padding: 0.5em 0.8em;
+    font-size: 1em;
+    margin: 0 0.2em;
+    min-width: 80px;
+  }
+  .pdf-reader-page-indicator {
+    font-size: 1em;
+    margin: 0 0.5em;
+  }
+  .pdf-reader-images img {
+    max-width: 100vw;
+    max-height: 220px;
+    border-radius: 10px;
+  }
+  .pdf-reader-text p {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  .pdf-reader-error {
+    padding: 1rem;
+    font-size: 1em;
+  }
+}

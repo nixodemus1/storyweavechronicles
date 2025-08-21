@@ -44,54 +44,96 @@ text_queue_active = None  # Currently processing: {session_id, file_id, page_num
 text_queue_last_cleanup = 0
 
 def cleanup_text_queue():
-    now = time.time()
-    to_remove = set()
-    for entry in list(text_request_queue):
-        sid = entry['session_id']
-        if sid not in session_last_seen or now - session_last_seen[sid] > SESSION_TIMEOUT:
-            to_remove.add(sid)
-    with text_queue_lock:
-        text_request_queue[:] = [e for e in text_request_queue if e['session_id'] not in to_remove]
+    try:
+        now = time.time()
+        to_remove = set()
+        for entry in list(text_request_queue):
+            sid = entry['session_id']
+            if sid not in session_last_seen or now - session_last_seen[sid] > SESSION_TIMEOUT:
+                to_remove.add(sid)
+        before_len = len(text_request_queue)
+        filtered = [e for e in text_request_queue if e['session_id'] not in to_remove]
+        text_request_queue.clear()
+        text_request_queue.extend(filtered)
+        global text_queue_active
         if text_queue_active and text_queue_active['session_id'] in to_remove:
             text_queue_active = None
+        # Only log if something was removed
+        if to_remove:
+            logging.info(f"[cleanup_text_queue] Removed {len(to_remove)} stale sessions from queue.")
+    except Exception as e:
+        logging.error(f"[cleanup_text_queue] Error: {e}")
 
 def get_text_queue_status():
-    with text_queue_lock:
+    acquired = text_queue_lock.acquire(timeout=5)
+    if not acquired:
+        logging.error("[get_text_queue_status] Could not acquire text_queue_lock after 5 seconds! Possible deadlock.")
+        return {
+            'active': None,
+            'queue': [],
+            'queue_length': 0,
+            'sessions': []
+        }
+    try:
         return {
             'active': text_queue_active,
             'queue': list(text_request_queue),
             'queue_length': len(text_request_queue),
             'sessions': list(session_last_seen.keys()),
         }
+    finally:
+        text_queue_lock.release()
 
 # Session heartbeat tracking
+
 session_last_seen = {}  # session_id: last_seen_timestamp
 SESSION_TIMEOUT = 60  # seconds
 
-def cleanup_cover_queue():
-    """Remove queue entries for sessions that have timed out."""
-    now = time.time()
-    to_remove = set()
-    for entry in list(cover_request_queue):
-        sid = entry['session_id']
-        if sid not in session_last_seen or now - session_last_seen[sid] > SESSION_TIMEOUT:
-            to_remove.add(sid)
-    with cover_queue_lock:
-        cover_request_queue[:] = [e for e in cover_request_queue if e['session_id'] not in to_remove]
-        if cover_queue_active and cover_queue_active['session_id'] in to_remove:
-            cover_queue_active = None
-
 def heartbeat(session_id):
+    """Update the last seen timestamp for a session. Used to track active sessions and clean up timed-out requests."""
     session_last_seen[session_id] = time.time()
 
+def cleanup_cover_queue():
+    try:
+        now = time.time()
+        to_remove = set()
+        for entry in list(cover_request_queue):
+            sid = entry['session_id']
+            if sid not in session_last_seen or now - session_last_seen[sid] > SESSION_TIMEOUT:
+                to_remove.add(sid)
+        before_len = len(cover_request_queue)
+        filtered = [e for e in cover_request_queue if e['session_id'] not in to_remove]
+        cover_request_queue.clear()
+        cover_request_queue.extend(filtered)
+        global cover_queue_active
+        if cover_queue_active and cover_queue_active['session_id'] in to_remove:
+            cover_queue_active = None
+        if to_remove:
+            logging.info(f"[cleanup_cover_queue] Removed {len(to_remove)} stale sessions from queue.")
+    except Exception as e:
+        logging.error(f"[cleanup_cover_queue] Error: {e}")
+
 def get_queue_status():
-    with cover_queue_lock:
+    acquired = cover_queue_lock.acquire(timeout=5)
+    if not acquired:
+        logging.error("[get_queue_status] Could not acquire cover_queue_lock after 5 seconds! Possible deadlock.")
+        return {
+            'active': None,
+            'queue': [],
+            'queue_length': 0,
+            'sessions': []
+        }
+    try:
         return {
             'active': cover_queue_active,
             'queue': list(cover_request_queue),
             'queue_length': len(cover_request_queue),
             'sessions': list(session_last_seen.keys()),
         }
+    finally:
+        cover_queue_lock.release()
+
+
 app.config['SQLALCHEMY_DATABASE_URI'] = (
     f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
     f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
@@ -612,22 +654,32 @@ def cover_queue_health():
 
 @app.route('/pdf-cover/<file_id>', methods=['GET'])
 def pdf_cover(file_id):
+    global cover_queue_active
     session_id = request.args.get('session_id') or request.headers.get('X-Session-Id')
     if not session_id:
-        # Generate a random session if not provided (not recommended for fairness)
-        session_id = str(uuid.uuid4())
+        return jsonify({'success': False, 'error': 'Missing session_id'}), 400
     heartbeat(session_id)
     entry = {'session_id': session_id, 'file_id': file_id, 'timestamp': time.time()}
-    with cover_queue_lock:
-        cover_request_queue.append(entry)
+    acquired = cover_queue_lock.acquire(timeout=5)
+    if not acquired:
+        logging.error("[pdf-cover] Could not acquire cover_queue_lock after 5 seconds! Possible deadlock.")
+        return jsonify({'success': False, 'error': 'Server busy, try again later.'}), 503
+    try:
+            cover_request_queue.append(entry) 
+    finally:
+        cover_queue_lock.release()
     # Wait until this request is at the front of the queue and no active request
+    wait_start = time.time()
     while True:
-        cleanup_cover_queue()
         with cover_queue_lock:
+            cleanup_cover_queue()  # Always called inside locked context
             if cover_request_queue and cover_request_queue[0]['session_id'] == session_id and cover_request_queue[0]['file_id'] == file_id:
                 if cover_queue_active is None:
                     cover_queue_active = entry
                     break
+        if time.time() - wait_start > 30:
+            logging.error(f"ERROR: Waited >30s for cover queue for session_id={session_id}, file_id={file_id}")
+            return jsonify({'success': False, 'error': 'Timeout waiting for cover queue'}), 504
         time.sleep(0.05)
     # --- Actual cover extraction logic ---
     def send_fallback():
@@ -680,11 +732,15 @@ def pdf_cover(file_id):
         logging.error(f"[pdf-cover] Error fetching file from Drive for file_id={file_id}: {e}")
         return send_fallback()
     finally:
-        with cover_queue_lock:
+        acquired = cover_queue_lock.acquire(timeout=5)
+        if not acquired:
+            logging.error("ERROR: Could not acquire cover_queue_lock in pdf_cover finally block after 5 seconds! Possible deadlock.")
+        else:
             if cover_request_queue and cover_request_queue[0] == entry:
                 cover_request_queue.popleft()
             if cover_queue_active == entry:
                 cover_queue_active = None
+            cover_queue_lock.release()
 
 @app.route('/api/pdf-text/<file_id>', methods=['GET'])
 def pdf_text(file_id):
@@ -693,70 +749,179 @@ def pdf_text(file_id):
     Query params: page (1-based), session_id (optional)
     Returns: {"success": True, "page": n, "text": ..., "images": [...]} or error JSON.
     """
+    global text_queue_active
+    global text_queue_lock
+    # --- Find book in DB and get total_pages if available ---
+    book = Book.query.filter_by(drive_id=file_id).first()
+    total_pages = None
+    if book and hasattr(book, 'version_history') and book.version_history:
+        try:
+            import json
+            vh = json.loads(book.version_history)
+            # Try to get total_pages from version_history JSON
+            if isinstance(vh, dict) and 'total_pages' in vh:
+                total_pages = vh['total_pages']
+            elif isinstance(vh, list) and len(vh) > 0 and 'total_pages' in vh[0]:
+                total_pages = vh[0]['total_pages']
+        except Exception as e:
+            total_pages = None
     session_id = request.args.get('session_id') or request.headers.get('X-Session-Id')
     page_str = request.args.get('page')
+    logging.info(f"[pdf-text] Incoming request: file_id={file_id}, page={page_str}, session_id={session_id}")
+    start_time = time.time()
+    entry = None
+    page_num = 1
     try:
-        if session_id:
-            heartbeat(session_id)
-        # --- Fair Queue for Text Requests ---
+        if not session_id:
+            logging.error("[pdf-text] ERROR: No session_id provided!")
+            return jsonify({"success": False, "error": "Missing session_id"}), 400
+        heartbeat(session_id)
         page_num = int(page_str) if page_str and page_str.isdigit() else 1
         entry = {'session_id': session_id, 'file_id': file_id, 'page_num': page_num, 'timestamp': time.time()}
-        with text_queue_lock:
-            text_request_queue.append(entry)
+        acquired = text_queue_lock.acquire(timeout=5)
+        if not acquired:
+            logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock.")
+            return jsonify({"success": False, "error": "Could not acquire queue lock (deadlock?)"}), 503
+        try:
+            # Deduplicate: only add if not already present
+            if not any(e['session_id'] == entry['session_id'] and e['file_id'] == entry['file_id'] and e['page_num'] == entry['page_num'] for e in text_request_queue):
+                text_request_queue.append(entry)
+                logging.info(f"[pdf-text] appended to queue: {entry}. Queue length now: {len(text_request_queue)}")
+            else:
+                logging.info(f"[pdf-text] duplicate entry detected, not appending: {entry}")
+        finally:
+            text_queue_lock.release()
+
         # Wait until this request is at the front of the queue and no active request
+        wait_start = time.time()
+        logging.info(f"[pdf-text] Step: entering queue wait loop")
         while True:
-            with text_queue_lock:
+            acquired = text_queue_lock.acquire(timeout=5)
+            if not acquired:
+                logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock in queue wait loop.")
+                # Robust cleanup on lock failure
+                cleanup_text_queue()
+                break
+            try:
                 cleanup_text_queue()
                 if text_request_queue and text_request_queue[0] == entry and (text_queue_active is None or text_queue_active == entry):
                     text_queue_active = entry
                     break
+            finally:
+                text_queue_lock.release()
+            if time.time() - wait_start > 30:
+                logging.error(f"[pdf-text] ERROR: Waited >30s for text queue for session_id={session_id}, file_id={file_id}, page={page_num}")
+                # Robust cleanup on timeout
+                acquired = text_queue_lock.acquire(timeout=5)
+                if acquired:
+                    try:
+                        if text_request_queue and text_request_queue[0] == entry:
+                            text_request_queue.popleft()
+                        if text_queue_active == entry:
+                            text_queue_active = None
+                    finally:
+                        text_queue_lock.release()
+                return jsonify({"success": False, "error": "Timeout waiting for text queue"}), 504
             time.sleep(0.05)
-        # --- Actual text extraction logic ---
-        page_num = int(page_str) if page_str and page_str.isdigit() else 1
-        service = get_drive_service()
-        request_drive = service.files().get_media(fileId=file_id)
-        file_content = io.BytesIO(request_drive.execute())
-        doc = fitz.open(stream=file_content.getvalue(), filetype="pdf")
-        if page_num < 1 or page_num > doc.page_count:
-            doc.close()
-            return jsonify({"success": False, "error": "Invalid page number."})
-        page = doc.load_page(page_num - 1)
-        page_text = page.get_text("text")
-        images = []
-        for img_index, img in enumerate(page.get_images(full=True)):
-            xref = img[0]
-            try:
-                base_image = doc.extract_image(xref)
-                img_bytes = base_image["image"]
-                out = downscale_image(img_bytes, size=(300, 400), format="JPEG", quality=70)
-                img_b64 = base64.b64encode(out.read()).decode("utf-8")
-                images.append({
-                    "index": img_index,
-                    "xref": xref,
-                    "base64": img_b64,
-                    "ext": "jpg"
+        wait_end = time.time()
+        logging.info(f"[pdf-text] Step: queue wait finished, wait time: {wait_end - wait_start:.2f}s for file_id={file_id} page={page_num}")
+
+        # --- Actual text extraction logic (OUTSIDE LOCK) ---
+        try:
+            service = get_drive_service()
+            logging.info(f"[pdf-text] Step: got Google Drive service for file_id={file_id}")
+            request_drive = service.files().get_media(fileId=file_id)
+            file_content = io.BytesIO(request_drive.execute())
+            logging.info(f"[pdf-text] downloaded file content for file_id={file_id}")
+            doc = fitz.open(stream=file_content.getvalue(), filetype="pdf")
+            logging.info(f"[pdf-text] opened PDF for file_id={file_id}, page_count={doc.page_count}")
+            if page_num < 1 or page_num > doc.page_count:
+                doc.close()
+                logging.error(f"[pdf-text] invalid page number: {page_num} for file_id={file_id}")
+                # Return graceful error with total_pages and HTTP 200
+                response = jsonify({
+                    "success": False,
+                    "error": f"Page {page_num} is out of range.",
+                    "total_pages": doc.page_count
                 })
-            except Exception as img_e:
-                logging.warning(f"[pdf-text] Failed to extract image xref={xref} on page={page_num}: {img_e}")
-        # Clean up memory for this page
-        page = None
-        doc.close()
-        del doc
-        del file_content
-        gc.collect()
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[pdf-text] Memory usage: {mem:.2f} MB for file_id={file_id} page={page_num}")
-        response = jsonify({"success": True, "page": page_num, "text": page_text, "images": images})
-        # Remove from queue and clear active
-        with text_queue_lock:
-            if text_request_queue and text_request_queue[0] == entry:
-                text_request_queue.popleft()
-            if text_queue_active == entry:
-                text_queue_active = None
+                # Remove from queue and clear active (INSIDE LOCK, FAST, always)
+                acquired = text_queue_lock.acquire(timeout=5)
+                if acquired:
+                    try:
+                        if text_request_queue and text_request_queue[0] == entry:
+                            text_request_queue.popleft()
+                        if text_queue_active == entry:
+                            text_queue_active = None
+                    finally:
+                        text_queue_lock.release()
+                else:
+                    logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock in cleanup.")
+                end_time = time.time()
+                logging.info(f"[pdf-text] finished! total request time: {end_time - start_time:.2f}s for file_id={file_id} page={page_num}")
+                return response, 200  # EXIT IMMEDIATELY, do not run further code
+            page = doc.load_page(page_num - 1)
+            page_text = page.get_text("text")
+            logging.info(f"[pdf-text] extracted text from page {page_num} for file_id={file_id}")
+            images = []
+            for img_index, img in enumerate(page.get_images(full=True)):
+                xref = img[0]
+                try:
+                    base_image = doc.extract_image(xref)
+                    img_bytes = base_image["image"]
+                    out = downscale_image(img_bytes, size=(300, 400), format="JPEG", quality=70)
+                    img_b64 = base64.b64encode(out.read()).decode("utf-8")
+                    images.append({
+                        "index": img_index,
+                        "xref": xref,
+                        "base64": img_b64,
+                        "ext": "jpg"
+                    })
+                except Exception as img_e:
+                    logging.warning(f"[pdf-text] failed to extract image xref={xref} on page={page_num}: {img_e}")
+            # Clean up memory for this page
+            page = None
+            doc.close()
+            del doc
+            del file_content
+            gc.collect()
+            mem = psutil.Process().memory_info().rss / (1024 * 1024)
+            logging.info(f"[pdf-text] memory usage: {mem:.2f} MB for file_id={file_id} page={page_num}")
+            response = jsonify({"success": True, "page": page_num, "text": page_text, "images": images, "total_pages": total_pages})
+        except Exception as e:
+            logging.error(f"[pdf-text] error extracting text for file_id={file_id}: {e}")
+            response = jsonify({"success": False, "error": str(e), "total_pages": total_pages})
+
+        # Remove from queue and clear active (INSIDE LOCK, FAST, always)
+        acquired = text_queue_lock.acquire(timeout=5)
+        if acquired:
+            try:
+                if text_request_queue and text_request_queue[0] == entry:
+                    text_request_queue.popleft()
+                if text_queue_active == entry:
+                    text_queue_active = None
+            finally:
+                text_queue_lock.release()
+        else:
+            logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock in cleanup.")
+        end_time = time.time()
+        logging.info(f"[pdf-text] finished! total request time: {end_time - start_time:.2f}s for file_id={file_id} page={page_num}")
         return response
     except Exception as e:
-        logging.error(f"[pdf-text] Error extracting text for file_id={file_id}: {e}")
-        return jsonify({"success": False, "error": str(e)})
+        logging.error(f"[pdf-text] error in pdf-text endpoint for file_id={file_id}: {e}")
+        # Always clean up queue/lock on error
+        if entry:
+            acquired = text_queue_lock.acquire(timeout=5)
+            if acquired:
+                try:
+                    if text_request_queue and text_request_queue[0] == entry:
+                        text_request_queue.popleft()
+                    if text_queue_active == entry:
+                        text_queue_active = None
+                finally:
+                    text_queue_lock.release()
+            else:
+                logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock in error cleanup.")
+        return jsonify({"success": False, "error": str(e)}), 500
     
 @app.route('/api/update-colors', methods=['POST'])
 def update_colors():

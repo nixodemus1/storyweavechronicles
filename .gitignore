@@ -3,3 +3,5 @@ server/credentials.json
 .env
 storyweave_db.session.sql
 storyweavechronicles.onrender.com.har
+server/storyweave.db
+alter_table.sql

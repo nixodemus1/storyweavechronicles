@@ -546,15 +546,14 @@ export default function App() {
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <HeaderLogo />
                 </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 20,
-                    height: 48,
-                    paddingRight: 0,
-                    marginRight: 0
-                  }}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      height: 48,
+                      paddingRight: 0,
+                      marginRight: 0
+                    }}
                 >
                   {!user && <LoginButton />}
                   {user && <HeaderAvatar />}

@@ -299,3 +299,67 @@
   color: #0070f3;
   text-decoration: underline solid #0070f3 2px;
 }
+/* --- MOBILE FRIENDLY STYLES --- */
+@media (max-width: 700px) {
+  .landing-page {
+    padding: 0 !important;
+    min-height: 100vh;
+  }
+  .searchbar-container,
+  .searchbar-input {
+    width: 98vw !important;
+    max-width: 98vw !important;
+    font-size: 1rem !important;
+    padding: 10px 8px !important;
+  }
+  .carousel-container {
+    padding: 1rem 0 1.5rem 0 !important;
+    min-width: 0 !important;
+  }
+  .slick-slider {
+    min-height: 220px !important;
+    margin-bottom: 24px !important;
+  }
+  .carousel-item {
+    border-radius: 8px !important;
+    min-width: 0 !important;
+    max-width: 98vw !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  }
+  .book-cover {
+    width: 110px !important;
+    height: 160px !important;
+    border-radius: 6px !important;
+    margin-bottom: 0.5rem !important;
+  }
+  .book-title {
+    font-size: 0.95rem !important;
+    max-width: 110px !important;
+    margin-top: 0.3rem !important;
+  }
+  .landing-description {
+    padding: 1rem 0.5rem !important;
+    font-size: 1rem !important;
+    border-radius: 6px !important;
+    max-width: 98vw !important;
+  }
+  .top-lists-container {
+    flex-direction: column !important;
+    gap: 1.2rem !important;
+    align-items: stretch !important;
+    margin-top: 1rem !important;
+  }
+  .top-list {
+    max-width: 98vw !important;
+    padding: 0.7rem 0.5rem 1rem 0.5rem !important;
+    font-size: 0.98rem !important;
+    border-radius: 6px !important;
+  }
+  .top-list h3 {
+    font-size: 1rem !important;
+    margin-bottom: 0.7rem !important;
+  }
+  .top-list-link {
+    font-size: 0.98rem !important;
+  }
+}
