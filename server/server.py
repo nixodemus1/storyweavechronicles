@@ -677,8 +677,8 @@ def pdf_cover(file_id):
                 if cover_queue_active is None:
                     cover_queue_active = entry
                     break
-        if time.time() - wait_start > 30:
-            logging.error(f"ERROR: Waited >30s for cover queue for session_id={session_id}, file_id={file_id}")
+        if time.time() - wait_start > 60:
+            logging.error(f"ERROR: Waited >60s for cover queue for session_id={session_id}, file_id={file_id}")
             return jsonify({'success': False, 'error': 'Timeout waiting for cover queue'}), 504
         time.sleep(0.05)
     # --- Actual cover extraction logic ---
@@ -717,21 +717,27 @@ def pdf_cover(file_id):
         del img_bytes
         gc.collect()
         def generate():
-            logging.info(f"[pdf-cover] Generator START: session_id={session_id}, file_id={file_id}")
-            try:
-                while True:
-                    chunk = out.read(1024 * 1024)  # 1MB chunks
-                    if not chunk:
-                        break
-                    yield chunk
-                logging.info(f"[pdf-cover] Generator FINISH: session_id={session_id}, file_id={file_id}")
-            except Exception as gen_e:
-                logging.error(f"[pdf-cover] Generator ERROR: session_id={session_id}, file_id={file_id}, error={gen_e}")
-                raise
-            finally:
-                out.close()
-                gc.collect()
-                logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
+                logging.info(f"[pdf-cover] Generator START: session_id={session_id}, file_id={file_id}")
+                start_time = time.time()
+                timeout = 15  # seconds, max allowed for generator
+                try:
+                    while True:
+                        if time.time() - start_time > timeout:
+                            logging.error(f"[pdf-cover] Generator TIMEOUT: session_id={session_id}, file_id={file_id}, duration={time.time() - start_time:.2f}s")
+                            break
+                        chunk = out.read(128 * 1024)  # 128KB chunks for faster streaming and lower memory
+                        if not chunk:
+                            break
+                        yield chunk
+                    duration = time.time() - start_time
+                    logging.info(f"[pdf-cover] Generator FINISH: session_id={session_id}, file_id={file_id}, duration={duration:.2f}s")
+                except Exception as gen_e:
+                    logging.error(f"[pdf-cover] Generator ERROR: session_id={session_id}, file_id={file_id}, error={gen_e}")
+                    raise
+                finally:
+                    out.close()
+                    gc.collect()
+                    logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
         logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
         response = make_response(generate())
