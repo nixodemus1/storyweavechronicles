@@ -718,16 +718,29 @@ def pdf_cover(file_id):
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
         logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
         def generate_and_cleanup():
+            out = None
             try:
+                out = out if 'out' in locals() else None
+                if out is None:
+                    # If out is not set, something failed above
+                    raise Exception("Cover image not available")
                 while True:
                     chunk = out.read(1024 * 1024)  # 1MB chunks
                     if not chunk:
                         break
                     yield chunk
+            except Exception as e:
+                logging.error(f"Error generating cover for {file_id}: {e}")
+                # fallback: send no-cover image
+                fallback_path = os.path.join(app.root_path, 'client', 'public', 'no-cover.png')
+                try:
+                    with open(fallback_path, 'rb') as f:
+                        yield f.read()
+                except Exception as e2:
+                    logging.error(f"Error sending fallback cover: {e2}")
             finally:
-                out.close()
-                del out
-                gc.collect()
+                if out is not None:
+                    out.close()
         response = make_response(generate_and_cleanup())
         response.headers["Content-Type"] = "image/jpeg"
         response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
