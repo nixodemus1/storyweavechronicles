@@ -695,28 +695,52 @@ def pdf_cover(file_id):
         return response
 
     logging.info(f"[pdf-cover] Request for file_id={file_id}")
+    import tempfile
     try:
         logging.info(f"[pdf-cover] Queue entry: session_id={session_id}, file_id={file_id}")
         service = get_drive_service()
         logging.info(f"[pdf-cover] Got Drive service for file_id={file_id}")
         request_drive = service.files().get_media(fileId=file_id)
-        data = request_drive.execute()
-        doc = fitz.open(stream=data, filetype="pdf")
-        page = doc.load_page(0)
-        pix = page.get_pixmap(matrix=fitz.Matrix(2,2))
-        img_bytes = pix.tobytes("jpeg")
-        # Downscale and compress
-        out = downscale_image(img_bytes, size=(200, 300), format="JPEG", quality=85)
-        out.seek(0)
-        # Clean up large objects before streaming
-        page = None
-        pix = None
-        doc.close()
-        del doc
-        del data
-        del img_bytes
-        gc.collect()
-        def generate():
+        pdf_bytes = request_drive.execute()
+        pdf_size = len(pdf_bytes)
+        pdf_header = pdf_bytes[:8]
+        logging.info(f"[pdf-cover] Downloaded PDF size: {pdf_size} bytes, header: {pdf_header}")
+        # Check if PDF header is valid
+        if not pdf_bytes or not pdf_bytes.startswith(b'%PDF'):
+            logging.error(f"[pdf-cover] Invalid PDF content for file_id={file_id}. Header: {pdf_header}")
+            return send_fallback()
+        # Try opening PDF directly from bytes
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            logging.info(f"[pdf-cover] fitz.open succeeded from bytes for file_id={file_id}")
+        except Exception as fitz_e:
+            logging.error(f"[pdf-cover] fitz.open from bytes failed for file_id={file_id}: {fitz_e}")
+            # Fallback to temp file method
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as tmp_pdf:
+                tmp_pdf.write(pdf_bytes)
+                tmp_pdf.flush()
+                try:
+                    doc = fitz.open(tmp_pdf.name)
+                    logging.info(f"[pdf-cover] fitz.open succeeded from temp file for file_id={file_id}")
+                except Exception as fitz_file_e:
+                    logging.error(f"[pdf-cover] fitz.open failed from temp file for file_id={file_id}: {fitz_file_e}")
+                    return send_fallback()
+        try:
+            page = doc.load_page(0)
+            pix = page.get_pixmap(matrix=fitz.Matrix(2,2))
+            img_bytes = pix.tobytes("jpeg")
+            # Downscale and compress
+            out = downscale_image(img_bytes, size=(200, 300), format="JPEG", quality=85)
+            out.seek(0)
+            # Clean up large objects before streaming
+            page = None
+            pix = None
+            doc.close()
+            del doc
+            del img_bytes
+            gc.collect()
+            def generate():
                 logging.info(f"[pdf-cover] Generator START: session_id={session_id}, file_id={file_id}")
                 start_time = time.time()
                 timeout = 15  # seconds, max allowed for generator
@@ -738,12 +762,15 @@ def pdf_cover(file_id):
                     out.close()
                     gc.collect()
                     logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
-        response = make_response(generate())
-        response.headers["Content-Type"] = "image/jpeg"
-        response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
-        return response
+            mem = psutil.Process().memory_info().rss / (1024 * 1024)
+            logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
+            response = make_response(generate())
+            response.headers["Content-Type"] = "image/jpeg"
+            response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+            return response
+        except Exception as page_e:
+            logging.error(f"[pdf-cover] Error processing PDF page for file_id={file_id}: {page_e}")
+            return send_fallback()
     except Exception as e:
         logging.error(f"[pdf-cover] Error fetching file from Drive for file_id={file_id}: {e}")
         return send_fallback()
