@@ -121,21 +121,7 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
       return date.toLocaleString();
     }
   }
-  // Color change handler (only update context onBlur)
-  const handleBackgroundColorChange = (e) => {
-    const newColor = e.target.value;
-    setPendingProfile(p => ({ ...p, backgroundColor: newColor }));
-  };
-  const handleBackgroundColorBlur = () => {
-    setBackgroundColor(pendingProfile.backgroundColor);
-  };
-  const handleTextColorChange = (e) => {
-    const newColor = e.target.value;
-    setPendingProfile(p => ({ ...p, textColor: newColor }));
-  };
-  const handleTextColorBlur = () => {
-    setTextColor(pendingProfile.textColor);
-  };
+  // ...existing code...
   // Font change handler
   const handleFontChange = (e) => {
     const newFont = e.target.value;
@@ -148,6 +134,37 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
     setPendingProfile(p => ({ ...p, timezone: newTz }));
     setTimezone(newTz); // Immediate UI feedback
   };
+  // --- Local preview logic for color picker ---
+  // Local preview state for color pickers
+  const [previewBackgroundColor, setPreviewBackgroundColor] = useState(pendingProfile.backgroundColor);
+  const [previewTextColor, setPreviewTextColor] = useState(pendingProfile.textColor);
+
+  // Reset preview color ONLY when context color changes (e.g. theme switch)
+  React.useEffect(() => {
+    setPreviewBackgroundColor(normalizeHex(backgroundColor));
+  }, [backgroundColor]);
+  React.useEffect(() => {
+    setPreviewTextColor(normalizeHex(textColor));
+  }, [textColor]);
+
+  // Color change handler: update local preview only
+  const handleBackgroundColorChange = (e) => {
+    const newColor = e.target.value;
+    setPreviewBackgroundColor(newColor);
+    setPendingProfile(p => ({ ...p, backgroundColor: newColor }));
+  };
+  // On blur: update global context
+  const handleBackgroundColorBlur = () => {
+    setBackgroundColor(previewBackgroundColor);
+  };
+  const handleTextColorChange = (e) => {
+    const newColor = e.target.value;
+    setPreviewTextColor(newColor);
+    setPendingProfile(p => ({ ...p, textColor: newColor }));
+  };
+  const handleTextColorBlur = () => {
+    setTextColor(previewTextColor);
+  };
   return (
     <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, display: 'flex', flexDirection: 'column', gap: 32 }}>
       <h3>Profile Settings</h3>
@@ -158,7 +175,7 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
             Background:
       <input
         type="color"
-        value={pendingProfile.backgroundColor}
+        value={previewBackgroundColor}
         onChange={handleBackgroundColorChange}
         onInput={handleBackgroundColorChange}
         onBlur={handleBackgroundColorBlur}
@@ -169,7 +186,7 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
             Text:
       <input
         type="color"
-        value={pendingProfile.textColor}
+        value={previewTextColor}
         onChange={handleTextColorChange}
         onInput={handleTextColorChange}
         onBlur={handleTextColorBlur}
