@@ -666,7 +666,8 @@ def pdf_cover(file_id):
         logging.error("[pdf-cover] Could not acquire cover_queue_lock after 5 seconds! Possible deadlock.")
         return jsonify({'success': False, 'error': 'Server busy, try again later.'}), 503
     try:
-            cover_request_queue.append(entry) 
+        cover_request_queue.append(entry)
+        logging.info(f"[pdf-cover] Queue length after append: {len(cover_request_queue)}")
     finally:
         cover_queue_lock.release()
     # Wait until this request is at the front of the queue and no active request
@@ -675,6 +676,7 @@ def pdf_cover(file_id):
     while True:
         with cover_queue_lock:
             cleanup_cover_queue()  # Always called inside locked context
+            logging.info(f"[pdf-cover] Queue length in wait loop: {len(cover_request_queue)}")
             if cover_request_queue and cover_request_queue[0]['session_id'] == session_id and cover_request_queue[0]['file_id'] == file_id:
                 if cover_queue_active is None:
                     cover_queue_active = entry
@@ -765,6 +767,12 @@ def pdf_cover(file_id):
                     logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
+            MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
+            MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
+            if mem > MEMORY_LOW_THRESHOLD_MB:
+                logging.warning(f"[pdf-cover] WARNING: Memory usage {mem:.2f} MB exceeds LOW threshold of {MEMORY_LOW_THRESHOLD_MB} MB!")
+            if mem > MEMORY_HIGH_THRESHOLD_MB:
+                logging.error(f"[pdf-cover] ERROR: Memory usage {mem:.2f} MB exceeds HIGH threshold of {MEMORY_HIGH_THRESHOLD_MB} MB! Consider spinning down or restarting the server.")
             response = make_response(generate())
             response.headers["Content-Type"] = "image/jpeg"
             response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
@@ -782,6 +790,7 @@ def pdf_cover(file_id):
         else:
             if cover_request_queue and cover_request_queue[0] == entry:
                 cover_request_queue.popleft()
+                logging.info(f"[pdf-cover] Queue length after popleft: {len(cover_request_queue)}")
             if cover_queue_active == entry:
                 cover_queue_active = None
             cover_queue_lock.release()
@@ -832,6 +841,7 @@ def pdf_text(file_id):
                 logging.info(f"[pdf-text] appended to queue: {entry}. Queue length now: {len(text_request_queue)}")
             else:
                 logging.info(f"[pdf-text] duplicate entry detected, not appending: {entry}")
+            logging.info(f"[pdf-text] Queue length after append: {len(text_request_queue)}")
         finally:
             text_queue_lock.release()
 
@@ -847,6 +857,7 @@ def pdf_text(file_id):
                 break
             try:
                 cleanup_text_queue()
+                logging.info(f"[pdf-text] Queue length in wait loop: {len(text_request_queue)}")
                 if text_request_queue and text_request_queue[0] == entry and (text_queue_active is None or text_queue_active == entry):
                     text_queue_active = entry
                     break
@@ -934,6 +945,12 @@ def pdf_text(file_id):
             gc.collect()
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-text] memory usage: {mem:.2f} MB for file_id={file_id} page={page_num}")
+            MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
+            MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
+            if mem > MEMORY_LOW_THRESHOLD_MB:
+                logging.warning(f"[pdf-text] WARNING: Memory usage {mem:.2f} MB exceeds LOW threshold of {MEMORY_LOW_THRESHOLD_MB} MB!")
+            if mem > MEMORY_HIGH_THRESHOLD_MB:
+                logging.error(f"[pdf-text] ERROR: Memory usage {mem:.2f} MB exceeds HIGH threshold of {MEMORY_HIGH_THRESHOLD_MB} MB! Consider spinning down or restarting the server.")
             response = jsonify({"success": True, "page": page_num, "text": page_text, "images": images, "total_pages": total_pages})
         except Exception as e:
             logging.error(f"[pdf-text] error extracting text for file_id={file_id}: {e}")
@@ -945,6 +962,7 @@ def pdf_text(file_id):
             try:
                 if text_request_queue and text_request_queue[0] == entry:
                     text_request_queue.popleft()
+                    logging.info(f"[pdf-text] Queue length after popleft: {len(text_request_queue)}")
                 if text_queue_active == entry:
                     text_queue_active = None
             finally:
