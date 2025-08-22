@@ -56,7 +56,7 @@ function useCachedCovers(pdfs) {
       });
       isMounted = false;
     };
-    // DO NOT ADD COVERS, IT CREATES A INFINITE LOOP THAT WILL FREEZE YOUR BROWSER
+    // DO NOT ADD covers TO DEPENDENCY ARRAY, IT CREATES AN INFINITE LOOP THAT WILL FREEZE YOUR BROWSER
   }, [pdfs]);
   return covers;
 }
@@ -132,13 +132,15 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
 
 
     // Use unified cover cache logic from LandingPage.jsx
-    const bookmarkedBooks = bookmarks
-      .map(bm => {
-        const book = books.find(b => b.id === bm.id);
-        return book ? { ...book, ...bm } : null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
+    const bookmarkedBooks = React.useMemo(() => {
+      return bookmarks
+        .map(bm => {
+          const book = books.find(b => b.id === bm.id);
+          return book ? { ...book, ...bm } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
+    }, [bookmarks, books]);
     const covers = useCachedCovers(bookmarkedBooks);
     const containerBg = stepColor(backgroundColor, theme, 1);
 

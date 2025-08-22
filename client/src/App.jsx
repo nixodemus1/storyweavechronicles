@@ -186,7 +186,7 @@ export default function App() {
           console.log('Polling error:', err);
         }
       }
-      pollInterval = setInterval(poll, 15000); // poll every 15s
+      pollInterval = setInterval(poll, 600000); // poll every 10 minutes
       return () => pollInterval && clearInterval(pollInterval);
     }, [user?.username, fetchNotifications]);
 

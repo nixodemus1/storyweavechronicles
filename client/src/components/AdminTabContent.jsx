@@ -52,10 +52,13 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
     e.preventDefault();
     setSaving(true);
     setAdminStatus("");
-    fetch(`${API_BASE_URL}/api/admin-set-role`, {
+    const endpoint = adminAction === "give"
+      ? `${API_BASE_URL}/api/admin/make-admin`
+      : `${API_BASE_URL}/api/admin/remove-admin`;
+    fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ admin: user.username, target: adminUser, action: adminAction })
+      body: JSON.stringify({ adminUsername: user.username, targetUsername: adminUser })
     })
       .then(res => res.json())
       .then(data => {
