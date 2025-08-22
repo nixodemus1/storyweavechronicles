@@ -2234,4 +2234,4 @@ if __name__ == '__main__':
     # Change from hourly to daily for backup new book check
     scheduler.add_job(check_and_notify_new_books, 'cron', hour=9)
     scheduler.start()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=os.getenv("DEBUG", True))
