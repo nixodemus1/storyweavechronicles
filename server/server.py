@@ -1,6 +1,6 @@
 #server/server.py
 from apscheduler.schedulers.background import BackgroundScheduler
-from drive_webhook import setup_drive_webhook
+from .drive_webhook import setup_drive_webhook
 import traceback
 from flask import Flask, jsonify, send_file, redirect, send_from_directory, make_response, request
 import threading
@@ -670,7 +670,8 @@ def pdf_cover(file_id):
     finally:
         cover_queue_lock.release()
     # Wait until this request is at the front of the queue and no active request
-    wait_start = time.time()
+    # --- Queue/delay requests BEFORE starting the timeout timer ---
+    # Wait until this request is at the front of the queue and no active request
     while True:
         with cover_queue_lock:
             cleanup_cover_queue()  # Always called inside locked context
@@ -678,10 +679,10 @@ def pdf_cover(file_id):
                 if cover_queue_active is None:
                     cover_queue_active = entry
                     break
-        if time.time() - wait_start > 60:
-            logging.error(f"ERROR: Waited >60s for cover queue for session_id={session_id}, file_id={file_id}")
-            return jsonify({'success': False, 'error': 'Timeout waiting for cover queue'}), 504
         time.sleep(0.05)
+    # Now at front of queue, start the timeout timer for actual processing
+    wait_start = time.time()
+    # ...existing code...
     # --- Actual cover extraction logic ---
     def send_fallback():
         logging.error(f"[pdf-cover] Fallback image used for file_id={file_id}")
@@ -834,8 +835,8 @@ def pdf_text(file_id):
         finally:
             text_queue_lock.release()
 
+        # --- Queue/delay requests BEFORE starting the timeout timer ---
         # Wait until this request is at the front of the queue and no active request
-        wait_start = time.time()
         logging.info(f"[pdf-text] Step: entering queue wait loop")
         while True:
             acquired = text_queue_lock.acquire(timeout=5)
@@ -851,22 +852,11 @@ def pdf_text(file_id):
                     break
             finally:
                 text_queue_lock.release()
-            if time.time() - wait_start > 30:
-                logging.error(f"[pdf-text] ERROR: Waited >30s for text queue for session_id={session_id}, file_id={file_id}, page={page_num}")
-                # Robust cleanup on timeout
-                acquired = text_queue_lock.acquire(timeout=5)
-                if acquired:
-                    try:
-                        if text_request_queue and text_request_queue[0] == entry:
-                            text_request_queue.popleft()
-                        if text_queue_active == entry:
-                            text_queue_active = None
-                    finally:
-                        text_queue_lock.release()
-                return jsonify({"success": False, "error": "Timeout waiting for text queue"}), 504
             time.sleep(0.05)
-        wait_end = time.time()
-        logging.info(f"[pdf-text] Step: queue wait finished, wait time: {wait_end - wait_start:.2f}s for file_id={file_id} page={page_num}")
+        # Now at front of queue, start the timeout timer for actual processing
+        wait_start = time.time()
+        wait_end = None
+        # ...existing code...
 
         # --- Actual text extraction logic (OUTSIDE LOCK) ---
         try:
