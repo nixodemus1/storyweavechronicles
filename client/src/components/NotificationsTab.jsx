@@ -227,8 +227,10 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   const [page, setPage] = useState(1);
   const pageSize = 50;
   const [totalPages, setTotalPages] = useState(1);
+  const [refreshFlag, setRefreshFlag] = useState(0);
 
-  React.useEffect(() => {
+  // Always use the correct response key and force re-fetch after actions
+  const fetchNotifications = React.useCallback(() => {
     if (!user?.username) return;
     setLoading(true);
     fetch(`${API_BASE_URL}/api/get-notification-history`, {
@@ -241,29 +243,27 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
         setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
         setTotalPages(data.total_pages || 1);
         setLoading(false);
-      });
-  }, [user?.username, page]);
+      })
+      .catch(() => setLoading(false));
+  }, [user?.username, page, pageSize, refreshFlag]);
+
+  React.useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   const containerBg = stepColor(backgroundColor, theme, 1);
 
   async function handleDismiss(id) {
     setDeleting(id);
     try {
-    const res = await fetch(`${API_BASE_URL}/api/delete-notification`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username, notificationId: id })
-    })
+      const res = await fetch(`${API_BASE_URL}/api/delete-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, notificationId: id })
+      });
       const data = await res.json();
       if (data.success) {
-        // Refetch notifications after deletion
-        const updatedRes = await fetch(`${API_BASE_URL}/api/get-notification-history`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: user.username })
-        });
-        const updatedData = await updatedRes.json();
-        setNotifications(Array.isArray(updatedData.history) ? updatedData.history : []);
+        setRefreshFlag(f => f + 1); // trigger re-fetch
       }
     } catch (e) {
       console.log('Error deleting notification:', e);
@@ -280,7 +280,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
       .then(res => res.json())
       .then(data => {
         if (data.success) {
-          setNotifications(notifications => notifications.map(n => n.id === id ? { ...n, read } : n));
+          setRefreshFlag(f => f + 1); // trigger re-fetch
         }
       });
   }
@@ -295,16 +295,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
       .then(res => res.json())
       .then(data => {
         if (data.success) {
-          // Refetch notification history to update state
-          fetch(`${API_BASE_URL}/api/get-notification-history`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: user.username })
-          })
-            .then(res => res.json())
-            .then(data => {
-              setNotifications(Array.isArray(data.history) ? data.history : []);
-            });
+          setRefreshFlag(f => f + 1); // trigger re-fetch
         }
       })
       .finally(() => setBulkLoading(false));
@@ -320,7 +311,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
       .then(res => res.json())
       .then(data => {
         if (data.success) {
-          setNotifications(notifications => notifications.map(n => ({ ...n, read: true })));
+          setRefreshFlag(f => f + 1); // trigger re-fetch
         }
       })
       .finally(() => setBulkLoading(false));

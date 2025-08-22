@@ -1,9 +1,39 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useImperativeHandle, forwardRef } from "react";
 import { ThemeContext } from "../themeContext";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
-const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
+
+const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
+  // Save pending profile changes to backend
+  const savePendingProfile = async () => {
+    if (!props.user?.username) return;
+    try {
+      await fetch(`${API_BASE_URL}/api/update-profile-settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: props.user.username,
+          backgroundColor: pendingProfile.backgroundColor,
+          textColor: pendingProfile.textColor,
+          font: pendingProfile.font,
+          timezone: pendingProfile.timezone,
+        })
+      });
+      // Optionally update user in parent/context
+      if (props.setUser) {
+        props.setUser(u => u ? { ...u, ...pendingProfile } : u);
+      }
+    } catch (err) {
+      console.log('Error saving profile:', err);
+    }
+  };
+
+  // Expose savePendingProfile to parent via ref
+  useImperativeHandle(ref, () => ({
+    savePendingProfile,
+    getPendingProfile: () => pendingProfile,
+  }));
   // Utility to normalize hex color to 6 digits
   function normalizeHex(hex) {
     if (!hex) return '#222222';
@@ -18,12 +48,29 @@ const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
     return '#222222';
   }
   const { theme, backgroundColor, textColor, font, timezone, setBackgroundColor, setTextColor, setFont, setTimezone } = useContext(ThemeContext);
-  const [saving, setSaving] = useState(false);
+  // Removed unused saving state
   const [currentTime, setCurrentTime] = useState(() => new Date());
-  // Local state for pending color pickers
-  const [pendingBackgroundColor, setPendingBackgroundColor] = useState(normalizeHex(backgroundColor));
-  const [pendingTextColor, setPendingTextColor] = useState(normalizeHex(textColor));
-  // ...existing code...
+  // Local state for all pending profile changes
+  const [pendingProfile, setPendingProfile] = useState({
+    backgroundColor: normalizeHex(backgroundColor),
+    textColor: normalizeHex(textColor),
+    font: font || '',
+    timezone: timezone || 'UTC',
+  });
+
+  // Sync local pending state with context when context changes (e.g. theme switch)
+  React.useEffect(() => {
+    setPendingProfile(p => ({ ...p, backgroundColor: normalizeHex(backgroundColor) }));
+  }, [backgroundColor]);
+  React.useEffect(() => {
+    setPendingProfile(p => ({ ...p, textColor: normalizeHex(textColor) }));
+  }, [textColor]);
+  React.useEffect(() => {
+    setPendingProfile(p => ({ ...p, font: font || '' }));
+  }, [font]);
+  React.useEffect(() => {
+    setPendingProfile(p => ({ ...p, timezone: timezone || 'UTC' }));
+  }, [timezone]);
 
   // Only set default colors when theme changes AND colors are still at their defaults
   React.useEffect(() => {
@@ -48,13 +95,7 @@ const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
       }
     }
   }, [theme, backgroundColor, textColor, setBackgroundColor, setTextColor]);
-  // Sync local pending color state with context when context changes (e.g. theme switch)
-  React.useEffect(() => {
-    setPendingBackgroundColor(normalizeHex(backgroundColor));
-  }, [backgroundColor]);
-  React.useEffect(() => {
-    setPendingTextColor(normalizeHex(textColor));
-  }, [textColor]);
+  // Removed obsolete setPendingBackgroundColor and setPendingTextColor
 
   // Update current time every second
   React.useEffect(() => {
@@ -80,84 +121,32 @@ const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
       return date.toLocaleString();
     }
   }
-  // Color change handler
-  // Use local state for instant feedback, update context/backend only onBlur
+  // Color change handler (only update context onBlur)
   const handleBackgroundColorChange = (e) => {
     const newColor = e.target.value;
-    setPendingBackgroundColor(newColor);
+    setPendingProfile(p => ({ ...p, backgroundColor: newColor }));
   };
-  const handleBackgroundColorBlur = async (e) => {
-    const newColor = normalizeHex(e.target.value);
-    setBackgroundColor(newColor);
-    if (!user?.username) return;
-    setSaving(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/update-colors`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, backgroundColor: newColor, textColor })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setUser(u => u ? { ...u, backgroundColor: newColor, textColor } : u);
-      }
-    } catch (err) {
-      console.log('Error updating colors:', err);
-    }
-    setSaving(false);
+  const handleBackgroundColorBlur = () => {
+    setBackgroundColor(pendingProfile.backgroundColor);
   };
   const handleTextColorChange = (e) => {
     const newColor = e.target.value;
-    setPendingTextColor(newColor);
+    setPendingProfile(p => ({ ...p, textColor: newColor }));
   };
-  const handleTextColorBlur = async (e) => {
-    const newColor = normalizeHex(e.target.value);
-    setTextColor(newColor);
-    if (!user?.username) return;
-    setSaving(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/update-colors`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, backgroundColor, textColor: newColor })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setUser(u => u ? { ...u, backgroundColor, textColor: newColor } : u);
-      }
-    } catch (err) {
-      console.log('Error updating colors:', err);
-    }
-    setSaving(false);
+  const handleTextColorBlur = () => {
+    setTextColor(pendingProfile.textColor);
   };
   // Font change handler
   const handleFontChange = (e) => {
     const newFont = e.target.value;
-    setFont(newFont);
-    saveProfile({ font: newFont });
+    setPendingProfile(p => ({ ...p, font: newFont }));
+    setFont(newFont); // Immediate UI feedback
   };
   // Timezone change handler
   const handleTimezoneChange = (e) => {
     const newTz = e.target.value;
-    setTimezone(newTz);
-    saveProfile({ timezone: newTz });
-  };
-  // Save font/timezone changes to backend
-  const saveProfile = (changes) => {
-    if (!user?.username) return;
-    setSaving(true);
-    fetch(`${API_BASE_URL}/api/update-profile-settings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username, font: changes.font || font, timezone: changes.timezone || timezone })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setUser(u => u ? { ...u, font: changes.font || font, timezone: changes.timezone || timezone } : u);
-        }
-      })
-      .finally(() => setSaving(false));
+    setPendingProfile(p => ({ ...p, timezone: newTz }));
+    setTimezone(newTz); // Immediate UI feedback
   };
   return (
     <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, display: 'flex', flexDirection: 'column', gap: 32 }}>
@@ -169,28 +158,30 @@ const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
             Background:
       <input
         type="color"
-        value={pendingBackgroundColor}
+        value={pendingProfile.backgroundColor}
         onChange={handleBackgroundColorChange}
+        onInput={handleBackgroundColorChange}
         onBlur={handleBackgroundColorBlur}
       />
-            <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{pendingBackgroundColor}</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{pendingProfile.backgroundColor}</span>
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             Text:
       <input
         type="color"
-        value={pendingTextColor}
+        value={pendingProfile.textColor}
         onChange={handleTextColorChange}
+        onInput={handleTextColorChange}
         onBlur={handleTextColorBlur}
         style={{ border: '1px solid #ccc', borderRadius: 4 }}
       />
-            <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{pendingTextColor}</span>
+            <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{pendingProfile.textColor}</span>
             </label>
       </div>
       {/* Font Picker */}
       <div style={{ marginBottom: 24 }}>
         <h4>Font</h4>
-        <select value={font || ''} onChange={handleFontChange} style={{ padding: 6, borderRadius: 4, border: '1px solid #ccc', minWidth: 120 }}>
+        <select value={pendingProfile.font || ''} onChange={handleFontChange} style={{ padding: 6, borderRadius: 4, border: '1px solid #ccc', minWidth: 120 }}>
           <option value="">Default</option>
           <option value="serif">Serif</option>
           <option value="sans-serif">Sans-serif</option>
@@ -201,20 +192,20 @@ const SettingsTabContent = function SettingsTabContent({ user, setUser }) {
       {/* Timezone Picker */}
       <div style={{ marginBottom: 24 }}>
         <h4>Timezone</h4>
-        <select value={timezone || ''} onChange={handleTimezoneChange} style={{ padding: 6, borderRadius: 4, border: '1px solid #ccc', minWidth: 120 }}>
+        <select value={pendingProfile.timezone || ''} onChange={handleTimezoneChange} style={{ padding: 6, borderRadius: 4, border: '1px solid #ccc', minWidth: 120 }}>
           {Intl.supportedValuesOf('timeZone').map(tz => (
             <option key={tz} value={tz}>{tz}</option>
           ))}
         </select>
         <div style={{ marginTop: 10, color: '#555', fontSize: 15 }}>
-          Current time: <span style={{ fontFamily: 'monospace' }}>{getTimeInTimezone(currentTime, timezone || 'UTC')}</span>
+          Current time: <span style={{ fontFamily: 'monospace' }}>{getTimeInTimezone(currentTime, pendingProfile.timezone || 'UTC')}</span>
         </div>
       </div>
       <div style={{ color: '#888', fontSize: 13, marginTop: 8 }}>
-        {saving ? 'Saving changes...' : 'Changes are saved when you select a new value.'}
+        {'Changes are saved when you leave the settings tab or page.'}
       </div>
     </div>
   );
-};
+});
 
 export default SettingsTabContent;

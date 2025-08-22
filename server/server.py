@@ -1,6 +1,11 @@
 #server/server.py
 from apscheduler.schedulers.background import BackgroundScheduler
-from .drive_webhook import setup_drive_webhook
+try:
+    # For production (when run as a package)
+    from .drive_webhook import setup_drive_webhook
+except ImportError:
+    # For local testing (when run as a script)
+    from drive_webhook import setup_drive_webhook
 import traceback
 from flask import Flask, jsonify, send_file, redirect, send_from_directory, make_response, request
 import threading
@@ -328,6 +333,7 @@ def setup_drive_webhook(folder_id, webhook_url):
         else:
             logging.info(f"Existing webhook is still valid (expires at {webhook.expiration})")
 
+# --- Scheduled Email Rollout with Batching ---
 def send_notification_email(user, subject, body):
     if not user.email:
         logging.warning(f"User {user.id} has no email address. Skipping email send.")
@@ -341,7 +347,7 @@ def send_notification_email(user, subject, body):
     except Exception as e:
         logging.error(f"Failed to send email to {user.email}: {e}")
         return False
-# --- Scheduled Email Rollout with Batching ---
+    
 def send_scheduled_emails(subject, body, frequency='daily', batch_size=20, sleep_time=2):
     """
     Send scheduled emails to users in batches to minimize RAM usage.
@@ -389,6 +395,22 @@ def add_notification(user, type_, title, body, link=None):
             prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
             if prefs.get('emailFrequency', 'immediate') == 'immediate':
                 send_notification_email(user, title, body)
+
+# Endpoint to check for new notifications for polling
+@app.route('/api/has-new-notifications', methods=['POST'])
+def has_new_notifications():
+    data = request.get_json(force=True)
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    has_new = False
+    if user and user.notification_history:
+        try:
+            history = json.loads(user.notification_history)
+            # Only count notifications that are not read and not dismissed
+            has_new = any(not n.get('read', False) and not n.get('dismissed', False) for n in history if isinstance(n, dict))
+        except Exception:
+            has_new = False
+    return jsonify({'hasNew': has_new})
 
 # --- Admin Utility ---
 def is_admin(username):
@@ -670,13 +692,12 @@ def pdf_cover(file_id):
         logging.info(f"[pdf-cover] Queue length after append: {len(cover_request_queue)}")
     finally:
         cover_queue_lock.release()
-    # Wait until this request is at the front of the queue and no active request
     # --- Queue/delay requests BEFORE starting the timeout timer ---
     # Wait until this request is at the front of the queue and no active request
+    logging.info(f"[pdf-cover] Entering waiting loop: Queue length in wait loop: {len(cover_request_queue)}")
     while True:
         with cover_queue_lock:
             cleanup_cover_queue()  # Always called inside locked context
-            logging.info(f"[pdf-cover] Queue length in wait loop: {len(cover_request_queue)}")
             if cover_request_queue and cover_request_queue[0]['session_id'] == session_id and cover_request_queue[0]['file_id'] == file_id:
                 if cover_queue_active is None:
                     cover_queue_active = entry
@@ -847,7 +868,7 @@ def pdf_text(file_id):
 
         # --- Queue/delay requests BEFORE starting the timeout timer ---
         # Wait until this request is at the front of the queue and no active request
-        logging.info(f"[pdf-text] Step: entering queue wait loop")
+        logging.info(f"[pdf-text] Entering waiting loop: Queue length in wait loop: {len(text_request_queue)}")
         while True:
             acquired = text_queue_lock.acquire(timeout=5)
             if not acquired:
@@ -857,7 +878,6 @@ def pdf_text(file_id):
                 break
             try:
                 cleanup_text_queue()
-                logging.info(f"[pdf-text] Queue length in wait loop: {len(text_request_queue)}")
                 if text_request_queue and text_request_queue[0] == entry and (text_queue_active is None or text_queue_active == entry):
                     text_queue_active = entry
                     break
@@ -1088,34 +1108,42 @@ def update_notification_prefs():
 # Paginated notification history endpoint
 @app.route('/api/get-notification-history', methods=['POST'])
 def get_notification_history():
-    data = request.get_json(force=True)
-    username = data.get('username')
-    page = int(data.get('page', 1))
-    page_size = int(data.get('page_size', 100))  # Large default chunk, but not all at once
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found', 'notifications': []})
-    # Load notification history from user
-    history = []
-    if user.notification_history:
-        try:
-            history = json.loads(user.notification_history)
-        except Exception:
-            history = []
-    # Sort by timestamp descending (newest first)
-    history.sort(key=lambda n: n.get('timestamp', 0), reverse=True)
-    total = len(history)
-    start = (page - 1) * page_size
-    end = start + page_size
-    chunk = history[start:end]
-    return jsonify({
-        'success': True,
-        'notifications': chunk,
-        'total': total,
-        'page': page,
-        'page_size': page_size,
-        'total_pages': (total + page_size - 1) // page_size
-    })
+    try:
+        data = request.get_json(force=True)
+        username = data.get('username')
+        page = int(data.get('page', 1))
+        page_size = int(data.get('page_size', 100))
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            logging.warning(f"Notification history: User not found: {username}")
+            return jsonify({'success': False, 'message': 'User not found', 'notifications': []})
+        history = []
+        if user.notification_history:
+            try:
+                history = json.loads(user.notification_history)
+                if not isinstance(history, list):
+                    logging.error(f"Notification history for user {username} is not a list. Got: {type(history)}")
+                    history = []
+            except Exception as e:
+                logging.error(f"Error loading notification history for user {username}: {e}")
+                history = []
+        # Sort by timestamp descending (newest first)
+        history.sort(key=lambda n: n.get('timestamp', 0), reverse=True)
+        total = len(history)
+        start = (page - 1) * page_size
+        end = start + page_size
+        chunk = history[start:end]
+        return jsonify({
+            'success': True,
+            'notifications': chunk,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size
+        })
+    except Exception as e:
+        logging.error(f"Exception in get_notification_history: {e}")
+        return jsonify({'success': False, 'message': f'Error: {str(e)}', 'notifications': []})
 
 # Add a GET handler to return JSON error
 @app.route('/api/notification-history', methods=['GET'])
@@ -1807,6 +1835,39 @@ def get_comments():
         'total_comments': total_comments,
         'total_pages': total_pages
     })
+
+# Efficient polling endpoint for new comments on a book
+@app.route('/api/has-new-comments', methods=['POST'])
+def has_new_comments():
+    data = request.get_json()
+    book_id = data.get('book_id')
+    # Accept either a list of known comment IDs or the latest timestamp
+    known_ids = set(data.get('known_ids', []))
+    latest_timestamp = data.get('latest_timestamp')  # ISO8601 string or None
+    if not book_id:
+        return jsonify({'success': False, 'message': 'Book ID required.'}), 400
+    # Query all non-deleted comments for the book
+    query = Comment.query.filter_by(book_id=book_id, deleted=False)
+    # If known_ids provided, check for any comments not in known_ids
+    if known_ids:
+        new_comments = query.filter(~Comment.id.in_(known_ids)).all()
+        has_new = len(new_comments) > 0
+        new_ids = [c.id for c in new_comments]
+        return jsonify({'success': True, 'hasNew': has_new, 'new_ids': new_ids})
+    # If latest_timestamp provided, check for any comments newer than that
+    elif latest_timestamp:
+        try:
+            import dateutil.parser
+            ts = dateutil.parser.isoparse(latest_timestamp)
+        except Exception:
+            return jsonify({'success': False, 'message': 'Invalid timestamp.'}), 400
+        new_comments = query.filter(Comment.timestamp > ts).all()
+        has_new = len(new_comments) > 0
+        new_ids = [c.id for c in new_comments]
+        return jsonify({'success': True, 'hasNew': has_new, 'new_ids': new_ids})
+    else:
+        # If neither provided, just return False
+        return jsonify({'success': True, 'hasNew': False, 'new_ids': []})
 
 @app.route('/api/vote-comment', methods=['POST'])
 def vote_comment():

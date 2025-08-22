@@ -1,4 +1,4 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useRef } from "react";
 import { ThemeContext } from "../themeContext";
 import { stepColor } from "../utils/colorUtils";
 import AccountTabContent from "../components/AccountTabContent";
@@ -169,10 +169,46 @@ function ProfilePage({ user, setUser }) {
     };
   }, []);
 
+  // Ref for SettingsTabContent
+  const settingsTabRef = useRef();
+
+  // Save profile changes when switching away from settings tab
+  const handleTabSwitch = (newTab) => {
+    if (activeTab === 'settings' && newTab !== 'settings' && settingsTabRef.current?.savePendingProfile) {
+      settingsTabRef.current.savePendingProfile();
+    }
+    setActiveTab(newTab);
+  };
+
+  // Save profile changes on logout
+  const handleLogout = () => {
+    if (activeTab === 'settings' && settingsTabRef.current?.savePendingProfile) {
+      settingsTabRef.current.savePendingProfile();
+    }
+    setUser(null);
+    window.location.href = "/";
+  };
+
+  // Save profile changes on page unload
+  React.useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (activeTab === 'settings' && settingsTabRef.current?.savePendingProfile) {
+        settingsTabRef.current.savePendingProfile();
+      } else {
+        //place holder for diagnostic logging. please delete when you know everything works
+        console.log(e);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [activeTab]);
+
   let tabContent = null;
   switch (activeTab) {
     case 'settings':
-      tabContent = <SettingsTabContent user={user} setUser={setUser} />;
+      tabContent = <SettingsTabContent ref={settingsTabRef} user={user} setUser={setUser} />;
       break;
     case 'security':
       tabContent = <SecurityTabContent user={user} setUser={setUser} />;
@@ -187,7 +223,7 @@ function ProfilePage({ user, setUser }) {
       tabContent = isAdmin ? <AdminTabContent user={user} /> : null;
       break;
     default:
-      tabContent = <SettingsTabContent user={user} setUser={setUser} />;
+      tabContent = <SettingsTabContent ref={settingsTabRef} user={user} setUser={setUser} />;
   }
 
   return (
@@ -196,12 +232,13 @@ function ProfilePage({ user, setUser }) {
         user={effectiveUser}
         sidebarExpanded={sidebarExpanded}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabSwitch}
         backgroundColor={backgroundColor}
         textColor={textColor}
         isAdmin={isAdmin}
         setUser={setUser}
         sidebarRef={sidebarRef}
+        handleLogout={handleLogout}
       />
       <main style={{ marginLeft: sidebarExpanded ? 180 : 56, padding: '32px 24px', width: '100%', boxSizing: 'border-box' }}>
         {tabContent}

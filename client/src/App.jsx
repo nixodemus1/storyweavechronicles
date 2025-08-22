@@ -132,7 +132,7 @@ export default function App() {
     const [allLoaded, setAllLoaded] = useState(false);
 
     // Fetch notifications in batches (pages of 100)
-    const fetchNotifications = async () => {
+    const fetchNotifications = React.useCallback(async () => {
       if (!user || !user.username) return;
       setLoading(true);
       let all = [];
@@ -148,33 +148,47 @@ export default function App() {
             body: JSON.stringify({ username: user.username, page, page_size })
           });
           const data = await res.json();
-          if (data.success && Array.isArray(data.notifications)) {
-            all = all.concat(data.notifications);
-            total_pages = data.total_pages || 1;
-            page++;
-            // Show partial results as each batch loads
-            setNotifications([...all]);
-            setHasUnread(all.some(n => !n.read && !n.dismissed));
-            if (page > total_pages) break;
-          } else {
-            break;
-          }
+          // Defensive: always use notifications key, fallback to []
+          const notifs = Array.isArray(data.notifications) ? data.notifications : [];
+          all = all.concat(notifs);
+          total_pages = data.total_pages || 1;
+          page++;
+          setNotifications([...all]);
+          setHasUnread(all.some(n => !n.read && !n.dismissed));
+          if (page > total_pages) break;
         } while (page <= total_pages);
         setAllLoaded(true);
-        // Track last loaded IDs for change detection
         lastIdsRef.current = all.map(n => n.id).sort();
       } catch (err) {
         console.log('Error fetching notifications:', err);
         setNotifications([]);
       }
       setLoading(false);
-    };
+    }, [user]);
 
-    // Fetch on user change
+    // Poll for new notifications only if user is active and dropdown is closed
     useEffect(() => {
-      fetchNotifications();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user?.username]);
+      if (!user?.username) return;
+      let pollInterval = null;
+      async function poll() {
+        try {
+          const res = await fetch('/api/has-new-notifications', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user.username })
+          });
+          const data = await res.json();
+          if (data.hasNew) {
+            fetchNotifications();
+          }
+        } catch (err) {
+          // Ignore polling errors
+          console.log('Polling error:', err);
+        }
+      }
+      pollInterval = setInterval(poll, 15000); // poll every 15s
+      return () => pollInterval && clearInterval(pollInterval);
+    }, [user?.username, fetchNotifications]);
 
     // Dismiss notification
     const handleDismiss = async (id) => {
@@ -232,7 +246,8 @@ export default function App() {
         console.error('Failed to dismiss all notifications:', err);
       }
     }
-    const [showDropdown, setShowDropdown] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const lastDropdownState = useRef(false);
     const dropdownRef = useRef(null);
     const { notifications, loading, fetchNotifications, handleDismiss, allLoaded } = useNotifications(user);
     const appNavigate = useAppNavigate();
@@ -246,7 +261,11 @@ export default function App() {
       }
       if (showDropdown) {
         document.addEventListener('mousedown', handleClick);
-        return () => document.removeEventListener('mousedown', handleClick);
+        lastDropdownState.current = true;
+        return () => {
+          document.removeEventListener('mousedown', handleClick);
+          lastDropdownState.current = false;
+        };
       }
     }, [showDropdown]);
 
@@ -268,6 +287,19 @@ export default function App() {
         navigate(n.link);
       }
     }
+    // Bell icon toggle: click once to open, click again to close
+    function handleBellClick() {
+      setShowDropdown(prev => {
+        if (prev) {
+          // If already open, close
+          return false;
+        } else {
+          // If closed, open and fetch
+          fetchNotifications();
+          return true;
+        }
+      });
+    }
     return (
       <>
         <button
@@ -284,13 +316,7 @@ export default function App() {
             position: 'relative',
             color: hasActiveUnread ? '#f5c518' : headerButtonTextColor,
           }}
-          onClick={() => {
-            setShowDropdown(prev => {
-              const next = !prev;
-              if (next) fetchNotifications();
-              return next;
-            });
-          }}
+          onClick={handleBellClick}
           title="Notifications"
           aria-label="Notifications"
         >
