@@ -6,6 +6,7 @@ from flask import Flask, jsonify, send_file, redirect, send_from_directory, make
 import threading
 import time
 import uuid
+import tempfile
 from collections import deque
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -695,7 +696,6 @@ def pdf_cover(file_id):
         return response
 
     logging.info(f"[pdf-cover] Request for file_id={file_id}")
-    import tempfile
     try:
         logging.info(f"[pdf-cover] Queue entry: session_id={session_id}, file_id={file_id}")
         service = get_drive_service()
@@ -709,23 +709,23 @@ def pdf_cover(file_id):
         if not pdf_bytes or not pdf_bytes.startswith(b'%PDF'):
             logging.error(f"[pdf-cover] Invalid PDF content for file_id={file_id}. Header: {pdf_header}")
             return send_fallback()
-        # Try opening PDF directly from bytes
+        # Always try temp file first, fallback to in-memory if temp file fails
+        doc = None
         try:
-            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            logging.info(f"[pdf-cover] fitz.open succeeded from bytes for file_id={file_id}")
-        except Exception as fitz_e:
-            logging.error(f"[pdf-cover] fitz.open from bytes failed for file_id={file_id}: {fitz_e}")
-            # Fallback to temp file method
-            import tempfile
             with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as tmp_pdf:
                 tmp_pdf.write(pdf_bytes)
                 tmp_pdf.flush()
-                try:
-                    doc = fitz.open(tmp_pdf.name)
-                    logging.info(f"[pdf-cover] fitz.open succeeded from temp file for file_id={file_id}")
-                except Exception as fitz_file_e:
-                    logging.error(f"[pdf-cover] fitz.open failed from temp file for file_id={file_id}: {fitz_file_e}")
-                    return send_fallback()
+                logging.info(f"[pdf-cover] wrote PDF to temp file: {tmp_pdf.name}")
+                doc = fitz.open(tmp_pdf.name)
+                logging.info(f"[pdf-cover] fitz.open succeeded from temp file for file_id={file_id}")
+        except Exception as temp_e:
+            logging.error(f"[pdf-cover] fitz.open from temp file failed for file_id={file_id}: {temp_e}. Falling back to in-memory.")
+            try:
+                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                logging.info(f"[pdf-cover] fitz.open succeeded from memory for file_id={file_id}")
+            except Exception as mem_e:
+                logging.error(f"[pdf-cover] fitz.open failed from memory for file_id={file_id}: {mem_e}")
+                return send_fallback()
         try:
             page = doc.load_page(0)
             pix = page.get_pixmap(matrix=fitz.Matrix(2,2))
@@ -799,7 +799,6 @@ def pdf_text(file_id):
     total_pages = None
     if book and hasattr(book, 'version_history') and book.version_history:
         try:
-            import json
             vh = json.loads(book.version_history)
             # Try to get total_pages from version_history JSON
             if isinstance(vh, dict) and 'total_pages' in vh:
@@ -874,21 +873,38 @@ def pdf_text(file_id):
             service = get_drive_service()
             logging.info(f"[pdf-text] Step: got Google Drive service for file_id={file_id}")
             request_drive = service.files().get_media(fileId=file_id)
-            file_content = io.BytesIO(request_drive.execute())
-            logging.info(f"[pdf-text] downloaded file content for file_id={file_id}")
-            doc = fitz.open(stream=file_content.getvalue(), filetype="pdf")
-            logging.info(f"[pdf-text] opened PDF for file_id={file_id}, page_count={doc.page_count}")
+            pdf_bytes = request_drive.execute()
+            logging.info(f"[pdf-text] downloaded file content for file_id={file_id}, size={len(pdf_bytes)} bytes")
+            temp_pdf = None
+            doc = None
+            try:
+                with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as tmp_file:
+                    tmp_file.write(pdf_bytes)
+                    tmp_file.flush()
+                    logging.info(f"[pdf-text] wrote PDF to temp file: {tmp_file.name}")
+                    doc = fitz.open(tmp_file.name)
+                    logging.info(f"[pdf-text] opened PDF from temp file for file_id={file_id}, page_count={doc.page_count}")
+            except Exception as temp_e:
+                logging.error(f"[pdf-text] failed to open PDF from temp file: {temp_e}. Falling back to in-memory.")
+                try:
+                    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                    logging.info(f"[pdf-text] opened PDF from memory for file_id={file_id}, page_count={doc.page_count}")
+                except Exception as mem_e:
+                    logging.error(f"[pdf-text] failed to open PDF from memory: {mem_e}")
+                    response = jsonify({"success": False, "error": f"Failed to open PDF: {mem_e}", "total_pages": total_pages})
+                    return response, 500
+            if not doc:
+                response = jsonify({"success": False, "error": "Could not open PDF.", "total_pages": total_pages})
+                return response, 500
             if page_num < 1 or page_num > doc.page_count:
                 doc.close()
                 logging.error(f"[pdf-text] invalid page number: {page_num} for file_id={file_id}")
-                # Return graceful error with total_pages and HTTP 200
                 response = jsonify({
                     "success": False,
                     "error": f"Page {page_num} is out of range.",
                     "total_pages": doc.page_count,
-                    "stop": True  # Signal to frontend to stop requesting more pages
+                    "stop": True
                 })
-                # Remove from queue and clear active (INSIDE LOCK, FAST, always)
                 acquired = text_queue_lock.acquire(timeout=5)
                 if acquired:
                     try:
@@ -902,7 +918,7 @@ def pdf_text(file_id):
                     logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock in cleanup.")
                 end_time = time.time()
                 logging.info(f"[pdf-text] finished! total request time: {end_time - start_time:.2f}s for file_id={file_id} page={page_num}")
-                return response, 200  # EXIT IMMEDIATELY, do not run further code
+                return response, 200
             page = doc.load_page(page_num - 1)
             page_text = page.get_text("text")
             logging.info(f"[pdf-text] extracted text from page {page_num} for file_id={file_id}")
@@ -922,11 +938,9 @@ def pdf_text(file_id):
                     })
                 except Exception as img_e:
                     logging.warning(f"[pdf-text] failed to extract image xref={xref} on page={page_num}: {img_e}")
-            # Clean up memory for this page
             page = None
             doc.close()
             del doc
-            del file_content
             gc.collect()
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-text] memory usage: {mem:.2f} MB for file_id={file_id} page={page_num}")
