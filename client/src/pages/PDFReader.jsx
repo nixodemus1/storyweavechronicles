@@ -1,3 +1,13 @@
+// Purge all book cache keys except the current one
+function purgeUnusedBookCache(currentBookId) {
+  const list = getCachedBooksList();
+  list.forEach(bid => {
+    if (bid !== currentBookId) {
+      localStorage.removeItem(getBookCacheKey(bid));
+    }
+  });
+  setCachedBooksList([currentBookId]);
+}
 import React, { useState, useEffect, useContext } from "react";
 import { useParams } from "react-router-dom";
 import { stepColor } from "../utils/colorUtils";
@@ -170,14 +180,20 @@ export default function PDFReader() {
       sessionId = 'swc_' + Math.random().toString(36).substr(2, 16) + '_' + Date.now();
       localStorage.setItem('swc_session_id', sessionId);
     }
+
+    // Purge all other book cache keys except the current one
+    if (id) {
+      purgeUnusedBookCache(id);
+    }
+
     let fetchedPages = [];
     let pageNum = 1;
     let stopped = false;
     let totalPagesFromBackend = null;
     const requestedPages = new Set();
-      async function fetchAllPages() {
-        while (!stopped) {
-          if (stopped) return;
+    async function fetchAllPages() {
+      while (!stopped) {
+        if (stopped) return;
         // If we know totalPagesFromBackend, only fetch while pageNum <= totalPagesFromBackend
         if (totalPagesFromBackend !== null && pageNum > totalPagesFromBackend) {
           stopped = true;
