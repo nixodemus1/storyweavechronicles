@@ -9,7 +9,6 @@ function purgeUnusedBookCache(currentBookId) {
   setCachedBooksList([currentBookId]);
 }
 import React, { useState, useEffect, useContext } from "react";
-// Removed CommentsProvider import; using memoized CommentsSection only
 import { useParams } from "react-router-dom";
 import { stepColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
@@ -160,7 +159,7 @@ export default function PDFReader() {
   const [userVote, setUserVote] = useState(null);
   const [voteStats, setVoteStats] = useState({ average: 0, count: 0 });
   // Used to trigger comments refresh ONLY on user actions
-  // Now handled by CommentsContext
+  const [commentsRefresh, setCommentsRefresh] = useState(0);
 
   // Color logic for containers and buttons
   const baseBg = stepColor(backgroundColor, theme, 0);
@@ -367,7 +366,7 @@ export default function PDFReader() {
     const data = await res.json();
     if (data.success) {
       setUserVote(value);
-  // Comment refresh now handled by context
+      setCommentsRefresh(r => r + 1);
     }
   };
 
@@ -387,7 +386,7 @@ export default function PDFReader() {
       setIsBookmarked(true);
       setBookmarkMsg("Bookmarked!");
       setUser && setUser(u => u ? { ...u, bookmarks: data.bookmarks } : u);
-  // Comment refresh now handled by context
+      setCommentsRefresh(r => r + 1);
     } else {
       setBookmarkMsg(data.message || "Failed to bookmark.");
     }
@@ -407,12 +406,357 @@ export default function PDFReader() {
       setIsBookmarked(false);
       setBookmarkMsg("Bookmark removed.");
       setUser && setUser(u => u ? { ...u, bookmarks: data.bookmarks } : u);
-  // Comment refresh now handled by context
+      setCommentsRefresh(r => r + 1);
     } else {
       setBookmarkMsg(data.message || "Failed to remove bookmark.");
     }
   };
 
+  // Comments section (memoized)
+    function CommentsSection({ bookId, commentsRefresh }) {
+      const [comments, setComments] = useState([]);
+      const [commentsLoading, setCommentsLoading] = useState(true);
+      const [newComment, setNewComment] = useState("");
+      const [replyTo, setReplyTo] = useState(null);
+      const [editId, setEditId] = useState(null);
+      const [editText, setEditText] = useState("");
+      const [msg, setMsg] = useState("");
+      const [banMsg, setBanMsg] = useState("");
+      const [commentsPage, setCommentsPage] = useState(1);
+      const [totalPages, setTotalPages] = useState(1);
+      const commentsPageSize = user?.comments_page_size || 10;
+      const [hasNewComments, setHasNewComments] = useState(false);
+      const [polling, setPolling] = useState(0);
+
+      // Fetch comments only at mount/book/page change or on refresh
+      useEffect(() => {
+        setCommentsLoading(true);
+        const params = new URLSearchParams();
+        params.set('book_id', bookId);
+        params.set('page', commentsPage);
+        params.set('page_size', commentsPageSize);
+        fetch(`${API_BASE_URL}/api/get-comments?${params.toString()}`)
+          .then(res => res.json())
+          .then(data => {
+            setComments(data.comments || []);
+            setTotalPages(data.total_pages || 1);
+            setCommentsLoading(false);
+          });
+      }, [bookId, commentsRefresh, commentsPage, commentsPageSize]);
+
+      // Poll for new comments every 30s
+      useEffect(() => {
+        const interval = setInterval(() => setPolling(p => p + 1), 30000);
+        return () => clearInterval(interval);
+      }, []);
+      useEffect(() => {
+        // Only poll if not loading
+        if (!commentsLoading) {
+          const params = new URLSearchParams();
+          params.set('book_id', bookId);
+          params.set('page', commentsPage);
+          params.set('page_size', commentsPageSize);
+          fetch(`${API_BASE_URL}/api/has-new-comments?${params.toString()}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.has_new) {
+                // Only re-fetch if new comments
+                setCommentsLoading(true);
+                fetch(`${API_BASE_URL}/api/get-comments?${params.toString()}`)
+                  .then(res => res.json())
+                  .then(data => {
+                    setComments(data.comments || []);
+                    setTotalPages(data.total_pages || 1);
+                    setCommentsLoading(false);
+                  });
+              }
+            });
+        }
+      }, [polling, bookId, commentsPage, commentsPageSize, commentsLoading]);
+      // Handle deep-linking to a specific comments page
+      useEffect(() => {
+        if (commentsPageFromQuery && commentsPageFromQuery !== commentsPage) {
+          setCommentsPage(commentsPageFromQuery);
+        }
+        // Only set once per mount
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [commentsPageFromQuery]);
+      // Auto-scroll to comment if commentToScroll is present
+      useEffect(() => {
+        if (!commentToScroll) return;
+        setTimeout(() => {
+          const el = document.getElementById(`comment-${commentToScroll}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.style.boxShadow = '0 0 0 3px #0070f3';
+            setTimeout(() => { el.style.boxShadow = ''; }, 2000);
+          }
+        }, 400);
+      }, [comments]);
+
+      // Add comment or reply
+      const handleAddComment = async () => {
+        if (!user || !user.username) {
+          setMsg("Log in to comment.");
+          return;
+        }
+        if (!newComment.trim()) return;
+        const res = await fetch(`${API_BASE_URL}/api/add-comment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            book_id: bookId,
+            username: user.username,
+            text: newComment,
+            parent_id: replyTo
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setNewComment("");
+          setReplyTo(null);
+          setMsg("");
+          setCommentsRefresh(r => r + 1);
+        } else {
+          setMsg(data.message || "Failed to add comment.");
+        }
+      };
+      // Edit comment
+      const handleEditComment = async (commentId) => {
+        if (!editText.trim()) return;
+        const res = await fetch(`${API_BASE_URL}/api/edit-comment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            comment_id: commentId,
+            username: user.username,
+            text: editText
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setEditId(null);
+          setEditText("");
+          setCommentsRefresh(r => r + 1);
+        } else {
+          setMsg(data.message || "Failed to edit comment.");
+        }
+      };
+      // Delete comment
+      const handleDeleteComment = async (commentId) => {
+        const res = await fetch(`${API_BASE_URL}/api/delete-comment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            comment_id: commentId,
+            username: user.username
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          setCommentsRefresh(r => r + 1);
+        } else {
+          setMsg(data.message || "Failed to delete comment.");
+        }
+      };
+      // Vote comment
+      const handleVoteComment = async (commentId, value) => {
+        await fetch(`${API_BASE_URL}/api/vote-comment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ comment_id: commentId, value })
+        });
+        setCommentsRefresh(r => r + 1);
+      };
+      // Ban user button
+      function BanUserButton({ targetUsername }) {
+        const [confirming, setConfirming] = useState(false);
+        return (
+          <span style={{ position: "relative" }}>
+            <button
+              style={{ background: "#ffe0e0", color: "#c00", border: "1px solid #c00", borderRadius: 6, padding: "4px 10px", fontWeight: 600, cursor: "pointer" }}
+              onClick={() => setConfirming(true)}
+              title="Ban user"
+            >Ban User</button>
+            {confirming && (
+              <span style={{ position: "absolute", left: 0, top: 32, background: "#fff", color: "#222", border: "1px solid #c00", borderRadius: 6, padding: "10px 16px", zIndex: 10 }}>
+                <div style={{ marginBottom: 8 }}>Are you sure you want to ban <b>{targetUsername}</b>?</div>
+                <button
+                  style={{ background: "#c00", color: "#fff", border: "none", borderRadius: 4, padding: "6px 14px", fontWeight: 600, marginRight: 8, cursor: "pointer" }}
+                  onClick={async () => { await fetch(`${API_BASE_URL}/api/admin/ban-user`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ adminUsername: user.username, targetUsername })
+                  }); setConfirming(false); setBanMsg("User banned."); setCommentsRefresh(r => r + 1); }}
+                >Yes, Ban</button>
+                <button
+                  style={{ background: "#eee", color: "#222", border: "none", borderRadius: 4, padding: "6px 14px", fontWeight: 600, cursor: "pointer" }}
+                  onClick={() => setConfirming(false)}
+                >Cancel</button>
+              </span>
+            )}
+            {banMsg && <span style={{ color: banMsg.includes("banned") ? "#080" : "#c00", marginLeft: 8 }}>{banMsg}</span>}
+          </span>
+        );
+      }
+      // Pagination controls
+      function renderPagination() {
+        if (totalPages <= 1) return null;
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <button
+              onClick={() => setCommentsPage(p => Math.max(1, p - 1))}
+              disabled={commentsPage === 1}
+              style={{ background: '#eee', color: '#333', border: '1px solid #bbb', borderRadius: 4, padding: '4px 10px', cursor: commentsPage === 1 ? 'not-allowed' : 'pointer' }}
+            >Prev</button>
+            <span style={{ fontWeight: 600 }}>Page {commentsPage} / {totalPages}</span>
+            <button
+              onClick={() => setCommentsPage(p => Math.min(totalPages, p + 1))}
+              disabled={commentsPage === totalPages}
+              style={{ background: '#eee', color: '#333', border: '1px solid #bbb', borderRadius: 4, padding: '4px 10px', cursor: commentsPage === totalPages ? 'not-allowed' : 'pointer' }}
+            >Next</button>
+          </div>
+        );
+      }
+      // Recursive comment rendering
+      function renderComments(list, depth = 0) {
+        return list.map(comment => {
+          const commentBg = stepColor(backgroundColor, theme, 4 + depth);
+          const buttonBg = stepColor(backgroundColor, theme, 5 + depth);
+          const commentText = textColor;
+          const avatarTextColor = comment.text_color || textColor;
+          const isDeleted = comment.deleted;
+          const isAdmin = user?.is_admin;
+          const showBanButton = isAdmin && !comment.deleted && !comment.is_admin && comment.username !== user?.username;
+          return (
+            <div key={comment.id} id={`comment-${comment.id}`} style={{
+              background: commentBg,
+              color: commentText,
+              borderRadius: 6,
+              margin: '12px 0 0 0',
+              padding: '12px 16px',
+              marginLeft: depth * 24,
+              boxShadow: depth === 0 ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 12
+            }}>
+              <div style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: comment.background_color || stepColor(commentBg, theme, 1),
+                color: avatarTextColor,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+                fontSize: 18,
+                marginRight: 10,
+                border: `2.5px solid ${avatarTextColor}`
+              }}>
+                {comment.username ? comment.username[0].toUpperCase() : '?'}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 600 }}>{isDeleted ? 'Deleted User' : comment.username}</span>
+                  <span style={{ fontSize: 12, color: '#888' }}>{new Date(comment.timestamp).toLocaleString()}</span>
+                  {comment.edited && !isDeleted && <span style={{ fontSize: 11, color: '#f5c518', marginLeft: 6 }}>(edited)</span>}
+                </div>
+                {isDeleted ? (
+                  <div style={{ margin: '8px 0', fontStyle: 'italic', color: '#888' }}>Comment not available (user deleted)</div>
+                ) : editId === comment.id ? (
+                  <div>
+                    <textarea
+                      value={editText}
+                      onChange={e => setEditText(e.target.value)}
+                      rows={2}
+                      style={{ width: '100%', marginTop: 6, borderRadius: 4 }}
+                    />
+                    <button
+                      onClick={() => handleEditComment(comment.id)}
+                      style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', marginRight: 8, cursor: 'pointer' }}
+                    >Save</button>
+                    <button
+                      onClick={() => { setEditId(null); setEditText(""); }}
+                      style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}
+                    >Cancel</button>
+                  </div>
+                ) : (
+                  <div style={{ margin: '8px 0' }}>{comment.text}</div>
+                )}
+                {!isDeleted && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <button
+                      onClick={() => handleVoteComment(comment.id, 1)}
+                      style={{ background: buttonBg, color: commentText, border: '1px solid #0070f3', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#0070f3' }}
+                    >▲ {comment.upvotes}</button>
+                    <button
+                      onClick={() => handleVoteComment(comment.id, -1)}
+                      style={{ background: buttonBg, color: commentText, border: '1px solid #c00', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#c00' }}
+                    >▼ {comment.downvotes}</button>
+                    <button
+                      onClick={() => setReplyTo(comment.id)}
+                      style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}
+                    >Reply</button>
+                    {(user && (user.username === comment.username || user.is_admin)) && (
+                      <>
+                        {user.username === comment.username && (
+                          <button
+                            onClick={() => { setEditId(comment.id); setEditText(comment.text); }}
+                            style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', marginRight: 8, cursor: 'pointer' }}
+                          >Edit</button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteComment(comment.id)}
+                          style={{ background: buttonBg, color: commentText, border: '1px solid #c00', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#c00' }}
+                        >Delete</button>
+                      </>
+                    )}
+                    {showBanButton && (
+                      <BanUserButton targetUsername={comment.username} />
+                    )}
+                  </div>
+                )}
+                {comment.replies && comment.replies.length > 0 && renderComments(comment.replies, depth + 1)}
+              </div>
+            </div>
+          );
+        });
+      }
+      const commentsContainerBg = stepColor(backgroundColor, theme, 3);
+      return (
+        <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ marginBottom: 10 }}>Comments</h3>
+          {msg && <div style={{ color: '#c00', marginBottom: 8 }}>{msg}</div>}
+          {renderPagination()}
+          {commentsLoading ? <div>Loading comments...</div> : <>
+            <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+              {renderComments(comments)}
+              <div style={{ marginTop: 18 }}>
+                <textarea
+                  value={newComment}
+                  onChange={e => setNewComment(e.target.value)}
+                  rows={2}
+                  style={{ width: '100%', borderRadius: 4 }}
+                  placeholder={replyTo ? "Write a reply..." : "Write a comment..."}
+                />
+                <button
+                  onClick={handleAddComment}
+                  style={{ background: commentsContainerBg, color: textColor, border: `1px solid ${textColor}`, borderRadius: 4, padding: '4px 10px', marginTop: 6, cursor: 'pointer' }}
+                >{replyTo ? "Reply" : "Comment"}</button>
+                {replyTo && (
+                  <button
+                    onClick={() => { setReplyTo(null); setNewComment(""); }}
+                    style={{ background: commentsContainerBg, color: textColor, border: `1px solid ${textColor}`, borderRadius: 4, padding: '4px 10px', marginLeft: 8, cursor: 'pointer' }}
+                  >Cancel Reply</button>
+                )}
+              </div>
+            </div>
+          </>}
+        </div>
+      );
+    }
 
   // Only render the current page
   // Instead of blocking, show loading for not-yet-loaded pages
@@ -634,9 +978,7 @@ export default function PDFReader() {
           </span>
         </div>
         <SteppedContainer step={3} style={{ marginTop: 18, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', padding: 18, background: commentsOuterBg }}>
-          <CommentsProvider bookId={id}>
-            <CommentsSection commentToScroll={commentToScroll} commentsPageFromQuery={commentsPageFromQuery} />
-          </CommentsProvider>
+          <CommentsSection bookId={id} currentPage={currentPage} commentsRefresh={commentsRefresh} />
         </SteppedContainer>
       </SteppedContainer>
     </SteppedContainer>
