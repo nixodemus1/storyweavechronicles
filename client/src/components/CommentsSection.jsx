@@ -1,5 +1,6 @@
-import React, { useState } from "react";
-import { useCommentsContext } from "../commentsContext";
+
+import React, { useState, useEffect, useContext } from "react";
+import { useCommentsContext } from "./commentsContext";
 import { stepColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
 
@@ -18,7 +19,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
     commentsPageSize,
     setCommentsPageSize,
   } = useCommentsContext();
-  const { user, theme, textColor, backgroundColor } = React.useContext(ThemeContext);
+  const { user, theme, textColor, backgroundColor } = useContext(ThemeContext);
   const [newComment, setNewComment] = useState("");
   const [replyTo, setReplyTo] = useState(null);
   const [editId, setEditId] = useState(null);
@@ -27,15 +28,16 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
   const [banMsg, setBanMsg] = useState("");
 
   // Handle deep-linking to a specific comments page
-  React.useEffect(() => {
+  useEffect(() => {
     if (commentsPageFromQuery && commentsPageFromQuery !== commentsPage) {
       setCommentsPage(commentsPageFromQuery);
     }
     // Only set once per mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commentsPageFromQuery]);
+
   // Auto-scroll to comment if commentToScroll is present
-  React.useEffect(() => {
+  useEffect(() => {
     if (!commentToScroll) return;
     setTimeout(() => {
       const el = document.getElementById(`comment-${commentToScroll}`);
@@ -45,7 +47,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
         setTimeout(() => { el.style.boxShadow = ''; }, 2000);
       }
     }, 400);
-  }, [comments]);
+  }, [comments, commentToScroll]);
 
   // Add comment or reply
   const handleAddComment = async () => {
@@ -74,6 +76,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
       setMsg(data.message || "Failed to add comment.");
     }
   };
+
   // Edit comment
   const handleEditComment = async (commentId) => {
     if (!editText.trim()) return;
@@ -95,6 +98,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
       setMsg(data.message || "Failed to edit comment.");
     }
   };
+
   // Delete comment
   const handleDeleteComment = async (commentId) => {
     const res = await fetch(`${import.meta.env.VITE_HOST_URL}/api/delete-comment`, {
@@ -112,6 +116,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
       setMsg(data.message || "Failed to delete comment.");
     }
   };
+
   // Vote comment
   const handleVoteComment = async (commentId, value) => {
     await fetch(`${import.meta.env.VITE_HOST_URL}/api/vote-comment`, {
@@ -121,6 +126,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
     });
     setCommentsRefresh(r => r + 1);
   };
+
   // Ban user button
   function BanUserButton({ targetUsername }) {
     const [confirming, setConfirming] = useState(false);
@@ -152,6 +158,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
       </span>
     );
   }
+
   // Pagination controls
   function renderPagination() {
     if (totalPages <= 1) return null;
@@ -171,10 +178,114 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
       </div>
     );
   }
-  // Recursive comment rendering
+
+  // Recursive comment rendering (copied and adapted from original)
   function renderComments(list, depth = 0) {
-    ...existing code...
+    return list.map(comment => {
+      const commentBg = stepColor(backgroundColor, theme, 4 + depth);
+      const buttonBg = stepColor(backgroundColor, theme, 5 + depth);
+      const commentText = textColor;
+      const avatarTextColor = comment.text_color || textColor;
+      const isDeleted = comment.deleted;
+      const isAdmin = user?.is_admin;
+      const showBanButton = isAdmin && !comment.deleted && !comment.is_admin && comment.username !== user?.username;
+      return (
+        <div key={comment.id} id={`comment-${comment.id}`} style={{
+          background: commentBg,
+          color: commentText,
+          borderRadius: 6,
+          margin: '12px 0 0 0',
+          padding: '12px 16px',
+          marginLeft: depth * 24,
+          boxShadow: depth === 0 ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 12
+        }}>
+          <div style={{
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            background: comment.background_color || stepColor(commentBg, theme, 1),
+            color: avatarTextColor,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 700,
+            fontSize: 18,
+            marginRight: 10,
+            border: `2.5px solid ${avatarTextColor}`
+          }}>
+            {comment.username ? comment.username[0].toUpperCase() : '?'}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontWeight: 600 }}>{isDeleted ? 'Deleted User' : comment.username}</span>
+              <span style={{ fontSize: 12, color: '#888' }}>{new Date(comment.timestamp).toLocaleString()}</span>
+              {comment.edited && !isDeleted && <span style={{ fontSize: 11, color: '#f5c518', marginLeft: 6 }}>(edited)</span>}
+            </div>
+            {isDeleted ? (
+              <div style={{ margin: '8px 0', fontStyle: 'italic', color: '#888' }}>Comment not available (user deleted)</div>
+            ) : editId === comment.id ? (
+              <div>
+                <textarea
+                  value={editText}
+                  onChange={e => setEditText(e.target.value)}
+                  rows={2}
+                  style={{ width: '100%', marginTop: 6, borderRadius: 4 }}
+                />
+                <button
+                  onClick={() => handleEditComment(comment.id)}
+                  style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', marginRight: 8, cursor: 'pointer' }}
+                >Save</button>
+                <button
+                  onClick={() => { setEditId(null); setEditText(""); }}
+                  style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}
+                >Cancel</button>
+              </div>
+            ) : (
+              <div style={{ margin: '8px 0' }}>{comment.text}</div>
+            )}
+            {!isDeleted && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button
+                  onClick={() => handleVoteComment(comment.id, 1)}
+                  style={{ background: buttonBg, color: commentText, border: '1px solid #0070f3', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#0070f3' }}
+                >▲ {comment.upvotes}</button>
+                <button
+                  onClick={() => handleVoteComment(comment.id, -1)}
+                  style={{ background: buttonBg, color: commentText, border: '1px solid #c00', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#c00' }}
+                >▼ {comment.downvotes}</button>
+                <button
+                  onClick={() => setReplyTo(comment.id)}
+                  style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}
+                >Reply</button>
+                {(user && (user.username === comment.username || user.is_admin)) && (
+                  <>
+                    {user.username === comment.username && (
+                      <button
+                        onClick={() => { setEditId(comment.id); setEditText(comment.text); }}
+                        style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', marginRight: 8, cursor: 'pointer' }}
+                      >Edit</button>
+                    )}
+                    <button
+                      onClick={() => handleDeleteComment(comment.id)}
+                      style={{ background: buttonBg, color: commentText, border: '1px solid #c00', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#c00' }}
+                    >Delete</button>
+                  </>
+                )}
+                {showBanButton && (
+                  <BanUserButton targetUsername={comment.username} />
+                )}
+              </div>
+            )}
+            {comment.replies && comment.replies.length > 0 && renderComments(comment.replies, depth + 1)}
+          </div>
+        </div>
+      );
+    });
   }
+
   const commentsContainerBg = stepColor(backgroundColor, theme, 3);
   return (
     <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>

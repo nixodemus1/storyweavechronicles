@@ -1,19 +1,11 @@
-// Purge all book cache keys except the current one
-function purgeUnusedBookCache(currentBookId) {
-  const list = getCachedBooksList();
-  list.forEach(bid => {
-    if (bid !== currentBookId) {
-      localStorage.removeItem(getBookCacheKey(bid));
-    }
-  });
-  setCachedBooksList([currentBookId]);
-}
 import React, { useState, useEffect, useContext } from "react";
-// Removed CommentsProvider import; using memoized CommentsSection only
 import { useParams } from "react-router-dom";
 import { stepColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
 import { SteppedContainer } from "../components/ContainerDepthContext.jsx";
+// Removed CommentsProvider import; using memoized CommentsSection only
+import { CommentsProvider } from "../components/commentsContext.jsx";
+import CommentsSection from "../components/CommentsSection";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 const CACHE_LIMIT = 3; // Max number of books to cache
@@ -98,6 +90,17 @@ function removeBookFromCache(id) {
   localStorage.removeItem(getBookCacheKey(id));
   let list = getCachedBooksList().filter(bid => bid !== id);
   setCachedBooksList(list);
+}
+
+// Purge all book cache keys except the current one
+function purgeUnusedBookCache(currentBookId) {
+  const list = getCachedBooksList();
+  list.forEach(bid => {
+    if (bid !== currentBookId) {
+      localStorage.removeItem(getBookCacheKey(bid));
+    }
+  });
+  setCachedBooksList([currentBookId]);
 }
 
 export default function PDFReader() {
