@@ -917,13 +917,16 @@ def pdf_text(file_id):
             if not doc:
                 response = jsonify({"success": False, "error": "Could not open PDF.", "total_pages": total_pages})
                 return response, 500
+            # Always set total_pages from doc.page_count if not already set
+            if not total_pages:
+                total_pages = doc.page_count
             if page_num < 1 or page_num > doc.page_count:
                 doc.close()
                 logging.error(f"[pdf-text] invalid page number: {page_num} for file_id={file_id}")
                 response = jsonify({
                     "success": False,
                     "error": f"Page {page_num} is out of range.",
-                    "total_pages": doc.page_count,
+                    "total_pages": total_pages,
                     "stop": True
                 })
                 acquired = text_queue_lock.acquire(timeout=5)

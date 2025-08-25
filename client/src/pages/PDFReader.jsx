@@ -196,70 +196,74 @@ export default function PDFReader() {
     let totalPagesFromBackend = null;
     const requestedPages = new Set();
     async function fetchAllPages() {
-      while (!stopped) {
-        if (stopped) return;
-        // If we know totalPagesFromBackend, only fetch while pageNum <= totalPagesFromBackend
-        if (totalPagesFromBackend !== null && pageNum > totalPagesFromBackend) {
-          stopped = true;
-          break;
-        }
-        if (requestedPages.has(pageNum)) {
-          pageNum++;
-          continue;
-        }
-        requestedPages.add(pageNum);
-        const params = new URLSearchParams();
-        params.set('page', pageNum);
-        if (sessionId) params.set('session_id', sessionId);
-        try {
-          if (stopped) break;
-          const res = await fetch(`${API_BASE_URL}/api/pdf-text/${id}?${params.toString()}`);
-          if (stopped) break;
-          const data = await res.json();
-          if (stopped) break;
-          if (data.success === true) {
-            if (data.total_pages && totalPagesFromBackend === null) {
-              totalPagesFromBackend = data.total_pages;
-              setPageCount(data.total_pages);
-            }
-            // If we just learned totalPagesFromBackend, and pageNum > totalPagesFromBackend, stop immediately
-            if (totalPagesFromBackend !== null && pageNum > totalPagesFromBackend) {
-              stopped = true;
-              break;
-            }
-            fetchedPages.push({
-              page: data.page,
-              text: data.text || '',
-              images: data.images || []
-            });
-            setPages(pgs => {
-              const arr = [...pgs];
-              arr[data.page - 1] = {
-                page: data.page,
-                text: data.text || '',
-                images: data.images || []
-              };
-              return arr;
-            });
+        while (!stopped) {
+          if (stopped) return;
+          // If we know totalPagesFromBackend, only fetch while pageNum <= totalPagesFromBackend
+          if (totalPagesFromBackend !== null && pageNum > totalPagesFromBackend) {
+            stopped = true;
+            break;
+          }
+          if (requestedPages.has(pageNum)) {
             pageNum++;
-          } else {
-            // If backend signals out-of-range, stop fetching
-            if (data.error && data.error.toLowerCase().includes('out of range')) {
-              if (data.total_pages) {
+            continue;
+          }
+          requestedPages.add(pageNum);
+          // Prevent requesting beyond last page BEFORE fetch
+          if (totalPagesFromBackend !== null && pageNum > totalPagesFromBackend) {
+            stopped = true;
+            break;
+          }
+          const params = new URLSearchParams();
+          params.set('page', pageNum);
+          if (sessionId) params.set('session_id', sessionId);
+          try {
+            if (stopped) break;
+            const res = await fetch(`${API_BASE_URL}/api/pdf-text/${id}?${params.toString()}`);
+            if (stopped) break;
+            const data = await res.json();
+            if (stopped) break;
+            if (data.success === true) {
+              if (data.total_pages && totalPagesFromBackend === null) {
                 totalPagesFromBackend = data.total_pages;
                 setPageCount(data.total_pages);
               }
-              stopped = true;
+              // If we just learned totalPagesFromBackend, and pageNum >= totalPagesFromBackend, stop immediately
+              if (totalPagesFromBackend !== null && pageNum >= totalPagesFromBackend) {
+                stopped = true;
+              }
+              fetchedPages.push({
+                page: data.page,
+                text: data.text || '',
+                images: data.images || []
+              });
+              setPages(pgs => {
+                const arr = [...pgs];
+                arr[data.page - 1] = {
+                  page: data.page,
+                  text: data.text || '',
+                  images: data.images || []
+                };
+                return arr;
+              });
+              pageNum++;
+            } else {
+              // If backend signals out-of-range, stop fetching
+              if (data.error && data.error.toLowerCase().includes('out of range')) {
+                if (data.total_pages) {
+                  totalPagesFromBackend = data.total_pages;
+                  setPageCount(data.total_pages);
+                }
+                stopped = true;
+                break;
+              }
+              setPdfError(data.error || 'Failed to load book pages.');
               break;
             }
-            setPdfError(data.error || 'Failed to load book pages.');
+          } catch {
+            setPdfError('Failed to load book pages.');
             break;
           }
-        } catch {
-          setPdfError('Failed to load book pages.');
-          break;
         }
-      }
       if (stopped) return;
       if (fetchedPages.length > 0) {
         try {
@@ -456,7 +460,7 @@ export default function PDFReader() {
   const [errorDismissed, setErrorDismissed] = useState(false);
   let errorBanner = null;
   if (pdfError && !errorDismissed) {
-    // Calculate loaded/total pages
+    // Show loaded vs total pages in error
     const loadedPages = pages.length;
     const totalPages = pageCount || (pages.length > 0 ? pages.length : null);
     let loadedSummary = '';
@@ -514,13 +518,21 @@ export default function PDFReader() {
           ◀ Prev
         </button>
         <span className="pdf-reader-page-indicator" style={{ fontWeight: 600, fontSize: 18 }}>
-          Page {currentPage} / {Math.max(pageCount, pages.length)}
+          Page {currentPage} / {
+            // Show live loaded count until all pages loaded or error
+            (pdfError || (pageCount > 0 && pages.length === pageCount))
+              ? pageCount
+              : pages.length
+          }
         </span>
         <button
           className="pdf-reader-btn"
-          onClick={() => setCurrentPage(p => Math.min(Math.max(pageCount, pages.length), p + 1))}
-          disabled={currentPage === Math.max(pageCount, pages.length)}
-          style={{ background: navButtonBg, color: navButtonText, border: `1px solid ${navButtonText}`, borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: currentPage === Math.max(pageCount, pages.length) ? 'not-allowed' : 'pointer', marginLeft: 8 }}
+          onClick={() => setCurrentPage(p => {
+            const maxPage = (pdfError || (pageCount > 0 && pages.length === pageCount)) ? pageCount : pages.length;
+            return Math.min(maxPage, p + 1);
+          })}
+          disabled={currentPage === ((pdfError || (pageCount > 0 && pages.length === pageCount)) ? pageCount : pages.length)}
+          style={{ background: navButtonBg, color: navButtonText, border: `1px solid ${navButtonText}`, borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: currentPage === ((pdfError || (pageCount > 0 && pages.length === pageCount)) ? pageCount : pages.length) ? 'not-allowed' : 'pointer', marginLeft: 8 }}
         >
           Next ▶
         </button>
