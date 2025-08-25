@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { stepColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
+const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 export default function HeaderNotifications({ user }) {
   const { theme, headerButtonColor, headerButtonTextColor } = React.useContext(ThemeContext);
@@ -10,7 +11,7 @@ export default function HeaderNotifications({ user }) {
 
   useEffect(() => {
     if (!user?.username) return;
-    fetch(`/api/header-notifications?username=${user.username}`)
+    fetch(`${API_BASE_URL}/api/header-notifications?username=${user.username}`)
       .then(res => res.json())
       .then(data => {
         if (data.success && Array.isArray(data.notifications)) {
