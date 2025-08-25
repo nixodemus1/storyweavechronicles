@@ -1117,25 +1117,31 @@ def get_notification_history():
         page = int(data.get('page', 1))
         page_size = int(data.get('page_size', 100))
         user = User.query.filter_by(username=username).first()
+        logging.info(f"[get-notification-history] Requested username: {username}")
         if not user:
             logging.warning(f"Notification history: User not found: {username}")
             return jsonify({'success': False, 'message': 'User not found', 'notifications': []})
+        logging.info(f"[get-notification-history] Found user: {user.username}, notification_history type: {type(user.notification_history)}, value: {repr(user.notification_history)[:200]}")
         history = []
         if user.notification_history:
             try:
                 history = json.loads(user.notification_history)
+                logging.info(f"[get-notification-history] Parsed notification_history, type: {type(history)}, length: {len(history) if isinstance(history, list) else 'N/A'}")
                 if not isinstance(history, list):
                     logging.error(f"Notification history for user {username} is not a list. Got: {type(history)}")
                     history = []
             except Exception as e:
                 logging.error(f"Error loading notification history for user {username}: {e}")
                 history = []
+        else:
+            logging.info(f"[get-notification-history] No notification_history for user {username}")
         # Sort by timestamp descending (newest first)
         history.sort(key=lambda n: n.get('timestamp', 0), reverse=True)
         total = len(history)
         start = (page - 1) * page_size
         end = start + page_size
         chunk = history[start:end]
+        logging.info(f"[get-notification-history] Returning {len(chunk)} notifications out of {total} total.")
         return jsonify({
             'success': True,
             'notifications': chunk,
