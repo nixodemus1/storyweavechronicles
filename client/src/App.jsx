@@ -12,6 +12,7 @@ import PDFReader from "./pages/PDFReader";
 import LoginRegisterPage from "./pages/LoginRegisterPage";
 import ProfilePage from "./pages/ProfilePage";
 import { ContainerDepthProvider } from "./components/ContainerDepthContext.jsx";
+const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 export default function App() {
   // Login button component (must be inside Router context)
@@ -235,7 +236,7 @@ export default function App() {
     async function handleDismissAllDropdown() {
       if (!user?.username) return;
       try {
-        await fetch('/api/dismiss-all-notifications', {
+        await fetch(`${API_BASE_URL}/api/dismiss-all-notifications`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: user.username })
