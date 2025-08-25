@@ -7,17 +7,11 @@ import { ThemeContext } from "../themeContext";
 export default function CommentsSection({ commentToScroll, commentsPageFromQuery }) {
   const {
     comments,
-    setComments,
     commentsLoading,
-    setCommentsLoading,
     commentsPage,
     setCommentsPage,
     totalPages,
-    setTotalPages,
-    commentsRefresh,
     setCommentsRefresh,
-    commentsPageSize,
-    setCommentsPageSize,
   } = useCommentsContext();
   const { user, theme, textColor, backgroundColor } = useContext(ThemeContext);
   const [newComment, setNewComment] = useState("");
@@ -294,8 +288,8 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
       {renderPagination()}
       {commentsLoading ? <div>Loading comments...</div> : <>
         <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          {renderComments(comments)}
-          <div style={{ marginTop: 18 }}>
+          {/* Writing box above comments */}
+          <div style={{ marginBottom: 18 }}>
             <textarea
               value={newComment}
               onChange={e => setNewComment(e.target.value)}
@@ -314,6 +308,8 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
               >Cancel Reply</button>
             )}
           </div>
+          {/* Comments list below writing box */}
+          {renderComments(comments)}
         </div>
       </>}
     </div>
