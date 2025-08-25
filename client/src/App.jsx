@@ -143,7 +143,7 @@ export default function App() {
       setAllLoaded(false);
       try {
         do {
-          const res = await fetch('/api/get-notification-history', {
+          const res = await fetch(`${API_BASE_URL}/api/get-notification-history`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username: user.username, page, page_size })
@@ -173,7 +173,7 @@ export default function App() {
       let pollInterval = null;
       async function poll() {
         try {
-          const res = await fetch('/api/has-new-notifications', {
+          const res = await fetch(`${API_BASE_URL}/api/has-new-notifications`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username: user.username })
@@ -194,13 +194,13 @@ export default function App() {
     // Dismiss notification
     const handleDismiss = async (id) => {
       // Dismiss only the clicked notification
-      await fetch(`/api/delete-notification`, {
+      await fetch(`${API_BASE_URL}/api/delete-notification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username, notificationId: id })
       });
       // Refetch notifications from backend to update dropdown
-      const res = await fetch(`/api/get-notification-history`, {
+      const res = await fetch(`${API_BASE_URL}/api/get-notification-history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: user.username, dropdownOnly: true })
@@ -217,7 +217,7 @@ export default function App() {
     const handleNotificationClick = (notification, navigate) => {
       if (notification.link) {
         // Mark as read and navigate
-        fetch(`/api/mark-notification-read`, {
+        fetch(`${API_BASE_URL}/api/mark-notification-read`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: user.username, notification_id: notification.id })
