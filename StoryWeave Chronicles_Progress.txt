@@ -156,8 +156,8 @@ Free Render Postgres databases have a 1GB limit and expire after 30 days.
 ## Post-Release Checklist & Bugs
 
 - **Notifications:**  
-  - Fix dropdown toggle and update logic.
-  - Dropdown currently broken; needs repair.
+  x Fix dropdown toggle and update logic.
+  x Dropdown currently broken; needs repair.
 
 - **Color Themes:**  
   - Address edge cases in theme switching.
@@ -166,17 +166,17 @@ Free Render Postgres databases have a 1GB limit and expire after 30 days.
 
 - **Admin Features:**  
   - Add admin logs, rate limiting, restore deleted content, and user Activity Overview.
-  - Provide feedback when granting/removing admin rights.
+  x Provide feedback when granting/removing admin rights.
 
 - **General QA & Features:**  
   - Newsletter feature (currently non-functional).
-  - Optimize for performance and lower data usage.
+  x Optimize for performance and lower data usage.
   - Export/import bookmarks.
   - Auto-setup timezone based on local time.
   - Fix carousel on mobile.
   - Allow username changes after account creation.
-  - Address infinite loop in update depth (search/account pages).
-  - Fix document closing error.
+  x Address infinite loop in update depth (search/account pages).
+  x Fix document closing error.
   - Continue fixing any remaining bugs.
 
 ## Future Improvements

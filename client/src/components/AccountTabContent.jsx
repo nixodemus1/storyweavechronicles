@@ -341,11 +341,21 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
       const { url, expired } = getCoverFromCache(bookId);
       if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
         if (url !== '/no-cover.png' || expired) {
-          const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
-          const img = new window.Image();
-          img.onload = () => setCoverInCache(bookId, coverUrl);
-          img.onerror = () => setCoverInCache(bookId, '/no-cover.png');
-          img.src = coverUrl;
+          // Use GET to fetch cover (backend only allows GET)
+          fetch(`${API_BASE_URL}/pdf-cover/${bookId}`)
+            .then(res => res.ok ? res.blob() : null)
+            .then(blob => {
+              let coverUrl = null;
+              if (blob && blob instanceof Blob && blob.type.startsWith('image/')) {
+                coverUrl = URL.createObjectURL(blob);
+                setCoverInCache(bookId, coverUrl);
+              } else {
+                setCoverInCache(bookId, '/no-cover.png');
+              }
+            })
+            .catch(() => {
+              setCoverInCache(bookId, '/no-cover.png');
+            });
         }
       }
     });
