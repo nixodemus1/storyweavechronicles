@@ -51,11 +51,18 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
   // Removed unused saving state
   const [currentTime, setCurrentTime] = useState(() => new Date());
   // Local state for all pending profile changes
-  const [pendingProfile, setPendingProfile] = useState({
-    backgroundColor: normalizeHex(backgroundColor),
-    textColor: normalizeHex(textColor),
-    font: font || '',
-    timezone: timezone || 'UTC',
+  const [pendingProfile, setPendingProfile] = useState(() => {
+    // If user has no timezone set, use system timezone
+    let initialTimezone = timezone;
+    if (!props.user?.timezone) {
+      initialTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    }
+    return {
+      backgroundColor: normalizeHex(backgroundColor),
+      textColor: normalizeHex(textColor),
+      font: font || '',
+      timezone: initialTimezone || 'UTC',
+    };
   });
 
   // Sync local pending state with context when context changes (e.g. theme switch)
