@@ -249,14 +249,18 @@ export default function App() {
     }
   const [showDropdown, setShowDropdown] = useState(false);
   const lastDropdownState = useRef(false);
-    const dropdownRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const bellButtonRef = useRef(null);
     const { notifications, loading, fetchNotifications, handleDismiss, allLoaded } = useNotifications(user);
     const appNavigate = useAppNavigate();
 
     // Close dropdown on outside click
     useEffect(() => {
       function handleClick(e) {
-        if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        // If click is outside dropdown AND not on bell button, close dropdown
+        const isOutsideDropdown = dropdownRef.current && !dropdownRef.current.contains(e.target);
+        const isOnBellButton = bellButtonRef.current && bellButtonRef.current.contains(e.target);
+        if (isOutsideDropdown && !isOnBellButton) {
           setShowDropdown(false);
         }
       }
@@ -304,6 +308,7 @@ export default function App() {
     return (
       <>
         <button
+          ref={bellButtonRef}
           style={{
             background: 'none',
             border: 'none',
