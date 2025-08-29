@@ -1,3 +1,147 @@
+/*
+============================================================
+ StoryWeave Chronicles CSS Variable Theming Guide
+============================================================
+
+This project uses CSS variables for all color and theme logic.
+Variables are defined in :root for light mode. Components reference these variables for backgrounds, text, buttons, borders, modals, etc.
+
+How to use:
+--------------------------------------------
+- Reference variables in CSS:   color: var(--text-color);
+- Reference variables in JS/JSX: style={{ color: 'var(--text-color)' }}
+
+How to extend:
+--------------------------------------------
+- To add dark mode, define variables under a selector like:
+  html.dark :root { ... }
+- To add new theme variables, add them to :root and use in components.
+
+Common variables:
+- --background-color, --text-color, --accent-color, --error-text, --success-text
+- --button-bg, --button-text, --button-border
+- --meta-text, --edited-label, --unread-bg, --unread-text, --cover-bg, --cover-text
+- --modal-bg, --modal-content-bg, --modal-content-text
+
+See App.css for all available variables and defaults.
+============================================================
+*/
+
+:root {
+ /* Custom mode variables (default to light mode) */
+  html.custom :root {
+  --background-color: #ffffff;
+  --text-color: #222222;
+  --font-family: inherit;
+  --container-bg: #f5f5f5;
+  --accent-color: #0070f3;
+  --error-color: #c00;
+  --success-color: #080;
+  /* Button styles */
+  --button-bg: #eee;
+  --button-text: #333;
+  --button-border: #bbb;
+  /* Meta and label text */
+  --meta-text: #888;
+  --edited-label: #f5c518;
+  /* Unread styles */
+  --unread-bg: #ffe0e0;
+  --unread-text: #c00;
+  --unread-shadow: #c00;
+  /* Top voted books */
+  --topvoted-bg: #f8f8f8;
+  /* Cover styles */
+  --cover-bg: #eee;
+  --cover-text: #888;
+  /* Error/success text */
+  --error-text: #c00;
+  --success-text: #080;
+  /* Delete/upvote/downvote borders */
+  --delete-border: #c00;
+  --upvote-border: #0070f3;
+  --downvote-border: #c00;
+  /* Modal styles */
+  --modal-bg: #0008;
+  --modal-content-bg: #fff;
+  --modal-content-text: #222;
+  --modal-cancel-bg: #eee;
+  --modal-cancel-text: #222;
+  /* Input borders */
+  --input-border: #ccc;
+  /* PDF Reader highlight */
+  --pdf-highlight: #f5c518;
+  }
+/* Dark mode variables */
+html.dark :root {
+  --background-color: #181a1b;
+  --text-color: #f3f3f3;
+  --container-bg: #232527;
+  --accent-color: #3399ff;
+  --error-color: #ff4c4c;
+  --success-color: #4caf50;
+  --button-bg: #232527;
+  --button-text: #f3f3f3;
+  --button-border: #444;
+  --meta-text: #b0b0b0;
+  --edited-label: #ffe066;
+  --unread-bg: #3a2323;
+  --unread-text: #ff4c4c;
+  --unread-shadow: #ff4c4c;
+  --topvoted-bg: #222326;
+  --cover-bg: #232527;
+  --cover-text: #b0b0b0;
+  --error-text: #ff4c4c;
+  --success-text: #4caf50;
+  --delete-border: #ff4c4c;
+  --upvote-border: #3399ff;
+  --downvote-border: #ff4c4c;
+  --modal-bg: #000c;
+  --modal-content-bg: #232527;
+  --modal-content-text: #f3f3f3;
+  --modal-cancel-bg: #444;
+  --modal-cancel-text: #f3f3f3;
+  --input-border: #444;
+  --pdf-highlight: #ffe066;
+}
+/* Light mode variables */
+html.light :root {
+    --background-color: #f0f0f0;
+    --text-color: #333333;
+    --container-bg: #ffffff;
+    --accent-color: #0070f3;
+    --error-color: #c00;
+    --success-color: #080;
+    --button-bg: #0070f3;
+    --button-text: #ffffff;
+    --button-border: #0070f3;
+    --meta-text: #888888;
+    --edited-label: #f5c518;
+    --unread-bg: #ffe0e0;
+    --unread-text: #c00;
+    --unread-shadow: #c00;
+    --topvoted-bg: #f8f8f8;
+    --cover-bg: #ffffff;
+    --cover-text: #888888;
+    --error-text: #c00;
+    --success-text: #080;
+    --delete-border: #c00;
+    --upvote-border: #0070f3;
+    --downvote-border: #c00;
+    --modal-bg: #0008;
+    --modal-content-bg: #fff;
+    --modal-content-text: #222;
+    --modal-cancel-bg: #eee;
+    --modal-cancel-text: #222;
+    --input-border: #ccc;
+    --pdf-highlight: #f5c518;
+  }
+}
+
+body {
+  background: var(--background-color);
+  color: var(--text-color);
+  font-family: var(--font-family);
+}
 #header, .header {
   width: 100%;
   box-sizing: border-box;

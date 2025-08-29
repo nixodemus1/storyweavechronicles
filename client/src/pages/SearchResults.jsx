@@ -87,7 +87,8 @@ function setCoverInCache(bookId, url) {
 export default function SearchResults() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { theme, backgroundColor, textColor, user } = useContext(ThemeContext);
+  // Use context only for theme and user, not for colors
+  const { theme, user } = useContext(ThemeContext);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [bookmarks, setBookmarks] = useState([]);
@@ -200,15 +201,16 @@ export default function SearchResults() {
     const direction = lum < 0.5 ? 1 : -1;
     return stepColor(bg, theme, step, direction);
   }
-  const containerBg = getContainerBg(backgroundColor, theme, 1);
-  const containerText = textColor;
+  // Use CSS variables for container background and text
+  const containerBg = "var(--container-bg-color)";
+  const containerText = "var(--container-text-color)";
 
   return (
     <div
       className={`search-results-page ${theme}-mode`}
-      style={{ background: backgroundColor, color: textColor, minHeight: '100vh', padding: '32px 0' }}
+  style={{ background: "var(--background-color)", color: "var(--text-color)", minHeight: '100vh', padding: '32px 0' }}
     >
-      <div style={{ maxWidth: 900, margin: '0 auto', background: containerBg, color: containerText, borderRadius: 10, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+  <div style={{ maxWidth: 900, margin: '0 auto', background: containerBg, color: containerText, borderRadius: 10, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
         <h2 style={{ marginBottom: 18 }}>Search Results for "{query}"</h2>
         <div style={{ marginBottom: 18, display: 'flex', gap: 12, alignItems: 'center' }}>
           <span>Sort by:</span>
@@ -245,7 +247,7 @@ export default function SearchResults() {
                         <div style={{
                           width: 60, height: 90,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: '#e0ffe0', color: '#080', borderRadius: 6,
+                          background: '#e0ffe0', color: '#080', borderRadius: 6, // keep for status highlights
                           fontSize: 14, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
                         }}>Loading Cover...</div>
                       )
@@ -254,7 +256,7 @@ export default function SearchResults() {
                           <div style={{
                             width: 60, height: 90,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: '#eee', color: '#888', borderRadius: 6,
+                            background: '#eee', color: '#888', borderRadius: 6, // keep for status highlights
                             fontSize: 14, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
                           }}>No Cover</div>
                         )
@@ -291,7 +293,7 @@ export default function SearchResults() {
                     <span style={{ color: '#0070f3', fontWeight: 600, fontSize: 15, marginRight: 8 }}>★ Favorited</span>
                   )}
                   <button
-                    style={{ background: '#e0f7ff', color: '#0070f3', border: '1px solid #0070f3', borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: 'pointer' }}
+                    style={{ background: '#e0f7ff', color: '#0070f3', border: '1px solid #0070f3', borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: 'pointer' }} // keep for status highlights
                     onClick={() => navigate(`/read/${pdf.id}`)}
                   >Read</button>
                 </li>

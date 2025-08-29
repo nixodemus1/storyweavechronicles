@@ -47,6 +47,8 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
     // Fallback to black if invalid
     return '#222222';
   }
+  // Use context only for theme, font, timezone, not for colors
+  // Restore context variables for color logic
   const { theme, backgroundColor, textColor, font, timezone, setBackgroundColor, setTextColor, setFont, setTimezone } = useContext(ThemeContext);
   // Removed unused saving state
   const [currentTime, setCurrentTime] = useState(() => new Date());
@@ -143,8 +145,9 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
   };
   // --- Local preview logic for color picker ---
   // Local preview state for color pickers
-  const [previewBackgroundColor, setPreviewBackgroundColor] = useState(pendingProfile.backgroundColor);
-  const [previewTextColor, setPreviewTextColor] = useState(pendingProfile.textColor);
+  // Preview colors now use CSS variables
+  const [previewBackgroundColor, setPreviewBackgroundColor] = useState("var(--background-color)");
+  const [previewTextColor, setPreviewTextColor] = useState("var(--text-color)");
 
   // Reset preview color ONLY when context color changes (e.g. theme switch)
   React.useEffect(() => {
@@ -155,25 +158,45 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
   }, [textColor]);
 
   // Color change handler: update local preview only
+  // Helper: set html class to custom
+  function activateCustomTheme() {
+    const html = document.documentElement;
+    html.classList.remove('light', 'dark');
+    html.classList.add('custom');
+  }
+  // Helper: reset html class to theme
+  function resetThemeClass() {
+    const html = document.documentElement;
+    html.classList.remove('custom');
+    html.classList.add(theme);
+  }
+  // Color change handler: update local preview only and activate custom theme
   const handleBackgroundColorChange = (e) => {
     const newColor = e.target.value;
     setPreviewBackgroundColor(newColor);
     setPendingProfile(p => ({ ...p, backgroundColor: newColor }));
+    document.documentElement.style.setProperty('--background-color', newColor);
+    activateCustomTheme();
   };
   // On blur: update global context
   const handleBackgroundColorBlur = () => {
     setBackgroundColor(previewBackgroundColor);
+    activateCustomTheme();
   };
   const handleTextColorChange = (e) => {
     const newColor = e.target.value;
     setPreviewTextColor(newColor);
     setPendingProfile(p => ({ ...p, textColor: newColor }));
+    // Update CSS variable for instant preview
+    document.documentElement.style.setProperty('--text-color', newColor);
+    activateCustomTheme();
   };
   const handleTextColorBlur = () => {
     setTextColor(previewTextColor);
+    activateCustomTheme();
   };
   return (
-    <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, display: 'flex', flexDirection: 'column', gap: 32 }}>
+  <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, display: 'flex', flexDirection: 'column', gap: 32, background: 'var(--background-color)', color: 'var(--text-color)' }}>
       <h3>Profile Settings</h3>
       {/* Color Picker */}
       <div style={{ marginBottom: 24 }}>
@@ -186,6 +209,7 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
         onChange={handleBackgroundColorChange}
         onInput={handleBackgroundColorChange}
         onBlur={handleBackgroundColorBlur}
+        style={{ background: 'var(--background-color)', color: 'var(--text-color)' }}
       />
             <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{pendingProfile.backgroundColor}</span>
             </label>
@@ -197,7 +221,7 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
         onChange={handleTextColorChange}
         onInput={handleTextColorChange}
         onBlur={handleTextColorBlur}
-        style={{ border: '1px solid #ccc', borderRadius: 4 }}
+        style={{ background: 'var(--background-color)', color: 'var(--text-color)', border: '1px solid #ccc', borderRadius: 4 }}
       />
             <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{pendingProfile.textColor}</span>
             </label>

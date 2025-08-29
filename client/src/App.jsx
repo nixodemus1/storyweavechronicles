@@ -422,11 +422,11 @@ export default function App() {
       </>
     );
   }
-  // Header colors
-  const headerContainerColor = stepColor(backgroundColor, theme, 2);
-  const headerTextColor = theme === "dark" ? "#fff" : stepColor(textColor, theme, 1);
-  const headerButtonColor = stepColor(headerContainerColor, theme, 1);
-  const headerButtonTextColor = headerTextColor;
+  // Header colors (now use CSS variables)
+  const headerContainerColor = "var(--header-container-color)";
+  const headerTextColor = "var(--header-text-color)";
+  const headerButtonColor = "var(--header-button-color)";
+  const headerButtonTextColor = "var(--header-button-text-color)";
 
   // Header logo
   function HeaderLogo() {
@@ -446,18 +446,22 @@ export default function App() {
   // Theme toggle button
   function ThemeToggleButton() {
     async function handleToggle() {
+      const html = document.documentElement;
+      // Remove all theme classes
+      html.classList.remove('light', 'dark', 'custom');
+      // Determine new theme
       const newTheme = theme === 'dark' ? 'light' : 'dark';
       setTheme(newTheme);
-      // Set strict defaults for theme
+      // Add the new theme class
+      html.classList.add(newTheme);
+      // Optionally update context colors (for legacy inline styles)
       const newBg = newTheme === 'dark' ? '#232323' : '#fff';
       const newText = newTheme === 'dark' ? '#fff' : '#222';
       setBackgroundColor(newBg);
       setTextColor(newText);
       // If user is logged in, update user object and backend
       if (user?.username) {
-        // Update user object immediately for instant UI feedback
         setUser(u => u ? { ...u, backgroundColor: newBg, textColor: newText } : u);
-        // Sync to backend
         try {
           await fetch(import.meta.env.VITE_HOST_URL + '/api/update-colors', {
             method: 'POST',
@@ -572,20 +576,39 @@ export default function App() {
     }}>
       <ContainerDepthProvider>
         <Router>
-          <div style={{ background: backgroundColor, color: textColor, minHeight: '100vh', fontFamily: font || 'inherit' }} className={theme === "dark" ? "dark-mode" : "light-mode"}>
-            <header className="header" style={{ background: headerContainerColor, color: headerTextColor, display: 'flex', justifyContent: 'center', minHeight: 64, zIndex: 10, position: 'relative' }}>
+          <div
+            style={{
+              background: "var(--background-color)",
+              color: "var(--text-color)",
+              minHeight: '100vh',
+              fontFamily: font || 'inherit'
+            }}
+            className={theme === "dark" ? "dark-mode" : "light-mode"}
+          >
+            <header
+              className="header"
+              style={{
+                background: "var(--header-container-color)",
+                color: "var(--header-text-color)",
+                display: 'flex',
+                justifyContent: 'center',
+                minHeight: 64,
+                zIndex: 10,
+                position: 'relative'
+              }}
+            >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', maxWidth: 2200, padding: '0 16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <HeaderLogo />
                 </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      height: 48,
-                      paddingRight: 0,
-                      marginRight: 0
-                    }}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    height: 48,
+                    paddingRight: 0,
+                    marginRight: 0
+                  }}
                 >
                   {!user && <LoginButton />}
                   {user && <HeaderAvatar />}

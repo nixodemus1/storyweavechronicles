@@ -73,12 +73,12 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
       <h3 style={{ color: textColor }}>Admin Tools</h3>
       {/* Emergency Email Form */}
       <form onSubmit={handleSendEmail} style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 28 }}>
-        <label style={{ color: textColor, fontWeight: 500, marginBottom: 2 }}>
+      <label style={{ color: textColor, fontWeight: 500, marginBottom: 2 }}>
           Emergency Email Recipient:
           <select
             value={recipientType}
             onChange={e => setRecipientType(e.target.value)}
-            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120 }}
+            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid var(--input-border, #ccc)", minWidth: 120 }}
           >
             <option value="all">All users</option>
             <option value="username">Username</option>
@@ -92,7 +92,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
               type={recipientType === "email" ? "email" : "text"}
               value={recipientValue}
               onChange={e => setRecipientValue(e.target.value)}
-              style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120 }}
+              style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid var(--input-border, #ccc)", minWidth: 120 }}
               required
             />
           </label>
@@ -102,28 +102,28 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
           <textarea
             value={emailMsg}
             onChange={e => setEmailMsg(e.target.value)}
-            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120, minHeight: 60 }}
+            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid var(--input-border, #ccc)", minWidth: 120, minHeight: 60 }}
             required
           />
         </label>
         <button
           type="submit"
           disabled={saving}
-          style={{ background: stepColor(containerBg, "dark", 1, 1), color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+          style={{ background: 'var(--button-bg, ' + stepColor(containerBg, "dark", 1, 1) + ')', color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? "Sending..." : "Send Emergency Email"}
         </button>
-        {emailStatus && <div style={{ color: emailStatus.includes("success") ? "#080" : "#c00", marginTop: 8 }}>{emailStatus}</div>}
+        {emailStatus && <div style={{ color: emailStatus.includes("success") ? 'var(--success-text, #080)' : 'var(--error-text, #c00)', marginTop: 8 }}>{emailStatus}</div>}
       </form>
       {/* Admin Rights Form */}
       <form onSubmit={handleAdminAction} style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 28 }}>
-        <label style={{ color: textColor }}>
+      <label style={{ color: textColor }}>
           Username:
           <input
             type="text"
             value={adminUser}
             onChange={e => setAdminUser(e.target.value)}
-            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120 }}
+            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid var(--input-border, #ccc)", minWidth: 120 }}
             required
           />
         </label>
@@ -131,7 +131,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
           <select
             value={adminAction}
             onChange={e => setAdminAction(e.target.value)}
-            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120 }}
+            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid var(--input-border, #ccc)", minWidth: 120 }}
           >
             <option value="give">Grant Admin Rights</option>
             <option value="remove">Revoke Admin Rights</option>
@@ -140,32 +140,32 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
         <button
           type="submit"
           disabled={saving}
-          style={{ background: stepColor(containerBg, "dark", 1, 1), color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+          style={{ background: 'var(--button-bg, ' + stepColor(containerBg, "dark", 1, 1) + ')', color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? (adminAction === "give" ? "Granting..." : "Revoking...") : (adminAction === "give" ? "Grant Admin" : "Revoke Admin")}
         </button>
-        {adminStatus && <div style={{ color: adminStatus.includes("granted") ? "#080" : adminStatus.includes("revoked") ? "#c00" : "#c00", marginTop: 8 }}>{adminStatus}</div>}
+        {adminStatus && <div style={{ color: adminStatus.includes("granted") ? 'var(--success-text, #080)' : adminStatus.includes("revoked") ? 'var(--error-text, #c00)' : 'var(--error-text, #c00)', marginTop: 8 }}>{adminStatus}</div>}
       </form>
       {/* Ban User Form */}
       <form onSubmit={e => { e.preventDefault(); setBanConfirm(true); }} style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
-        <label style={{ color: textColor }}>
+      <label style={{ color: textColor }}>
           Username to Ban:
           <input
             type="text"
             value={banUser}
             onChange={e => setBanUser(e.target.value)}
-            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120 }}
+            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid var(--input-border, #ccc)", minWidth: 120 }}
             required
           />
         </label>
         <button
           type="submit"
           disabled={saving || !banUser}
-          style={{ background: stepColor(containerBg, "dark", 1, 1), color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+          style={{ background: 'var(--button-bg, ' + stepColor(containerBg, "dark", 1, 1) + ')', color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? "Processing..." : "Ban User"}
         </button>
-        {banStatus && <div style={{ color: banStatus.includes("banned") ? "#080" : "#c00", marginTop: 8 }}>{banStatus}</div>}
+        {banStatus && <div style={{ color: banStatus.includes("banned") ? 'var(--success-text, #080)' : 'var(--error-text, #c00)', marginTop: 8 }}>{banStatus}</div>}
       </form>
 
       {/* Unban User Form */}
@@ -193,14 +193,14 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
             type="text"
             value={unbanUser}
             onChange={e => setUnbanUser(e.target.value)}
-            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid #ccc", minWidth: 120 }}
+            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid var(--input-border, #ccc)", minWidth: 120 }}
             required
           />
         </label>
         <button
           type="submit"
           disabled={saving || !unbanUser}
-          style={{ background: stepColor(containerBg, "dark", 1, 1), color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+          style={{ background: 'var(--button-bg, ' + stepColor(containerBg, "dark", 1, 1) + ')', color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? "Processing..." : "Unban User"}
         </button>
@@ -208,13 +208,13 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
       </form>
       {/* Confirmation Dialog */}
       {banConfirm && (
-        <div style={{ position: "fixed", left: 0, top: 0, width: "100vw", height: "100vh", background: "#0008", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", color: "#222", borderRadius: 8, padding: "24px 32px", boxShadow: "0 4px 24px rgba(0,0,0,0.18)", minWidth: 320 }}>
+        <div style={{ position: "fixed", left: 0, top: 0, width: "100vw", height: "100vh", background: "var(--modal-bg, #0008)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "var(--modal-content-bg, #fff)", color: "var(--modal-content-text, #222)", borderRadius: 8, padding: "24px 32px", boxShadow: "0 4px 24px rgba(0,0,0,0.18)", minWidth: 320 }}>
             <div style={{ marginBottom: 18, fontSize: 17 }}>
-              Are you sure you want to <b style={{ color: "#c00" }}>ban</b> user <b>{banUser}</b>?
+              Are you sure you want to <b style={{ color: 'var(--error-text, #c00)' }}>ban</b> user <b>{banUser}</b>?
             </div>
             <button
-              style={{ background: "#c00", color: "#fff", border: "none", borderRadius: 6, padding: "8px 18px", fontWeight: 600, marginRight: 12, cursor: "pointer" }}
+              style={{ background: 'var(--error-text, #c00)', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 18px', fontWeight: 600, marginRight: 12, cursor: 'pointer' }}
               onClick={async () => {
                 setSaving(true);
                 setBanStatus("");
@@ -235,7 +235,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
               }}
             >Yes, Ban</button>
             <button
-              style={{ background: "#eee", color: "#222", border: "none", borderRadius: 6, padding: "8px 18px", fontWeight: 600, cursor: "pointer" }}
+              style={{ background: 'var(--modal-cancel-bg, #eee)', color: 'var(--modal-cancel-text, #222)', border: 'none', borderRadius: 6, padding: '8px 18px', fontWeight: 600, cursor: 'pointer' }}
               onClick={() => setBanConfirm(false)}
             >Cancel</button>
           </div>

@@ -17,7 +17,8 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
   if (isAdmin) {
     tabs.push({ key: 'admin', icon: '🛡️', label: 'Admin' });
   }
-  const sidebarBg = stepColor(backgroundColor, 'sidebar', 1);
+  // Use CSS variable for sidebar background
+  const sidebarBg = "var(--sidebar-bg-color)";
   // Add redirect on logout
   const handleLogout = () => {
     setUser(null);
@@ -32,8 +33,8 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
         top: 0,
         height: '100vh',
         width: sidebarExpanded ? 180 : 56,
-        background: sidebarBg,
-        color: textColor,
+  background: sidebarBg,
+  color: "var(--sidebar-text-color)",
         transition: 'width 0.2s',
         display: 'flex',
         flexDirection: 'column',
@@ -54,20 +55,20 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
             width: 48,
             height: 48,
             borderRadius: '50%',
-            background: backgroundColor,
-            color: textColor,
+            background: "var(--background-color)",
+            color: "var(--text-color)",
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             marginBottom: 6,
             fontWeight: 700,
             fontSize: 24,
-            border: `2px solid ${textColor}`,
+            border: `2px solid var(--text-color)`,
           }}
         >
           {user?.username ? user.username[0].toUpperCase() : '?'}
         </div>
-        {sidebarExpanded && <div style={{ fontWeight: 600, fontSize: 16, color: textColor }}>{user?.username}</div>}
+  {sidebarExpanded && <div style={{ fontWeight: 600, fontSize: 16, color: "var(--text-color)" }}>{user?.username}</div>}
       </div>
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 0 }}>
         {tabs.map(tab => (
@@ -75,8 +76,8 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             style={{
-              background: activeTab === tab.key ? textColor : 'none',
-              color: activeTab === tab.key ? backgroundColor : textColor,
+              background: activeTab === tab.key ? "var(--text-color)" : 'none',
+              color: activeTab === tab.key ? "var(--background-color)" : "var(--text-color)",
               border: 'none',
               borderRadius: 6,
               fontWeight: 600,
@@ -103,7 +104,7 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
         onClick={handleLogout}
         style={{
           background: '#c00',
-          color: '#fff',
+          color: '#fff', // keep for destructive actions
           border: 'none',
           borderRadius: 6,
           fontWeight: 600,
@@ -127,7 +128,8 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
 }
 
 function ProfilePage({ user, setUser }) {
-  const { backgroundColor, textColor, user: contextUser } = useContext(ThemeContext);
+  // Use context only for user, not for colors
+  const { user: contextUser } = useContext(ThemeContext);
   // Persist activeTab in localStorage so it survives refreshes and re-renders
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -227,14 +229,13 @@ function ProfilePage({ user, setUser }) {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: backgroundColor, color: textColor }}>
+  <div style={{ display: 'flex', minHeight: '100vh', background: "var(--background-color)", color: "var(--text-color)" }}>
       <ProfileSidebar
         user={effectiveUser}
         sidebarExpanded={sidebarExpanded}
         activeTab={activeTab}
         setActiveTab={handleTabSwitch}
-        backgroundColor={backgroundColor}
-        textColor={textColor}
+  // backgroundColor and textColor props can be removed if not used in child
         isAdmin={isAdmin}
         setUser={setUser}
         sidebarRef={sidebarRef}

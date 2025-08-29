@@ -86,15 +86,15 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
   }
 
   return (
-    <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
-      <h3 style={{ color: textColor }}>Notification Preferences</h3>
+      <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: 'var(--container-bg-color)', borderRadius: 8, padding: '18px 16px' }}>
+      <h3 style={{ color: 'var(--text-color)' }}>Notification Preferences</h3>
       {loading ? (
         <div style={{ color: '#888' }}>Loading preferences...</div>
       ) : (
         <form style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           {/* Email frequency dropdown */}
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ color: textColor, minWidth: 120 }}>Email frequency:</span>
+            <span style={{ color: 'var(--text-color)', minWidth: 120 }}>Email frequency:</span>
             <select
               name="emailFrequency"
               value={prefs?.emailFrequency || 'immediate'}
@@ -131,11 +131,11 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
               checked={!!prefs?.email}
               onChange={handleChange}
             />
-            <span style={{ color: textColor }}>Email notifications</span>
+            <span style={{ color: 'var(--text-color)' }}>Email notifications</span>
           </label>
           {prefs?.email && emailChannels.length > 0 && (
             <div style={{ marginLeft: 24, marginTop: 2, marginBottom: 8 }}>
-              <div style={{ color: textColor, fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Send to:</div>
+              <div style={{ color: 'var(--text-color)', fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Send to:</div>
               {emailChannels.map((e, idx) => (
                 <label key={e.value} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                   <input
@@ -145,7 +145,7 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
                     checked={Array.isArray(prefs?.emailChannels) ? prefs.emailChannels.includes(e.value) : false}
                     onChange={handleChange}
                   />
-                  <span style={{ color: textColor }}>{e.label}: {e.value}</span>
+                  <span style={{ color: 'var(--text-color)' }}>{e.label}: {e.value}</span>
                 </label>
               ))}
             </div>
@@ -157,7 +157,7 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
               checked={!!prefs?.push}
               onChange={handleChange}
             />
-            <span style={{ color: textColor }}>Push notifications</span>
+            <span style={{ color: 'var(--text-color)' }}>Push notifications</span>
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input
@@ -166,11 +166,11 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
               checked={!!prefs?.newsletter}
               onChange={handleChange}
             />
-            <span style={{ color: textColor }}>Newsletter</span>
+            <span style={{ color: 'var(--text-color)' }}>Newsletter</span>
           </label>
           {/* Notification type opt-in/out */}
           <hr style={{ margin: '12px 0', border: 'none', borderTop: '1px solid #ddd' }} />
-          <div style={{ fontWeight: 500, color: textColor, marginBottom: 4 }}>Notification Types</div>
+          <div style={{ fontWeight: 500, color: 'var(--text-color)', marginBottom: 4 }}>Notification Types</div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input
               type="checkbox"
@@ -178,7 +178,7 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
               checked={!!prefs?.siteUpdates}
               onChange={handleChange}
             />
-            <span style={{ color: textColor }}>Site updates (global)</span>
+            <span style={{ color: 'var(--text-color)' }}>Site updates (global)</span>
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input
@@ -187,7 +187,7 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
               checked={!!prefs?.newBook}
               onChange={handleChange}
             />
-            <span style={{ color: textColor }}>New book announcements (global)</span>
+            <span style={{ color: 'var(--text-color)' }}>New book announcements (global)</span>
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input
@@ -196,7 +196,7 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
               checked={!!prefs?.bookmarkUpdates}
               onChange={handleChange}
             />
-            <span style={{ color: textColor }}>Book updates from bookmarks</span>
+            <span style={{ color: 'var(--text-color)' }}>Book updates from bookmarks</span>
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input
@@ -332,8 +332,8 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   const notificationTypes = Array.from(new Set(notifications.map(n => n.type))).filter(Boolean);
 
   return (
-    <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
-      <h3 style={{ color: textColor }}>Notification History</h3>
+    <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: 'var(--container-bg-color)', borderRadius: 8, padding: '18px 16px' }}>
+    <h3 style={{ color: 'var(--text-color)' }}>Notification History</h3>
       {/* Pagination controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         <button
@@ -388,8 +388,8 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
             .map(n => (
               <li key={n.id} style={{
                 marginBottom: 12,
-                background: stepColor(containerBg, 'dark', n.read ? 1 : 0, 1),
-                color: textColor,
+                background: n.read ? 'var(--container-bg-color)' : '#ffe0e0',
+                color: 'var(--text-color)',
                 borderRadius: 6,
                 padding: '8px 12px',
                 boxShadow: n.read ? '0 0 4px #aaa' : 'none',
@@ -403,7 +403,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
                     {n.link ? (
                       <a
                         href={n.link}
-                        style={{ color: textColor, textDecoration: 'underline', cursor: 'pointer' }}
+                        style={{ color: 'var(--text-color)', textDecoration: 'underline', cursor: 'pointer' }}
                         onClick={async e => {
                           e.preventDefault();
                           // Mark as read if not already

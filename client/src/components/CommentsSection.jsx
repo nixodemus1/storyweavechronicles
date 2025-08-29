@@ -132,7 +132,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
           title="Ban user"
         >Ban User</button>
         {confirming && (
-          <span style={{ position: "absolute", left: 0, top: 32, background: "#fff", color: "#222", border: "1px solid #c00", borderRadius: 6, padding: "10px 16px", zIndex: 10 }}>
+          <span style={{ position: "absolute", left: 0, top: 32, background: "#fff", color: 'var(--text-color)', border: "1px solid #c00", borderRadius: 6, padding: "10px 16px", zIndex: 10 }}>
             <div style={{ marginBottom: 8 }}>Are you sure you want to ban <b>{targetUsername}</b>?</div>
             <button
               style={{ background: "#c00", color: "#fff", border: "none", borderRadius: 4, padding: "6px 14px", fontWeight: 600, marginRight: 8, cursor: "pointer" }}
@@ -143,7 +143,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
               }); setConfirming(false); setBanMsg("User banned."); setCommentsRefresh(r => r + 1); }}
             >Yes, Ban</button>
             <button
-              style={{ background: "#eee", color: "#222", border: "none", borderRadius: 4, padding: "6px 14px", fontWeight: 600, cursor: "pointer" }}
+              style={{ background: "#eee", color: 'var(--text-color)', border: "none", borderRadius: 4, padding: "6px 14px", fontWeight: 600, cursor: "pointer" }}
               onClick={() => setConfirming(false)}
             >Cancel</button>
           </span>
@@ -161,13 +161,13 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
         <button
           onClick={() => setCommentsPage(p => Math.max(1, p - 1))}
           disabled={commentsPage === 1}
-          style={{ background: '#eee', color: '#333', border: '1px solid #bbb', borderRadius: 4, padding: '4px 10px', cursor: commentsPage === 1 ? 'not-allowed' : 'pointer' }}
+            style={{ background: 'var(--button-bg, #eee)', color: 'var(--button-text, #333)', border: '1px solid var(--button-border, #bbb)', borderRadius: 4, padding: '4px 10px', cursor: commentsPage === 1 ? 'not-allowed' : 'pointer' }}
         >Prev</button>
         <span style={{ fontWeight: 600 }}>Page {commentsPage} / {totalPages}</span>
         <button
           onClick={() => setCommentsPage(p => Math.min(totalPages, p + 1))}
           disabled={commentsPage === totalPages}
-          style={{ background: '#eee', color: '#333', border: '1px solid #bbb', borderRadius: 4, padding: '4px 10px', cursor: commentsPage === totalPages ? 'not-allowed' : 'pointer' }}
+            style={{ background: 'var(--button-bg, #eee)', color: 'var(--button-text, #333)', border: '1px solid var(--button-border, #bbb)', borderRadius: 4, padding: '4px 10px', cursor: commentsPage === totalPages ? 'not-allowed' : 'pointer' }}
         >Next</button>
       </div>
     );
@@ -208,18 +208,18 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
             fontWeight: 700,
             fontSize: 18,
             marginRight: 10,
-            border: `2.5px solid ${avatarTextColor}`
+              border: `2.5px solid ${avatarTextColor}`
           }}>
             {comment.username ? comment.username[0].toUpperCase() : '?'}
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontWeight: 600 }}>{isDeleted ? 'Deleted User' : comment.username}</span>
-              <span style={{ fontSize: 12, color: '#888' }}>{new Date(comment.timestamp).toLocaleString()}</span>
-              {comment.edited && !isDeleted && <span style={{ fontSize: 11, color: '#f5c518', marginLeft: 6 }}>(edited)</span>}
+                <span style={{ fontSize: 12, color: 'var(--meta-text, #888)' }}>{new Date(comment.timestamp).toLocaleString()}</span>
+                {comment.edited && !isDeleted && <span style={{ fontSize: 11, color: 'var(--edited-label, #f5c518)', marginLeft: 6 }}>(edited)</span>}
             </div>
-            {isDeleted ? (
-              <div style={{ margin: '8px 0', fontStyle: 'italic', color: '#888' }}>Comment not available (user deleted)</div>
+              {isDeleted ? (
+                <div style={{ margin: '8px 0', fontStyle: 'italic', color: 'var(--deleted-text, #888)' }}>Comment not available (user deleted)</div>
             ) : editId === comment.id ? (
               <div>
                 <textarea
@@ -244,11 +244,11 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <button
                   onClick={() => handleVoteComment(comment.id, 1)}
-                  style={{ background: buttonBg, color: commentText, border: '1px solid #0070f3', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#0070f3' }}
+                    style={{ background: buttonBg, color: commentText, border: '1px solid var(--upvote-border, #0070f3)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--upvote-border, #0070f3)' }}
                 >▲ {comment.upvotes}</button>
                 <button
                   onClick={() => handleVoteComment(comment.id, -1)}
-                  style={{ background: buttonBg, color: commentText, border: '1px solid #c00', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#c00' }}
+                    style={{ background: buttonBg, color: commentText, border: '1px solid var(--downvote-border, #c00)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--downvote-border, #c00)' }}
                 >▼ {comment.downvotes}</button>
                 <button
                   onClick={() => setReplyTo(comment.id)}
@@ -264,7 +264,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
                     )}
                     <button
                       onClick={() => handleDeleteComment(comment.id)}
-                      style={{ background: buttonBg, color: commentText, border: '1px solid #c00', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#c00' }}
+                        style={{ background: buttonBg, color: commentText, border: '1px solid var(--delete-border, #c00)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--delete-border, #c00)' }}
                     >Delete</button>
                   </>
                 )}
@@ -284,7 +284,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
   return (
     <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
       <h3 style={{ marginBottom: 10 }}>Comments</h3>
-      {msg && <div style={{ color: '#c00', marginBottom: 8 }}>{msg}</div>}
+      {msg && <div style={{ color: 'var(--error-text, #c00)', marginBottom: 8 }}>{msg}</div>}
       {renderPagination()}
       {commentsLoading ? <div>Loading comments...</div> : <>
         <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>

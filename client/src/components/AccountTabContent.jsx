@@ -148,10 +148,10 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
       <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
         <h3>Your Bookmarked Books</h3>
         {loading ? (
-          <div style={{ color: '#888' }}>Loading bookmarks...</div>
+          <div style={{ color: 'var(--meta-text, #888)' }}>Loading bookmarks...</div>
         ) : (
           bookmarkedBooks.length === 0 ? (
-            <div style={{ color: '#888' }}>No bookmarks yet.</div>
+            <div style={{ color: 'var(--meta-text, #888)' }}>No bookmarks yet.</div>
           ) : (
             <ul style={{ listStyle: 'none', padding: 0 }}>
               {bookmarkedBooks.map(book => {
@@ -167,10 +167,10 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
                       display: 'flex',
                       alignItems: 'center',
                       gap: 12,
-                      background: book.unread ? '#ffe0e0' : 'transparent',
+                      background: book.unread ? 'var(--unread-bg, #ffe0e0)' : 'transparent',
                       borderRadius: 6,
                       padding: '6px 8px',
-                      boxShadow: book.unread ? '0 0 4px #c00' : 'none',
+                      boxShadow: book.unread ? '0 0 4px var(--unread-shadow, #c00)' : 'none',
                     }}
                   >
                     <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
@@ -179,7 +179,7 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
                           ? <div style={{
                               width: 38, height: 54,
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              background: '#eee', color: '#888', borderRadius: 4,
+                              background: 'var(--cover-bg, #eee)', color: 'var(--cover-text, #888)', borderRadius: 4,
                               fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
                             }}>No Cover</div>
                           : <img
@@ -194,21 +194,21 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
                               }}
                             />
                       ) : (
-                        <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
+                        <span style={{ color: 'var(--error-text, #c00)', fontSize: 12 }}>[No valid book id]</span>
                       )}
                     </Link>
                     {/* Clickable book title next to cover */}
                     <Link to={book.id ? `/read/${book.id}` : '#'} style={{ color: textColor, textDecoration: 'underline', fontWeight: 600, fontSize: 16, marginLeft: 4 }}>
                       {book.title || book.name || book.id}
                     </Link>
-                    <span style={{ fontSize: 13, color: '#888' }}>
+                    <span style={{ fontSize: 13, color: 'var(--meta-text, #888)' }}>
                       Last updated: {book.last_updated ? book.last_updated : 'Never'}
                     </span>
-                    <span style={{ fontSize: 13, color: '#888' }}>
+                    <span style={{ fontSize: 13, color: 'var(--meta-text, #888)' }}>
                       Last page read: {book.last_page}
                     </span>
                     {book.unread && (
-                      <span style={{ color: '#c00', fontWeight: 700, fontSize: 13 }}>Unread update!</span>
+                      <span style={{ color: 'var(--unread-text, #c00)', fontWeight: 700, fontSize: 13 }}>Unread update!</span>
                     )}
                   </li>
                 );
@@ -249,9 +249,9 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
     <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
       <h3 style={{ color: textColor }}>Your Top Voted Books</h3>
       {loading ? (
-        <div style={{ color: '#888' }}>Loading...</div>
+        <div style={{ color: 'var(--meta-text, #888)' }}>Loading...</div>
       ) : books.length === 0 ? (
-        <div style={{ color: '#888' }}>No top voted books yet.</div>
+        <div style={{ color: 'var(--meta-text, #888)' }}>No top voted books yet.</div>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0 }}>
           {books.map(book => {
@@ -265,7 +265,7 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
-                background: stepColor(containerBg, 'dark', 1, 1),
+                background: 'var(--topvoted-bg, #f8f8f8)',
                 borderRadius: 6,
                 padding: '6px 8px',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
@@ -276,7 +276,7 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                       ? <div style={{
                           width: 38, height: 54,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: '#eee', color: '#888', borderRadius: 4,
+                          background: 'var(--cover-bg, #eee)', color: 'var(--cover-text, #888)', borderRadius: 4,
                           fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
                         }}>No Cover</div>
                       : <img
@@ -291,11 +291,11 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                           }}
                         />
                   ) : (
-                    <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
+                    <span style={{ color: 'var(--error-text, #c00)', fontSize: 12 }}>[No valid book id]</span>
                   )}
                 </Link>
                 <span style={{ fontWeight: 600, textDecoration: 'underline', fontSize: 16 }}>{book.name}</span>
-                <span style={{ fontSize: 13, color: '#888' }}>
+                <span style={{ fontSize: 13, color: 'var(--meta-text, #888)' }}>
                   Votes: {book.votes}
                 </span>
               </li>
@@ -381,13 +381,13 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
     <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
       <h3 style={{ color: textColor }}>Your Comments</h3>
       {loading ? (
-        <div style={{ color: '#888' }}>Loading comments...</div>
+        <div style={{ color: 'var(--meta-text, #888)' }}>Loading comments...</div>
       ) : comments.length === 0 ? (
-        <div style={{ color: '#888' }}>No comments yet.</div>
+        <div style={{ color: 'var(--meta-text, #888)' }}>No comments yet.</div>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0 }}>
           {comments.map(comment => (
-            <li key={comment.id} style={{ marginBottom: 14, background: comment.deleted ? '#ffe0e0' : 'transparent', borderRadius: 6, padding: '6px 8px' }}>
+            <li key={comment.id} style={{ marginBottom: 14, background: comment.deleted ? 'var(--unread-bg, #ffe0e0)' : 'transparent', borderRadius: 6, padding: '6px 8px' }}>
               <Link
                 to={`/read/${comment.book_id}?comment=${comment.id}&commentsPage=${getCommentPage(comment)}`}
                 style={{ color: textColor, textDecoration: 'underline', fontWeight: 600 }}
@@ -395,11 +395,11 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
                 {getBookTitle(comment.book_id)}
               </Link>
               <div style={{ fontSize: 14, color: textColor, marginTop: 4 }}>
-                {comment.deleted ? <span style={{ color: '#c00', fontStyle: 'italic' }}>Comment deleted</span> : comment.text}
+                {comment.deleted ? <span style={{ color: 'var(--error-text, #c00)', fontStyle: 'italic' }}>Comment deleted</span> : comment.text}
               </div>
-              <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: 'var(--meta-text, #888)', marginTop: 2 }}>
                 {new Date(comment.timestamp).toLocaleString()}
-                {comment.edited && <span style={{ color: '#f5c518', marginLeft: 8 }}>(edited)</span>}
+                {comment.edited && <span style={{ color: 'var(--edited-label, #f5c518)', marginLeft: 8 }}>(edited)</span>}
               </div>
             </li>
           ))}

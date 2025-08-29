@@ -145,8 +145,8 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
   }
 
   return (
-    <div style={{ width: 400, maxWidth: "95vw", marginBottom: 32, background: containerBg, borderRadius: 8, padding: "18px 16px" }}>
-      <h3 style={{ color: textColor }}>Security Settings</h3>
+  <div style={{ width: 400, maxWidth: "95vw", marginBottom: 32, background: 'var(--container-bg-color)', borderRadius: 8, padding: "18px 16px" }}>
+  <h3 style={{ color: 'var(--text-color)' }}>Security Settings</h3>
       {/* Secondary Email Management */}
       <div style={{ marginBottom: 24 }}>
         <h4>Secondary Emails</h4>
@@ -180,7 +180,7 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
           <button
             type="submit"
             disabled={saving || !newSecondaryEmail}
-            style={{ background: '#222', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
+            style={{ background: 'var(--button-bg-color)', color: 'var(--button-text-color)', border: 'none', borderRadius: 4, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
           >Add</button>
         </form>
         {secondaryEmailError && <div style={{ color: '#c00', marginTop: 8 }}>{secondaryEmailError}</div>}
@@ -198,7 +198,7 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
             autoComplete="new-password"
           />
         </label>
-        <label style={{ color: textColor }}>
+  <label style={{ color: 'var(--text-color)' }}>
           Confirm Password:
           <input
             type="password"
