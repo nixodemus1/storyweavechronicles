@@ -316,7 +316,7 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
                   ) : (
                     <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
                   )}
-                  <SteppedContainer depth={depth + 2} className="book-title" style={titleStyle}>
+                  <SteppedContainer depth={depth + 2} className="book-title" style={{ ...titleStyle, background: undefined }}>
                     <button
                       style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', fontSize: 'inherit' }}
                       onClick={() => {
@@ -395,7 +395,7 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
                   ) : (
                     <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
                   )}
-                  <SteppedContainer depth={depth + 2} style={{ display: 'inline-block', borderRadius: 4 }}>
+                  <SteppedContainer depth={depth + 2} style={{ display: 'inline-block', borderRadius: 4, background: undefined }}>
                     <button
                       className="top-list-link"
                       style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer' }}

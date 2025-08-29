@@ -146,7 +146,7 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
   }
 
   return (
-  <div style={{ width: 400, maxWidth: "95vw", marginBottom: 32, background: 'var(--container-bg-color)', borderRadius: 8, padding: "18px 16px" }}>
+  <div style={{ width: 400, maxWidth: "95vw", marginBottom: 32, background: containerBg, borderRadius: 8, padding: "18px 16px" }}>
   <h3 style={{ color: 'var(--text-color)' }}>Security Settings</h3>
       {/* Secondary Email Management */}
       <div style={{ marginBottom: 24 }}>
@@ -159,7 +159,7 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
                 <button
                   type="button"
                   onClick={() => handleRemoveSecondaryEmail(email)}
-                  style={{ background: '#eee', color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}
+                  style={{ background: stepColor(containerBg, theme, 1, -1), color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}
                   disabled={saving}
                   title="Remove secondary email"
                 >Remove</button>
@@ -181,7 +181,7 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
           <button
             type="submit"
             disabled={saving || !newSecondaryEmail}
-            style={{ background: 'var(--button-bg-color)', color: 'var(--button-text-color)', border: 'none', borderRadius: 4, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
+            style={{ background: stepColor(containerBg, theme, 1, -1), color: 'var(--text-color)', border: 'none', borderRadius: 4, padding: '6px 14px', fontWeight: 600, cursor: 'pointer' }}
           >Add</button>
         </form>
         {secondaryEmailError && <div style={{ color: '#c00', marginTop: 8 }}>{secondaryEmailError}</div>}
@@ -212,7 +212,7 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
         <button
           type="submit"
           disabled={saving}
-          style={{ background: stepColor(containerBg, "dark", 1, 1), color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+          style={{ background: stepColor(containerBg, theme, 1, -1), color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? "Saving..." : "Update Password"}
         </button>

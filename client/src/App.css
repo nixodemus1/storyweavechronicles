@@ -41,11 +41,11 @@ See App.css for all available variables and defaults.
     --button-bg: #eee;
     --button-text: #333;
     --button-border: #bbb;
-    /* Meta and label text */
-    --meta-text: color-mix(in srgb, var(--text-color) 60%, #888 40%);
-    --edited-label: color-mix(in srgb, var(--text-color) 70%, #f5c518 30%);
-    /* Link color: auto-adjust for contrast */
-    --link-color: color-mix(in srgb, var(--text-color) 80%, #0070f3 20%);
+      /* Secondary and link text colors (set dynamically for custom themes) */
+      --secondary-text-color: color-mix(in srgb, var(--text-color) 60%, #888 40%);
+      --link-color: color-mix(in srgb, var(--text-color) 80%, #0070f3 20%);
+      --meta-text: var(--secondary-text-color);
+      --edited-label: color-mix(in srgb, var(--text-color) 70%, #f5c518 30%);
     /* Unread styles */
     --unread-bg: #ffe0e0;
     --unread-text: #c00;
@@ -84,7 +84,9 @@ html.dark :root {
   --button-bg: #232527;
   --button-text: #f3f3f3;
   --button-border: #444;
-  --meta-text: #b0b0b0;
+  --secondary-text-color: #b0b0b0;
+  --link-color: #3399ff;
+  --meta-text: var(--secondary-text-color);
   --edited-label: #ffe066;
   --unread-bg: #3a2323;
   --unread-text: #ff4c4c;
@@ -116,8 +118,10 @@ html.light :root {
     --button-bg: #0070f3;
     --button-text: #ffffff;
     --button-border: #0070f3;
-    --meta-text: #888888;
-    --edited-label: #f5c518;
+  --secondary-text-color: #888888;
+  --link-color: #0070f3;
+  --meta-text: var(--secondary-text-color);
+  --edited-label: #f5c518;
     --unread-bg: #ffe0e0;
     --unread-text: #c00;
     --unread-shadow: #c00;

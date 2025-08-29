@@ -1,6 +1,7 @@
 import React, { useContext, useState } from "react";
 import { ThemeContext } from "../themeContext";
 import { stepColor } from "../utils/colorUtils";
+import { getLuminance } from "../utils/colorUtils";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
@@ -254,6 +255,10 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
 
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
   const containerBg = stepColor(cssBg, theme, 1);
+  const historyBg = stepColor(cssBg, theme, 2, -1); // step down for history items
+  // Dynamically determine step direction based on luminance
+  const historyLum = getLuminance(historyBg);
+  const cardStepDir = historyLum < 0.5 ? 1 : -1;
 
   async function handleDismiss(id) {
     setDeleting(id);
@@ -334,7 +339,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   const notificationTypes = Array.from(new Set(notifications.map(n => n.type))).filter(Boolean);
 
   return (
-    <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: 'var(--container-bg-color)', borderRadius: 8, padding: '18px 16px' }}>
+  <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: historyBg, borderRadius: 8, padding: '18px 16px' }}>
     <h3 style={{ color: 'var(--text-color)' }}>Notification History</h3>
       {/* Pagination controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
@@ -390,7 +395,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
             .map(n => (
               <li key={n.id} style={{
                 marginBottom: 12,
-                background: n.read ? 'var(--container-bg-color)' : '#ffe0e0',
+                background: stepColor(historyBg, theme, n.read ? 1 : 2, cardStepDir),
                 color: 'var(--text-color)',
                 borderRadius: 6,
                 padding: '8px 12px',
@@ -438,13 +443,13 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <button
                     onClick={() => handleMarkRead(n.id, !n.read)}
-                    style={{ background: n.read ? '#eee' : '#ffe0e0', color: n.read ? '#080' : '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}
+                    style={{ background: stepColor(historyBg, theme, 2, cardStepDir), color: n.read ? '#080' : '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer' }}
                     title={n.read ? 'Mark as Unread' : 'Mark as Read'}
                   >{n.read ? 'Mark Unread' : 'Mark Read'}</button>
                   <button
                     onClick={() => handleDismiss(n.id)}
                     disabled={deleting === n.id}
-                    style={{ background: '#eee', color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', opacity: deleting === n.id ? 0.6 : 1 }}
+                    style={{ background: stepColor(historyBg, theme, 3, cardStepDir), color: '#c00', border: 'none', borderRadius: 4, padding: '4px 10px', fontWeight: 600, cursor: 'pointer', opacity: deleting === n.id ? 0.6 : 1 }}
                     title="Delete notification from history"
                   >{deleting === n.id ? 'Deleting...' : 'Delete'}</button>
                 </div>

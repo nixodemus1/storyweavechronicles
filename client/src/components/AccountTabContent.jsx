@@ -15,20 +15,28 @@ function useCachedCovers(pdfs) {
     });
     setCovers(newCovers);
 
+    // Get sessionId from context or localStorage
+    let sessionId = null;
+    try {
+      sessionId = (window?.ThemeContext?.user?.sessionId) || localStorage.getItem('swc_session_id');
+    } catch {}
+
     // Batch fetch covers in groups of 3 with a 300ms delay
     function batchFetchCovers(queue, batchSize = 3, delay = 300) {
       let i = 0;
       function fetchBatch() {
         const batch = queue.slice(i, i + batchSize);
         batch.forEach(bookId => {
-          fetch(`${API_BASE_URL}/pdf-cover/${bookId}`)
+          let coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
+          if (sessionId) coverUrl += `?session_id=${encodeURIComponent(sessionId)}`;
+          fetch(coverUrl)
             .then(res => res.ok ? res.blob() : null)
             .then(blob => {
-              let coverUrl = null;
+              let url = null;
               if (blob && blob instanceof Blob && blob.type.startsWith('image/')) {
-                coverUrl = URL.createObjectURL(blob);
-                setCoverInCache(bookId, coverUrl);
-                if (isMounted) setCovers(c => ({ ...c, [bookId]: coverUrl }));
+                url = URL.createObjectURL(blob);
+                setCoverInCache(bookId, url);
+                if (isMounted) setCovers(c => ({ ...c, [bookId]: url }));
               } else {
                 setCoverInCache(bookId, null);
                 if (isMounted) setCovers(c => ({ ...c, [bookId]: null }));

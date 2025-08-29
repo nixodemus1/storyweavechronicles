@@ -602,7 +602,7 @@ export default function App() {
             <header
               className="header"
               style={{
-                background: stepColor(getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || '#fff', theme, 1),
+                background: stepColor(getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || '#fff', theme, 2),
                 color: "var(--header-text-color)",
                 display: 'flex',
                 justifyContent: 'center',

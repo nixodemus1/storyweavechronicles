@@ -20,7 +20,7 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
   // Use ThemeContext for backgroundColor and theme
   const { backgroundColor: contextBg, theme: contextTheme } = useContext(ThemeContext);
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || contextBg || '#fff';
-  const sidebarBg = stepColor(cssBg, contextTheme || 'light', 2);
+  const sidebarBg = stepColor(cssBg, contextTheme || 'light', 1);
   // Add redirect on logout
   const handleLogout = () => {
     setUser(null);

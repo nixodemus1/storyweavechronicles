@@ -1,3 +1,41 @@
+// Utility to step text color for secondary text and links, ensuring contrast
+export function stepTextColor(hex, theme, step = 1, direction = null) {
+  hex = (hex || '').trim();
+  if (hex.startsWith('var(')) {
+    hex = '#ffffff';
+  }
+  const lum = getLuminance(hex);
+  const sat = getSaturation(hex);
+  let dir = direction;
+  // For highly saturated colors, use max channel for perceived lightness
+  if (dir === null) {
+    if (sat > 0.5) {
+      const hexVal = hex.replace('#', '');
+      const r = parseInt(hexVal.substring(0,2),16);
+      const g = parseInt(hexVal.substring(2,4),16);
+      const b = parseInt(hexVal.substring(4,6),16);
+      const maxChannel = Math.max(r, g, b);
+      if (maxChannel > 180) {
+        dir = -1;
+      } else {
+        dir = lum >= 0.35 ? -1 : 1;
+      }
+    } else {
+      dir = lum >= 0.5 ? -1 : 1;
+    }
+  }
+  // Secondary text: step is always larger for visibility
+  const stepSize = 28;
+  // If color is very bright and saturated, blend toward gray or black/white
+  if (sat > 0.5 && lum > 0.6 && dir === 1) {
+    return blendColors(hex, '#ffffff', 0.35 * step);
+  }
+  if (sat > 0.5 && lum < 0.4 && dir === -1) {
+    return blendColors(hex, '#000000', 0.35 * step);
+  }
+  // For other cases, just shade
+  return shadeColor(hex, dir * stepSize * step);
+}
 // Utility to lighten or darken a hex color
 export function shadeColor(hex, percent) {
   hex = hex.replace(/^#/, '');
@@ -59,37 +97,34 @@ export function stepColor(hex, theme, step = 1, direction = null) {
   const lum = getLuminance(hex);
   const sat = getSaturation(hex);
   let dir = direction;
-  // For highly saturated colors, use a higher luminance threshold and channel check
+  // For highly saturated colors, use max channel for perceived lightness
   if (dir === null) {
     if (sat > 0.5) {
-      // Parse RGB channels
       const hexVal = hex.replace('#', '');
       const r = parseInt(hexVal.substring(0,2),16);
       const g = parseInt(hexVal.substring(2,4),16);
       const b = parseInt(hexVal.substring(4,6),16);
-      // If any channel is very bright, treat as visually bright
-      if (r > 200 || g > 200 || b > 200) {
+      const maxChannel = Math.max(r, g, b);
+      // If max channel is high, treat as light
+      if (maxChannel > 180) {
         dir = -1;
       } else {
-        // Otherwise, use luminance threshold
         dir = lum >= 0.35 ? -1 : 1;
       }
     } else {
-      // For less saturated colors, use normal threshold
       dir = lum >= 0.5 ? -1 : 1;
     }
   }
-  // Larger step size for more visible change
-  const stepSize = 16;
-  // If color is very bright and saturated, blend toward gray or black/white
+  // Moderate step size for gradual change (prevents black at high depth)
+  const stepSize = 8;
+  // If color is very bright and saturated, blend toward white
   if (sat > 0.5 && lum > 0.6 && dir === 1) {
-    // bright, saturated, going lighter: blend toward white
     return blendColors(hex, '#ffffff', 0.25 * step);
   }
-  if (sat > 0.5 && lum < 0.4 && dir === -1) {
-    // dark, saturated, going darker: blend toward black
+  // Only blend toward black if luminance is very low (prevents black for most saturated colors)
+  if (sat > 0.5 && lum < 0.18 && dir === -1) {
     return blendColors(hex, '#000000', 0.25 * step);
   }
-  // For other cases, just shade
+  // Otherwise, use gradual shading
   return shadeColor(hex, dir * stepSize * step);
 }
