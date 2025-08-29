@@ -17,7 +17,8 @@ export function SteppedContainer({ step = 1, children, style = {}, ...props }) {
   const depth = useContainerDepth();
   const { theme, backgroundColor } = useContext(ThemeContext);
   // Compute stepped background color
-  const steppedBg = stepColor(backgroundColor, theme, depth + step);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const steppedBg = stepColor(cssBg, theme, depth + step);
   const mergedStyle = { ...style, background: steppedBg };
   return (
     <ContainerDepthContext.Provider value={depth + step}>

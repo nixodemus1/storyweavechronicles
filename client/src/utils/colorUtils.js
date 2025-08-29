@@ -49,21 +49,47 @@ export function getSaturation(hex) {
 // Smart color stepper for containers: handles bright/saturated colors
 // direction: 1 = lighter, -1 = darker
 export function stepColor(hex, theme, step = 1, direction = null) {
-  // direction: if null, auto (dark theme = lighter, light theme = darker)
-  // For highly saturated/bright colors, blend toward gray or black/white
+  // Normalize hex (remove spaces, handle CSS variable values)
+  hex = (hex || '').trim();
+  if (hex.startsWith('var(')) {
+    // Fallback to white if CSS variable not resolved
+    hex = '#ffffff';
+  }
+  // direction: if null, auto based on luminance and saturation
   const lum = getLuminance(hex);
   const sat = getSaturation(hex);
   let dir = direction;
-  if (dir === null) dir = (theme === 'dark') ? 1 : -1;
+  // For highly saturated colors, use a higher luminance threshold and channel check
+  if (dir === null) {
+    if (sat > 0.5) {
+      // Parse RGB channels
+      const hexVal = hex.replace('#', '');
+      const r = parseInt(hexVal.substring(0,2),16);
+      const g = parseInt(hexVal.substring(2,4),16);
+      const b = parseInt(hexVal.substring(4,6),16);
+      // If any channel is very bright, treat as visually bright
+      if (r > 200 || g > 200 || b > 200) {
+        dir = -1;
+      } else {
+        // Otherwise, use luminance threshold
+        dir = lum >= 0.35 ? -1 : 1;
+      }
+    } else {
+      // For less saturated colors, use normal threshold
+      dir = lum >= 0.5 ? -1 : 1;
+    }
+  }
+  // Larger step size for more visible change
+  const stepSize = 16;
   // If color is very bright and saturated, blend toward gray or black/white
   if (sat > 0.5 && lum > 0.6 && dir === 1) {
     // bright, saturated, going lighter: blend toward white
-    return blendColors(hex, '#ffffff', 0.15 * step);
+    return blendColors(hex, '#ffffff', 0.25 * step);
   }
   if (sat > 0.5 && lum < 0.4 && dir === -1) {
     // dark, saturated, going darker: blend toward black
-    return blendColors(hex, '#000000', 0.15 * step);
+    return blendColors(hex, '#000000', 0.25 * step);
   }
   // For other cases, just shade
-  return shadeColor(hex, dir * 8 * step);
+  return shadeColor(hex, dir * stepSize * step);
 }

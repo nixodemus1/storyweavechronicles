@@ -176,8 +176,9 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
   // Recursive comment rendering (copied and adapted from original)
   function renderComments(list, depth = 0) {
     return list.map(comment => {
-      const commentBg = stepColor(backgroundColor, theme, 4 + depth);
-      const buttonBg = stepColor(backgroundColor, theme, 5 + depth);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const commentBg = stepColor(cssBg, theme, 4 + depth);
+  const buttonBg = stepColor(cssBg, theme, 5 + depth);
       const commentText = textColor;
       const avatarTextColor = comment.text_color || textColor;
       const isDeleted = comment.deleted;
@@ -200,7 +201,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
             width: 36,
             height: 36,
             borderRadius: '50%',
-            background: comment.background_color || stepColor(commentBg, theme, 1),
+        background: comment.background_color || stepColor(commentBg, theme, 1),
             color: avatarTextColor,
             display: 'flex',
             alignItems: 'center',
@@ -280,7 +281,8 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
     });
   }
 
-  const commentsContainerBg = stepColor(backgroundColor, theme, 3);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const commentsContainerBg = stepColor(cssBg, theme, 3);
   return (
     <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
       <h3 style={{ marginBottom: 10 }}>Comments</h3>

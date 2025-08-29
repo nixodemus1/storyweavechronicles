@@ -37,7 +37,8 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
       .finally(() => setLoading(false));
   }, [user?.username, user?.email, user?.secondaryEmails]);
 
-  const containerBg = stepColor(backgroundColor, theme, 1);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const containerBg = stepColor(cssBg, theme, 1);
 
   function handleChange(e) {
     const { name, checked, value, type } = e.target;
@@ -251,7 +252,8 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
     fetchNotifications();
   }, [fetchNotifications]);
 
-  const containerBg = stepColor(backgroundColor, theme, 1);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const containerBg = stepColor(cssBg, theme, 1);
 
   async function handleDismiss(id) {
     setDeleting(id);

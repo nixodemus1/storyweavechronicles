@@ -74,7 +74,8 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
       .finally(() => setSaving(false));
   }
 
-  const containerBg = stepColor(backgroundColor, theme, 1);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const containerBg = stepColor(cssBg, theme, 1);
 
   function handlePasswordChange(e) {
     setPassword(e.target.value);

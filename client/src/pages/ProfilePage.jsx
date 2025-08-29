@@ -17,8 +17,10 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
   if (isAdmin) {
     tabs.push({ key: 'admin', icon: '🛡️', label: 'Admin' });
   }
-  // Use CSS variable for sidebar background
-  const sidebarBg = "var(--sidebar-bg-color)";
+  // Use ThemeContext for backgroundColor and theme
+  const { backgroundColor: contextBg, theme: contextTheme } = useContext(ThemeContext);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || contextBg || '#fff';
+  const sidebarBg = stepColor(cssBg, contextTheme || 'light', 2);
   // Add redirect on logout
   const handleLogout = () => {
     setUser(null);
@@ -55,7 +57,7 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
             width: 48,
             height: 48,
             borderRadius: '50%',
-            background: "var(--background-color)",
+            background: stepColor(cssBg, contextTheme || 'light', 1),
             color: "var(--text-color)",
             display: 'flex',
             alignItems: 'center',
@@ -128,8 +130,8 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
 }
 
 function ProfilePage({ user, setUser }) {
-  // Use context only for user, not for colors
-  const { user: contextUser } = useContext(ThemeContext);
+  // Use context for user and backgroundColor
+  const { user: contextUser, backgroundColor, theme } = useContext(ThemeContext);
   // Persist activeTab in localStorage so it survives refreshes and re-renders
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -229,7 +231,7 @@ function ProfilePage({ user, setUser }) {
   }
 
   return (
-  <div style={{ display: 'flex', minHeight: '100vh', background: "var(--background-color)", color: "var(--text-color)" }}>
+  <div style={{ display: 'flex', minHeight: '100vh', background: stepColor(getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor, theme, 0), color: "var(--text-color)" }}>
       <ProfileSidebar
         user={effectiveUser}
         sidebarExpanded={sidebarExpanded}
@@ -241,7 +243,14 @@ function ProfilePage({ user, setUser }) {
         sidebarRef={sidebarRef}
         handleLogout={handleLogout}
       />
-      <main style={{ marginLeft: sidebarExpanded ? 180 : 56, padding: '32px 24px', width: '100%', boxSizing: 'border-box' }}>
+      <main style={{
+        marginLeft: sidebarExpanded ? 180 : 56,
+        padding: '32px 24px',
+        width: '100%',
+        boxSizing: 'border-box',
+        background: stepColor(getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor, theme, 0),
+        color: 'var(--text-color)'
+      }}>
         {tabContent}
       </main>
     </div>

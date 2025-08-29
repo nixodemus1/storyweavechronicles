@@ -23,7 +23,8 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
   const [unbanUser, setUnbanUser] = useState("");
   const [unbanStatus, setUnbanStatus] = useState("");
 
-  const containerBg = stepColor(backgroundColor, theme, 1);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const containerBg = stepColor(cssBg, theme, 1);
 
   function handleSendEmail(e) {
     e.preventDefault();

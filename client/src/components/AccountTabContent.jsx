@@ -142,7 +142,9 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
         .sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
     }, [bookmarks, books]);
     const covers = useCachedCovers(bookmarkedBooks);
-    const containerBg = stepColor(backgroundColor, theme, 1);
+  // Always use CSS variable for stepColor
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const containerBg = stepColor(cssBg, theme, 1);
 
     return (
       <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
@@ -243,7 +245,8 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
 
   // Use unified cover cache logic from LandingPage.jsx
   const covers = useCachedCovers(books);
-  const containerBg = stepColor(backgroundColor, theme, 1);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const containerBg = stepColor(cssBg, theme, 1);
 
   return (
     <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
@@ -375,7 +378,8 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
     return Math.floor(idx / commentsPageSize) + 1;
   }
 
-  const containerBg = stepColor(backgroundColor, theme, 1);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const containerBg = stepColor(cssBg, theme, 1);
 
   return (
     <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
@@ -411,7 +415,8 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
 
 const AccountTabContent = React.memo(function AccountTabContent({ user, setUser }) {
   const { backgroundColor, theme } = useContext(ThemeContext);
-  const overviewBg = stepColor(backgroundColor, theme, 1);
+  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+  const overviewBg = stepColor(cssBg, theme, 1);
   // Comments page size state
   const [commentsPageSize, setCommentsPageSize] = useState(user?.comments_page_size || 10);
   const [savingPageSize, setSavingPageSize] = useState(false);

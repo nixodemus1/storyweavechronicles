@@ -30,46 +30,48 @@ See App.css for all available variables and defaults.
 :root {
  /* Custom mode variables (default to light mode) */
   html.custom :root {
-  --background-color: #ffffff;
-  --text-color: #222222;
-  --font-family: inherit;
-  --container-bg: #f5f5f5;
-  --accent-color: #0070f3;
-  --error-color: #c00;
-  --success-color: #080;
-  /* Button styles */
-  --button-bg: #eee;
-  --button-text: #333;
-  --button-border: #bbb;
-  /* Meta and label text */
-  --meta-text: #888;
-  --edited-label: #f5c518;
-  /* Unread styles */
-  --unread-bg: #ffe0e0;
-  --unread-text: #c00;
-  --unread-shadow: #c00;
-  /* Top voted books */
-  --topvoted-bg: #f8f8f8;
-  /* Cover styles */
-  --cover-bg: #eee;
-  --cover-text: #888;
-  /* Error/success text */
-  --error-text: #c00;
-  --success-text: #080;
-  /* Delete/upvote/downvote borders */
-  --delete-border: #c00;
-  --upvote-border: #0070f3;
-  --downvote-border: #c00;
-  /* Modal styles */
-  --modal-bg: #0008;
-  --modal-content-bg: #fff;
-  --modal-content-text: #222;
-  --modal-cancel-bg: #eee;
-  --modal-cancel-text: #222;
-  /* Input borders */
-  --input-border: #ccc;
-  /* PDF Reader highlight */
-  --pdf-highlight: #f5c518;
+    --background-color: #ffffff;
+    --text-color: #222222;
+    --font-family: inherit;
+    --container-bg: #f5f5f5;
+    --accent-color: #0070f3;
+    --error-color: #c00;
+    --success-color: #080;
+    /* Button styles */
+    --button-bg: #eee;
+    --button-text: #333;
+    --button-border: #bbb;
+    /* Meta and label text */
+    --meta-text: color-mix(in srgb, var(--text-color) 60%, #888 40%);
+    --edited-label: color-mix(in srgb, var(--text-color) 70%, #f5c518 30%);
+    /* Link color: auto-adjust for contrast */
+    --link-color: color-mix(in srgb, var(--text-color) 80%, #0070f3 20%);
+    /* Unread styles */
+    --unread-bg: #ffe0e0;
+    --unread-text: #c00;
+    --unread-shadow: #c00;
+    /* Top voted books */
+    --topvoted-bg: #f8f8f8;
+    /* Cover styles */
+    --cover-bg: #eee;
+    --cover-text: color-mix(in srgb, var(--text-color) 60%, #888 40%);
+    /* Error/success text */
+    --error-text: #c00;
+    --success-text: #080;
+    /* Delete/upvote/downvote borders */
+    --delete-border: #c00;
+    --upvote-border: #0070f3;
+    --downvote-border: #c00;
+    /* Modal styles */
+    --modal-bg: #0008;
+    --modal-content-bg: #fff;
+    --modal-content-text: var(--text-color);
+    --modal-cancel-bg: #eee;
+    --modal-cancel-text: var(--text-color);
+    /* Input borders */
+    --input-border: #ccc;
+    /* PDF Reader highlight */
+    --pdf-highlight: #f5c518;
   }
 /* Dark mode variables */
 html.dark :root {
