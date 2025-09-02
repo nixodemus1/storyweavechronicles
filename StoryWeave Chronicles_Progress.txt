@@ -12,46 +12,8 @@ Improve mobile carousel, username changes, and infinite loop bugs.
 Continue general QA and bug fixes.
 Your main goals are done; focus now shifts to polishing features, fixing edge cases, and adding enhancements for a smoother user experience and easier site management.
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Here’s a prioritized migration checklist for revamping your color system, plus a summary for future reference:
 
----
-
-## **Color System Migration Checklist**
-
-### **1. Foundation**
-- [ ] Define CSS variables for all theme colors in main CSS (`index.css` or `App.css`).
-- [ ] Add fallback/default values for light/dark modes.
-
-### **2. Core Refactor**
-- [ ] Update ThemeContext to remove direct color values for styling; keep only user preferences.
-- [ ] Refactor color picker components to update CSS variables for live preview.
-- [ ] Update color picker save logic to persist chosen colors to backend.
-
-### **3. Component Migration**
-- [ ] Refactor all inline styles in components/pages to use CSS variables (e.g., `background: var(--background-color)`).
-- [ ] Update utility functions (`stepColor`, etc.) to work with CSS variables or output CSS variable references.
-- [ ] Refactor CSS/SCSS files to use CSS variables instead of hardcoded colors.
-
-### **4. Advanced Features**
-- [ ] Implement theme switching logic (bulk update CSS variables or swap CSS classes).
-- [ ] Add accessibility checks (auto-warn for poor contrast/luminance).
-- [ ] Support for custom palettes and theme presets.
-
-### **5. Testing & QA**
-- [ ] Test live color changes, theme switching, and performance.
-- [ ] Ensure all components/pages use CSS variables for colors.
-- [ ] Fix any edge cases or regressions.
-
----
-
-## **Migration Summary (for future sessions)**
-
-> Migrate all theme colors to CSS variables in your main CSS. Refactor components and color pickers to update CSS variables for instant, site-wide changes. Remove direct color values from ThemeContext. Update utility functions and CSS files to use CSS variables. Add accessibility checks and theme switching logic. Test thoroughly.
-
----
-
-You can use this checklist and summary to quickly resume or track migration progress in any future session. Let me know when you’re ready to start with step 1!
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 Render's free tier for web servers provides users with 256 MB of RAM per service. 
 This allocation is per instance, meaning each free service deployed gets its own 256MB of RAM. The free tier also includes a 0.1 CPU allocation and a connection limit of 100 connections. 
@@ -60,82 +22,83 @@ Free web services spin down after 15 minutes of inactivity.
 Render offers 750 hours of free instance time per month for your workspace across all free web services, after which they are suspended until the next month.
 Free Render Postgres databases have a 1GB limit and expire after 30 days. 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Here’s an updated summary of your project status, recent changes, and future goals for StoryWeave Chronicles:
+Here’s your updated project status summary with completed items checked off and notes on what’s in progress or pending:
 
 ---
 
-# StoryWeave Chronicles – Project Status & Roadmap (August 27, 2025)
+# StoryWeave Chronicles – Project Status & Roadmap (August 29, 2025)
 
-## Current State & Completed Features
+## ✅ Current State & Completed Features
 
 - **User Profiles:**  
-  - Persistent settings (color, font, timezone) via LocalStorage and SQLAlchemy.
-  - Sidebar tab layout for navigation (profile, settings, notifications, account).
+  - ✅ Persistent settings (color, font, timezone) via LocalStorage and SQLAlchemy.
+  - ✅ Sidebar tab layout for navigation (profile, settings, notifications, account).
 
 - **Bookmarks/Favorites:**  
-  - Add/remove bookmarks, persistent across sessions.
-  - Bookmarks visible in user profile.
-  - Export/import planned.
+  - ✅ Add/remove bookmarks, persistent across sessions.
+  - ✅ Bookmarks visible in user profile.
+  - ☐ Export/import planned.
 
 - **Voting System:**  
-  - Backend and UI for voting on books.
-  - Top lists and carousel UI for newest/most voted books.
+  - ✅ Backend and UI for voting on books.
+  - ✅ Top lists and carousel UI for newest/most voted books.
 
 - **Comment & Reply System:**  
-  - Backend and UI for comments and replies.
-  - SQLAlchemy models for moderation.
+  - ✅ Backend and UI for comments and replies.
+  - ✅ SQLAlchemy models for moderation.
 
 - **Notification System:**  
-  - In-app notifications (tab/dropdown).
-  - Email notifications via Flask-Mail.
-  - Notification preferences.
+  - ✅ In-app notifications (tab/dropdown).
+  - ✅ Email notifications via Flask-Mail.
+  - ✅ Notification preferences.
 
 - **Security Features:**  
-  - Password change, secondary email, account deletion.
-  - Security tab in UI.
+  - ✅ Password change, secondary email, account deletion.
+  - ✅ Security tab in UI.
 
 - **Database Migration:**  
-  - PostgreSQL on Render.com (1GB, expires monthly).
-  - SQLAlchemy ORM for all models.
+  - ✅ PostgreSQL on Render.com (1GB, expires monthly).
+  - ✅ SQLAlchemy ORM for all models.
 
 - **General UI/UX:**  
-  - Sidebar navigation, tabbed layout, logout.
-  - UI cleanup, placeholders/progress indicators for covers.
-  - Page-by-page text loading for readers.
+  - ✅ Sidebar navigation, tabbed layout, logout.
+  - ✅ UI cleanup, placeholders/progress indicators for covers.
+  - ✅ Page-by-page text loading for readers.
 
 - **Optimization Achievements:**  
-  - Reduced requests, bandwidth, and RAM usage.
-  - DOMContentLoaded and load times <1s.
-  - Robust backend queue/lock management.
-  - Lazy loading and browser caching for images.
-  - Pagination and async APIs.
+  - ✅ Reduced requests, bandwidth, and RAM usage.
+  - ✅ DOMContentLoaded and load times <1s.
+  - ✅ Robust backend queue/lock management.
+  - ✅ Lazy loading and browser caching for images.
+  - ✅ Pagination and async APIs.
 
 - **Scalability:**  
-  - Can serve ~1M loads/month on free tier.
-  - Stable for 200 users (current: 172).
+  - ✅ Can serve ~1M loads/month on free tier.
+  - ✅ Stable for 200 users (current: 172).
 
 - **Backend Stability:**  
-  - No server errors or restarts.
-  - Stable PDF processing and queue management.
+  - ✅ No server errors or restarts.
+  - ✅ Stable PDF processing and queue management.
 
-## Recent Bug Fixes & Improvements
+## ✅ Recent Bug Fixes & Improvements
 
-- Fixed notification dropdown toggle and update logic.
-- Provided feedback for admin rights changes.
-- Optimized performance and data usage.
-- Auto-setup timezone based on local time.
-- Fixed infinite loop in update depth (search/account pages).
-- Fixed document closing error.
+- ✅ Fixed notification dropdown toggle and update logic.
+- ✅ Provided feedback for admin rights changes.
+- ✅ Optimized performance and data usage.
+- ✅ Auto-setup timezone based on local time.
+- ✅ Fixed infinite loop in update depth (search/account pages).
+- ✅ Fixed document closing error.
+- ✅ Color theme logic unified: instant updates to ThemeContext, CSS variables, and user object (fixes color lag/mismatch).
 
-## Remaining Bugs & Edge Cases
+## ☐ Remaining Bugs & Edge Cases
 
-- Color theme edge cases, accessibility/contrast, color picker stuttering.
-- Admin features: logs, rate limiting, restore deleted content, user activity overview.
-- Newsletter feature (non-functional).
-- Export/import bookmarks.
-- Carousel issues on mobile.
-- Allow username changes after account creation.
-- Continue fixing any remaining bugs.
+- ☐ Color theme edge cases, accessibility/contrast, color picker stuttering (mostly fixed, but monitoring for new issues).
+- ☐ Admin features: logs, rate limiting, restore deleted content, user activity overview.
+- ☐ Newsletter feature (non-functional).
+- ☐ Export/import bookmarks.
+- ☐ Carousel issues on mobile.
+- ☐ Allow username changes after account creation.
+- ☐ Continue fixing any remaining bugs.
 
 ## Deployment Constraints
 
@@ -147,19 +110,19 @@ Here’s an updated summary of your project status, recent changes, and future g
 
 ## Future Goals
 
-- Reduce image/cover loading time (currently 47.6s).
-- Further optimize RAM usage (image processing, caching).
-- Consider service workers for offline access.
-- Set up automated alerts for memory, queue length, error rates.
-- Migrate database to persistent free-tier host (Supabase, Neon, ElephantSQL) or automate monthly backup/restore.
-- UI polish, admin tools, and performance enhancements.
+- ☐ Reduce image/cover loading time (currently 47.6s).
+- ☐ Further optimize RAM usage (image processing, caching).
+- ☐ Consider service workers for offline access.
+- ☐ Set up automated alerts for memory, queue length, error rates.
+- ☐ Migrate database to persistent free-tier host (Supabase, Neon, ElephantSQL) or automate monthly backup/restore.
+- ☐ UI polish, admin tools, and performance enhancements.
 
 ---
 
 **Summary:**  
-All main features are implemented and stable. The app is optimized for current resource limits and user base. Focus is now on bug fixes, admin tools, performance, and database persistence.
+All core features are implemented and stable. The app is optimized for current resource limits and user base. Focus is now on bug fixes, admin tools, performance, and database persistence.
 
-Let me know if you want to update or expand any section!
+Let me know if you want to update, expand, or prioritize any section!
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Here’s a detailed before/after analysis of your optimizations, with actionable insights for future improvements:
 

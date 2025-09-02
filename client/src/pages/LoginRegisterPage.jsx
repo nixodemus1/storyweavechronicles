@@ -1,6 +1,5 @@
 import React, { useState, useContext } from "react";
 import { ThemeContext } from "../themeContext";
-import { stepColor, getLuminance } from "../utils/colorUtils";
 
 // Utility to normalize hex color to 6 digits
 function normalizeHex(hex) {
@@ -72,28 +71,21 @@ export default function LoginRegisterPage({ onAuth }) {
     }
   }
 
-  // Use the same container color logic as LandingPage
-  function getContainerBg(bg, theme, step = 1) {
-    if (!bg) return theme === 'dark' ? '#232323' : '#f5f5f5';
-    const lum = getLuminance(bg);
-    const direction = lum < 0.5 ? 1 : -1;
-    return stepColor(bg, theme, step, direction);
-  }
-  const containerBg = getContainerBg(backgroundColor, theme, 1);
-  // Use a slightly different step for button backgrounds for visual separation
-  const buttonBg = getContainerBg(backgroundColor, theme, 2);
-  const buttonText = getLuminance(buttonBg) < 0.5 ? '#fff' : '#232323';
+  // Use CSS variables for container and button backgrounds
+  const containerBg = "var(--container-bg)";
+  const buttonBg = "var(--button-bg)";
+  const buttonText = "var(--button-text)";
 
   return (
     <div
       className={`login-register-page ${theme}-mode`}
-      style={{ background: backgroundColor, color: textColor, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}
+      style={{ background: "var(--background-color)", color: "var(--text-color)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}
     >
       <form
         onSubmit={handleSubmit}
         style={{
           background: containerBg,
-          color: textColor,
+          color: "var(--text-color)",
           borderRadius: 12,
           boxShadow: "0 2px 16px rgba(0,0,0,0.08)",
           padding: 32,
@@ -184,12 +176,12 @@ export default function LoginRegisterPage({ onAuth }) {
           {mode === "login" ? (
             <span>
               New here?{' '}
-              <button type="button" style={{ color: textColor, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }} onClick={() => setMode("register")}>Register</button>
+              <button type="button" style={{ color: "var(--text-color)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }} onClick={() => setMode("register")}>Register</button>
             </span>
           ) : (
             <span>
               Already have an account?{' '}
-              <button type="button" style={{ color: textColor, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }} onClick={() => setMode("login")}>Login</button>
+              <button type="button" style={{ color: "var(--text-color)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }} onClick={() => setMode("login")}>Login</button>
             </span>
           )}
         </div>

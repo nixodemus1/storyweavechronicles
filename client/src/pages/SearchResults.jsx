@@ -1,3 +1,5 @@
+import { stepColor } from "../utils/colorUtils";
+
 // --- Unified cover cache logic from LandingPage.jsx ---
 function useCachedCovers(pdfs) {
   const [covers, setCovers] = React.useState({});
@@ -8,14 +10,17 @@ function useCachedCovers(pdfs) {
     const newCovers = {};
     const newLoading = {};
     pdfs.forEach(pdf => {
-      if (!pdf || !pdf.id) return;
-      const { url, expired } = getCoverFromCache(pdf.id);
-      newCovers[pdf.id] = url;
-      newLoading[pdf.id] = false;
-      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
-        newLoading[pdf.id] = true;
+      const bookId = pdf && (pdf.drive_id || pdf.id);
+      if (!bookId) return;
+      const { url, expired } = getCoverFromCache(bookId);
+      // If cached value is a blob URL, ignore and re-fetch
+      const isBlobUrl = url && url.startsWith('blob:');
+      newCovers[bookId] = isBlobUrl ? undefined : url;
+      newLoading[bookId] = false;
+      if (!url || expired || isBlobUrl || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
+        newLoading[bookId] = true;
         let sessionId = (user && user.sessionId) || localStorage.getItem('swc_session_id');
-        let coverUrl = `${API_BASE_URL}/pdf-cover/${pdf.id}`;
+        let coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
         if (sessionId) {
           coverUrl += `?session_id=${encodeURIComponent(sessionId)}`;
         }
@@ -29,14 +34,17 @@ function useCachedCovers(pdfs) {
             if (blob && blob instanceof Blob && blob.type.startsWith('image/')) {
               coverUrl = URL.createObjectURL(blob);
             }
-            setCoverInCache(pdf.id, coverUrl);
-            if (isMounted) setCovers(c => ({ ...c, [pdf.id]: coverUrl }));
-            if (isMounted) setLoadingCovers(l => ({ ...l, [pdf.id]: false }));
+            // Do NOT cache blob URLs in localStorage
+            if (coverUrl === '/no-cover.png' || coverUrl.startsWith(API_BASE_URL)) {
+              setCoverInCache(bookId, coverUrl);
+            }
+            if (isMounted) setCovers(c => ({ ...c, [bookId]: coverUrl }));
+            if (isMounted) setLoadingCovers(l => ({ ...l, [bookId]: false }));
           })
           .catch(() => {
-            setCoverInCache(pdf.id, '/no-cover.png');
-            if (isMounted) setCovers(c => ({ ...c, [pdf.id]: '/no-cover.png' }));
-            if (isMounted) setLoadingCovers(l => ({ ...l, [pdf.id]: false }));
+            setCoverInCache(bookId, '/no-cover.png');
+            if (isMounted) setCovers(c => ({ ...c, [bookId]: '/no-cover.png' }));
+            if (isMounted) setLoadingCovers(l => ({ ...l, [bookId]: false }));
           });
       }
     });
@@ -49,7 +57,6 @@ function useCachedCovers(pdfs) {
 import React, { useEffect, useState, useContext } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
-import { stepColor, getLuminance } from "../utils/colorUtils";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 function getCoverFromCache(bookId) {
@@ -88,7 +95,7 @@ export default function SearchResults() {
   const location = useLocation();
   const navigate = useNavigate();
   // Use context only for theme and user, not for colors
-  const { theme, user } = useContext(ThemeContext);
+  const { theme, user, backgroundColor } = useContext(ThemeContext);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [bookmarks, setBookmarks] = useState([]);
@@ -179,38 +186,36 @@ export default function SearchResults() {
       null
     );
   }
-  const sortedResults = [...results].sort((a, b) => {
-    if (sort === "az") return a.title.localeCompare(b.title);
-    if (sort === "za") return b.title.localeCompare(a.title);
-    if (sort === "newest" || sort === "oldest") {
-      const dateA = getLastUpdated(a) ? new Date(getLastUpdated(a)) : new Date(0);
-      const dateB = getLastUpdated(b) ? new Date(getLastUpdated(b)) : new Date(0);
-      return sort === "newest" ? dateB - dateA : dateA - dateB;
-    }
-    return 0;
-  });
 
+  // Memoize sortedResults to avoid new array on every render
+  const sortedResults = React.useMemo(() => {
+    return [...results].sort((a, b) => {
+      if (sort === "az") return a.title.localeCompare(b.title);
+      if (sort === "za") return b.title.localeCompare(a.title);
+      if (sort === "newest" || sort === "oldest") {
+        const dateA = getLastUpdated(a) ? new Date(getLastUpdated(a)) : new Date(0);
+        const dateB = getLastUpdated(b) ? new Date(getLastUpdated(b)) : new Date(0);
+        return sort === "newest" ? dateB - dateA : dateA - dateB;
+      }
+      return 0;
+    });
+  }, [results, sort]);
 
   // Use unified cover cache logic
   const { covers, loadingCovers } = useCachedCovers(sortedResults);
 
-  // Container colors
-  function getContainerBg(bg, theme, step = 1) {
-    if (!bg) return theme === 'dark' ? '#232323' : '#f5f5f5';
-    const lum = getLuminance(bg);
-    const direction = lum < 0.5 ? 1 : -1;
-    return stepColor(bg, theme, step, direction);
-  }
-  // Use CSS variables for container background and text
-  const containerBg = "var(--container-bg-color)";
-  const containerText = "var(--container-text-color)";
+  // Use stepColor for container background and CSS variable for text
+  const containerBg = stepColor(backgroundColor, theme, 1);
+  const listItemBg = stepColor(backgroundColor, theme, 2);
+  const noCoverBg = stepColor(backgroundColor, theme, 3);
+  const containerText = "var(--text-color)";
 
   return (
     <div
       className={`search-results-page ${theme}-mode`}
-  style={{ background: "var(--background-color)", color: "var(--text-color)", minHeight: '100vh', padding: '32px 0' }}
+      style={{ background: stepColor(backgroundColor, theme, 0), color: "var(--text-color)", minHeight: '100vh', padding: '32px 0' }}
     >
-  <div style={{ maxWidth: 900, margin: '0 auto', background: containerBg, color: containerText, borderRadius: 10, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto', background: containerBg, color: containerText, borderRadius: 10, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
         <h2 style={{ marginBottom: 18 }}>Search Results for "{query}"</h2>
         <div style={{ marginBottom: 18, display: 'flex', gap: 12, alignItems: 'center' }}>
           <span>Sort by:</span>
@@ -228,7 +233,8 @@ export default function SearchResults() {
         ) : (
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {sortedResults.map(pdf => {
-              if (!pdf.id) {
+              const bookId = pdf.drive_id || pdf.id;
+              if (!bookId) {
                 console.warn('[SearchResults] Rendering: invalid book id', pdf);
                 return (
                   <li key={Math.random()} style={{ color: '#c00', fontSize: 14, marginBottom: 18 }}>
@@ -236,10 +242,10 @@ export default function SearchResults() {
                   </li>
                 );
               }
-              const coverUrl = covers[pdf.id] || '/no-cover.png';
-              const isLoading = loadingCovers[pdf.id];
+              const coverUrl = covers[bookId] || '/no-cover.png';
+              const isLoading = loadingCovers[bookId];
               return (
-                <li key={pdf.id || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: containerBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                <li key={bookId || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: listItemBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
                   {/* Cover image or placeholder */}
                   <div style={{ width: 60, height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {isLoading
@@ -247,7 +253,7 @@ export default function SearchResults() {
                         <div style={{
                           width: 60, height: 90,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: '#e0ffe0', color: '#080', borderRadius: 6, // keep for status highlights
+                          background: 'var(--success-bg, #e0ffe0)', color: 'var(--success-text, #080)', borderRadius: 6,
                           fontSize: 14, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
                         }}>Loading Cover...</div>
                       )
@@ -256,7 +262,7 @@ export default function SearchResults() {
                           <div style={{
                             width: 60, height: 90,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: '#eee', color: '#888', borderRadius: 6, // keep for status highlights
+                            background: noCoverBg, color: 'var(--secondary-text-color)', borderRadius: 6,
                             fontSize: 14, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
                           }}>No Cover</div>
                         )
@@ -267,7 +273,7 @@ export default function SearchResults() {
                             style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                             onError={e => {
                               if (e.target.src !== '/no-cover.png') {
-                                setCoverInCache(pdf.id, '/no-cover.png');
+                                setCoverInCache(bookId, '/no-cover.png');
                                 e.target.src = '/no-cover.png';
                               }
                             }}
@@ -290,10 +296,10 @@ export default function SearchResults() {
                     </div>
                   </div>
                   {bookmarks.includes(pdf.id) && (
-                    <span style={{ color: '#0070f3', fontWeight: 600, fontSize: 15, marginRight: 8 }}>★ Favorited</span>
+                    <span style={{ color: containerText, fontWeight: 600, fontSize: 15, marginRight: 8 }}>★ Favorited</span>
                   )}
                   <button
-                    style={{ background: '#e0f7ff', color: '#0070f3', border: '1px solid #0070f3', borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: 'pointer' }} // keep for status highlights
+                    style={{ background: stepColor(backgroundColor, theme, 0), color: containerText, border: '1px solid var(--accent-color)', borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: 'pointer' }}
                     onClick={() => navigate(`/read/${pdf.id}`)}
                   >Read</button>
                 </li>

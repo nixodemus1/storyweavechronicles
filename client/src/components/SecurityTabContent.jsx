@@ -151,7 +151,7 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
       {/* Secondary Email Management */}
       <div style={{ marginBottom: 24 }}>
         <h4>Secondary Emails</h4>
-        {secondaryEmails && secondaryEmails.length > 0 ? (
+        {Array.isArray(secondaryEmails) && secondaryEmails.length > 0 ? (
           <ul style={{ listStyle: 'none', padding: 0, marginBottom: 10 }}>
             {secondaryEmails.map(email => (
               <li key={email} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>

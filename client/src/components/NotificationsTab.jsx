@@ -7,7 +7,7 @@ const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 const NotificationsTabContent = React.memo(function NotificationsTabContent({ user, setUser }) {
 
-  const { backgroundColor, textColor, theme } = useContext(ThemeContext);
+  const { textColor} = useContext(ThemeContext);
   const [prefs, setPrefs] = useState(null);
   const [saving, setSaving] = useState(false);
   const [emailChannels, setEmailChannels] = useState([]);
@@ -24,7 +24,12 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
     }
     setEmailChannels(emails);
     // Fetch notification prefs
-    fetch(`${API_BASE_URL}/api/get-notification-prefs`, {
+    let sessionId = (user && user.sessionId) || localStorage.getItem('swc_session_id');
+    let prefsUrl = `${API_BASE_URL}/api/get-notification-prefs`;
+    if (sessionId) {
+      prefsUrl += `?session_id=${encodeURIComponent(sessionId)}`;
+    }
+    fetch(prefsUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user.username })
@@ -36,10 +41,7 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
         }
       })
       .finally(() => setLoading(false));
-  }, [user?.username, user?.email, user?.secondaryEmails]);
-
-  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
-  const containerBg = stepColor(cssBg, theme, 1);
+  }, [user, user?.username, user?.email, user?.secondaryEmails]);
 
   function handleChange(e) {
     const { name, checked, value, type } = e.target;
@@ -229,7 +231,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   const [page, setPage] = useState(1);
   const pageSize = 50;
   const [totalPages, setTotalPages] = useState(1);
-  const [refreshFlag, setRefreshFlag] = useState(0);
+  const [setRefreshFlag] = useState(0);
 
   // Always use the correct response key and force re-fetch after actions
   const fetchNotifications = React.useCallback(() => {
@@ -247,14 +249,13 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [user?.username, page, pageSize, refreshFlag]);
+  }, [user?.username, page, pageSize]);
 
   React.useEffect(() => {
     fetchNotifications();
   }, [fetchNotifications]);
 
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
-  const containerBg = stepColor(cssBg, theme, 1);
   const historyBg = stepColor(cssBg, theme, 2, -1); // step down for history items
   // Dynamically determine step direction based on luminance
   const historyLum = getLuminance(historyBg);

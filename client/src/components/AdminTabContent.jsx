@@ -25,6 +25,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
 
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
   const containerBg = stepColor(cssBg, theme, 1);
+  const buttonBg = stepColor(backgroundColor, theme, 2);
 
   function handleSendEmail(e) {
     e.preventDefault();
@@ -110,7 +111,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
         <button
           type="submit"
           disabled={saving}
-          style={{ background: 'var(--button-bg, ' + stepColor(containerBg, "dark", 1, 1) + ')', color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+          style={{ background: buttonBg, color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? "Sending..." : "Send Emergency Email"}
         </button>
@@ -141,7 +142,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
         <button
           type="submit"
           disabled={saving}
-          style={{ background: 'var(--button-bg, ' + stepColor(containerBg, "dark", 1, 1) + ')', color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+          style={{ background: buttonBg, color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? (adminAction === "give" ? "Granting..." : "Revoking...") : (adminAction === "give" ? "Grant Admin" : "Revoke Admin")}
         </button>
@@ -162,7 +163,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
         <button
           type="submit"
           disabled={saving || !banUser}
-          style={{ background: 'var(--button-bg, ' + stepColor(containerBg, "dark", 1, 1) + ')', color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+          style={{ background: buttonBg, color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? "Processing..." : "Ban User"}
         </button>
@@ -201,7 +202,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
         <button
           type="submit"
           disabled={saving || !unbanUser}
-          style={{ background: 'var(--button-bg, ' + stepColor(containerBg, "dark", 1, 1) + ')', color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
+          style={{ background: buttonBg, color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}
         >
           {saving ? "Processing..." : "Unban User"}
         </button>

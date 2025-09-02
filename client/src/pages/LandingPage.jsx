@@ -1,3 +1,4 @@
+import { stepColor } from "../utils/colorUtils";
 // LocalStorage cover cache utilities
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 function getCoverFromCache(bookId) {
@@ -91,7 +92,7 @@ function SearchBar({ pdfs, navigate }) {
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteResults, setAutocompleteResults] = useState([]);
   const containerRef = React.useRef(null);
-  const { backgroundColor } = useContext(ThemeContext);
+  const { theme, backgroundColor, textColor } = useContext(ThemeContext);
 
   useEffect(() => {
     if (!searchInput.trim()) {
@@ -149,7 +150,7 @@ function SearchBar({ pdfs, navigate }) {
   };
 
   return (
-  <SteppedContainer depth={0} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 32, marginTop: 32, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', position: 'relative', background: backgroundColor }} ref={containerRef}>
+  <SteppedContainer depth={0} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 32, marginTop: 32, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', position: 'relative', background: stepColor(backgroundColor, theme, 0) }} ref={containerRef}>
       <form onSubmit={handleSearchSubmit} autoComplete="off" style={{ width: '100%', maxWidth: 400, display: 'flex', justifyContent: 'center' }}>
           <input
             type="text"
@@ -169,8 +170,8 @@ function SearchBar({ pdfs, navigate }) {
               borderRadius: 6,
               fontSize: 18,
               border: '1.5px solid #bbb',
-              color: 'inherit',
-              background: backgroundColor, // base background color
+              background: stepColor(backgroundColor, theme, 0), // base background color
+              color: textColor,
               boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
             }}
           />
@@ -189,7 +190,8 @@ function SearchBar({ pdfs, navigate }) {
           overflowY: 'auto',
           marginTop: 2,
           zIndex: 20,
-          background: 'inherit'
+          background: stepColor(backgroundColor, theme, 1),
+          color: textColor,
         }}>
           {autocompleteResults.map(pdf => (
             <div
@@ -586,23 +588,23 @@ export default function LandingPage() {
 
   return (
     <ContainerDepthProvider>
-      <SteppedContainer depth={0} style={{ minHeight: '100vh', padding: 0 }}>
-        <div className={`landing-page ${theme}-mode`} style={{ background: 'transparent', color: textColor, minHeight: '100vh' }}>
+      <SteppedContainer depth={0} style={{ minHeight: '100vh', padding: 0, background: stepColor(_backgroundColor, theme, 0) }}>
+        <div className={`landing-page ${theme}-mode`} style={{ background: stepColor(_backgroundColor, theme, 0), color: textColor, minHeight: '100vh' }}>
           <SearchBar pdfs={pdfs} navigate={navigate} depth={1} />
           <CarouselSection pdfs={pdfs} navigate={navigate} settings={settings} depth={1} />
           <TopListsSection topNewest={topNewest} topVoted={topVoted} navigate={navigate} depth={1} />
           {loadingPdfs && (
-            <div style={{ textAlign: 'center', color: '#888', margin: 24 }}>Loading more books...</div>
+            <div style={{ textAlign: 'center', color: '#888', margin: 24, background: stepColor(_backgroundColor, theme, 1), borderRadius: 8 }}>Loading more books...</div>
           )}
           {/* Retry covers button at the very bottom */}
-          <SteppedContainer depth={1} style={{ width: '100%', display: 'flex', justifyContent: 'center', marginTop: 40, marginBottom: 24, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <SteppedContainer depth={1} style={{ width: '100%', display: 'flex', justifyContent: 'center', marginTop: 40, marginBottom: 24, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', background: stepColor(_backgroundColor, theme, 1) }}>
             <button
               onClick={retryAllCovers}
               style={{
                 padding: '10px 28px',
                 borderRadius: 8,
                 border: `1.5px solid ${textColor}`,
-                background: _backgroundColor,
+                background: stepColor(_backgroundColor, theme, 2),
                 color: textColor,
                 fontWeight: 700,
                 fontSize: 18,

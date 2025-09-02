@@ -7,7 +7,7 @@ const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
   // Always get context first so values are available for state initializers
-  const { theme, backgroundColor, textColor, font, timezone, setBackgroundColor, setTextColor, setFont, setTimezone } = useContext(ThemeContext);
+  const { theme, setTheme, backgroundColor, textColor, font, timezone, setBackgroundColor, setTextColor, setFont, setTimezone } = useContext(ThemeContext);
 
   // --- Restore preview state for color picker ---
   const [previewBackgroundColor, setPreviewBackgroundColor] = useState(backgroundColor);
@@ -25,20 +25,33 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
   const savePendingProfile = async () => {
     if (!props.user?.username) return;
     try {
-      await fetch(`${API_BASE_URL}/api/update-profile-settings`, {
+      // Save font and timezone
+      const profileRes = await fetch(`${API_BASE_URL}/api/update-profile-settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: props.user.username,
+          font: pendingProfile.font,
+          timezone: pendingProfile.timezone,
+        })
+      });
+      const profileData = await profileRes.json();
+
+      // Save colors
+      const colorRes = await fetch(`${API_BASE_URL}/api/update-colors`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: props.user.username,
           backgroundColor: pendingProfile.backgroundColor,
           textColor: pendingProfile.textColor,
-          font: pendingProfile.font,
-          timezone: pendingProfile.timezone,
         })
       });
-      // Optionally update user in parent/context
+      const colorData = await colorRes.json();
+
+      // Update user context with latest data
       if (props.setUser) {
-        props.setUser(u => u ? { ...u, ...pendingProfile } : u);
+        props.setUser(u => u ? { ...u, ...profileData, ...colorData } : u);
       }
     } catch (err) {
       console.log('Error saving profile:', err);
@@ -96,23 +109,27 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
 
   // Only set default colors when theme changes AND colors are still at their defaults
   React.useEffect(() => {
-    // Only update if colors are at their defaults (not user-picked)
+    // Only apply default colors if theme is not 'custom'
     const defaultLightBg = '#fff';
     const defaultLightText = '#222222';
     const defaultDarkBg = '#222222';
     const defaultDarkText = '#ffffff';
+    if (theme === 'custom') {
+      // Do not override custom colors
+      return;
+    }
     if (theme === 'dark') {
-      if ((backgroundColor === defaultLightBg || backgroundColor === '#ffffff') && backgroundColor !== defaultDarkBg) {
+      if ((backgroundColor !== defaultDarkBg)) {
         setBackgroundColor(defaultDarkBg);
       }
-      if ((textColor === defaultLightText || textColor === '#222' || textColor === '#222222') && textColor !== defaultDarkText) {
+      if ((textColor !== defaultDarkText)) {
         setTextColor(defaultDarkText);
       }
     } else {
-      if ((backgroundColor === defaultDarkBg || backgroundColor === '#222') && backgroundColor !== defaultLightBg) {
+      if ((backgroundColor !== defaultLightBg)) {
         setBackgroundColor(defaultLightBg);
       }
-      if ((textColor === defaultDarkText || textColor === '#fff' || textColor === '#ffffff') && textColor !== defaultLightText) {
+      if ((textColor !== defaultLightText)) {
         setTextColor(defaultLightText);
       }
     }
@@ -178,6 +195,8 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
       setPendingProfile(p => ({ ...p, backgroundColor: newColor }));
       document.documentElement.style.setProperty('--background-color', newColor);
       activateCustomTheme();
+      setTheme('custom');
+      setBackgroundColor(newColor);
       // Patch: update user object in context immediately
       if (props.setUser) {
         props.setUser(u => u ? { ...u, background_color: newColor, backgroundColor: newColor } : u);
@@ -196,6 +215,8 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
       document.documentElement.style.setProperty('--secondary-text-color', secondaryText);
       document.documentElement.style.setProperty('--link-color', linkColor);
       activateCustomTheme();
+      setTheme('custom');
+      setTextColor(newColor);
       // Patch: update user object in context immediately
       if (props.setUser) {
         props.setUser(u => u ? { ...u, text_color: newColor, textColor: newColor } : u);
@@ -221,7 +242,7 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
             Background:
       <input
         type="color"
-        value={previewBackgroundColor}
+        value={normalizeHex(previewBackgroundColor)}
         onChange={handleBackgroundColorChange}
         onBlur={handleBackgroundColorBlur}
         style={{ background: previewBackgroundColor, color: previewTextColor }}
@@ -232,7 +253,7 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
             Text:
       <input
         type="color"
-        value={previewTextColor}
+        value={normalizeHex(previewTextColor)}
         onChange={handleTextColorChange}
         onBlur={handleTextColorBlur}
         style={{ background: previewBackgroundColor, color: previewTextColor, border: '1px solid #ccc', borderRadius: 4 }}

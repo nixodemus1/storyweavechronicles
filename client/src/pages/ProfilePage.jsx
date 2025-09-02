@@ -1,13 +1,13 @@
 import React, { useContext, useState, useRef } from "react";
-import { ThemeContext } from "../themeContext";
 import { stepColor } from "../utils/colorUtils";
+import { ThemeContext } from "../themeContext";
 import AccountTabContent from "../components/AccountTabContent";
 import NotificationsTab from "../components/NotificationsTab";
 import AdminTabContent from "../components/AdminTabContent";
 import SettingsTabContent from "../components/SettingsTabContent";
 import SecurityTabContent from "../components/SecurityTabContent";
 
-function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgroundColor, textColor, isAdmin, setUser, sidebarRef }) {
+function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, isAdmin, setUser, sidebarRef }) {
   const tabs = [
     { key: 'settings', icon: '⚙️', label: 'Settings' },
     { key: 'security', icon: '🔒', label: 'Security' },
@@ -17,10 +17,14 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
   if (isAdmin) {
     tabs.push({ key: 'admin', icon: '🛡️', label: 'Admin' });
   }
-  // Use ThemeContext for backgroundColor and theme
-  const { backgroundColor: contextBg, theme: contextTheme } = useContext(ThemeContext);
-  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || contextBg || '#fff';
-  const sidebarBg = stepColor(cssBg, contextTheme || 'light', 1);
+  // Use ThemeContext for backgroundColor, textColor, and theme
+  const { textColor: contextText} = useContext(ThemeContext);
+  const { backgroundColor, theme } = useContext(ThemeContext);
+  // Use stepColor for sidebar background (darker shade)
+  const sidebarBg = stepColor(backgroundColor, theme, 1);
+  // Use raw backgroundColor for avatar background
+  const avatarBg = backgroundColor;
+    // Use contextText for avatar border
   // Add redirect on logout
   const handleLogout = () => {
     setUser(null);
@@ -36,7 +40,7 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
         height: '100vh',
         width: sidebarExpanded ? 180 : 56,
   background: sidebarBg,
-  color: "var(--sidebar-text-color)",
+  color: "var(--text-color)",
         transition: 'width 0.2s',
         display: 'flex',
         flexDirection: 'column',
@@ -57,20 +61,20 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
             width: 48,
             height: 48,
             borderRadius: '50%',
-            background: stepColor(cssBg, contextTheme || 'light', 1),
-            color: "var(--text-color)",
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginBottom: 6,
-            fontWeight: 700,
-            fontSize: 24,
-            border: `2px solid var(--text-color)`,
+              background: avatarBg,
+              color: "var(--text-color)",
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 6,
+              fontWeight: 700,
+              fontSize: 24,
+              border: `2px solid ${contextText}`,
           }}
         >
           {user?.username ? user.username[0].toUpperCase() : '?'}
         </div>
-  {sidebarExpanded && <div style={{ fontWeight: 600, fontSize: 16, color: "var(--text-color)" }}>{user?.username}</div>}
+  {sidebarExpanded && <div style={{ fontWeight: 600, fontSize: 16, color: contextText }}>{user?.username}</div>}
       </div>
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 0 }}>
         {tabs.map(tab => (
@@ -78,8 +82,8 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             style={{
-              background: activeTab === tab.key ? "var(--text-color)" : 'none',
-              color: activeTab === tab.key ? "var(--background-color)" : "var(--text-color)",
+              background: activeTab === tab.key ? "var(--accent-color)" : 'none',
+              color: activeTab === tab.key ? "var(--container-bg)" : "var(--text-color)",
               border: 'none',
               borderRadius: 6,
               fontWeight: 600,
@@ -105,8 +109,8 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
       <button
         onClick={handleLogout}
         style={{
-          background: '#c00',
-          color: '#fff', // keep for destructive actions
+          background: "var(--error-color)",
+          color: "var(--container-bg)",
           border: 'none',
           borderRadius: 6,
           fontWeight: 600,
@@ -131,7 +135,7 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, backgr
 
 function ProfilePage({ user, setUser }) {
   // Use context for user and backgroundColor
-  const { user: contextUser, backgroundColor, theme } = useContext(ThemeContext);
+  const { user: contextUser} = useContext(ThemeContext);
   // Persist activeTab in localStorage so it survives refreshes and re-renders
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -230,14 +234,23 @@ function ProfilePage({ user, setUser }) {
       tabContent = <SettingsTabContent ref={settingsTabRef} user={user} setUser={setUser} />;
   }
 
+  const { backgroundColor} = useContext(ThemeContext);
+  // Use custom color for the outermost container background (no white space)
+  const pageBg = backgroundColor || "var(--background-color)";
+  // Use custom color for main container background (no white space)
+  const mainBg = backgroundColor || "var(--background-color)";
   return (
-  <div style={{ display: 'flex', minHeight: '100vh', background: stepColor(getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor, theme, 0), color: "var(--text-color)" }}>
+    <div style={{
+      display: 'flex',
+      minHeight: '100vh',
+      background: pageBg,
+      color: "var(--text-color)"
+    }}>
       <ProfileSidebar
         user={effectiveUser}
         sidebarExpanded={sidebarExpanded}
         activeTab={activeTab}
         setActiveTab={handleTabSwitch}
-  // backgroundColor and textColor props can be removed if not used in child
         isAdmin={isAdmin}
         setUser={setUser}
         sidebarRef={sidebarRef}
@@ -248,8 +261,8 @@ function ProfilePage({ user, setUser }) {
         padding: '32px 24px',
         width: '100%',
         boxSizing: 'border-box',
-        background: stepColor(getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor, theme, 0),
-        color: 'var(--text-color)'
+        background: mainBg,
+        color: "var(--text-color)"
       }}>
         {tabContent}
       </main>

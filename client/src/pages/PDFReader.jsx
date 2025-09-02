@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useContext } from "react";
 import { useParams } from "react-router-dom";
-import { stepColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
 import { SteppedContainer } from "../components/ContainerDepthContext.jsx";
 // Removed CommentsProvider import; using memoized CommentsSection only
@@ -157,7 +156,7 @@ export default function PDFReader() {
   const [pageCount, setPageCount] = useState(0); // Track total pages as they arrive
   const [bookMeta, setBookMeta] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const { theme, textColor, backgroundColor, user, setUser } = useContext(ThemeContext);
+  const { theme, user, setUser } = useContext(ThemeContext);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkMsg, setBookmarkMsg] = useState("");
   const [userVote, setUserVote] = useState(null);
@@ -166,12 +165,12 @@ export default function PDFReader() {
   // Now handled by CommentsContext
 
   // Color logic for containers and buttons
-  const baseBg = stepColor(backgroundColor, theme, 0);
-  const navButtonBg = stepColor(backgroundColor, theme, 1);
-  const navButtonText = textColor;
-  const pdfPageBg = stepColor(backgroundColor, theme, 1);
-  const bookMetaBg = stepColor(backgroundColor, theme, 2);
-  const commentsOuterBg = stepColor(backgroundColor, theme, 3);
+  const baseBg = "var(--background-color)";
+  const navButtonBg = "var(--button-bg)";
+  const navButtonText = "var(--button-text)";
+  const pdfPageBg = "var(--container-bg)";
+  const bookMetaBg = "var(--container-bg)";
+  const commentsOuterBg = "var(--container-bg)";
 
   // Fetch all pages sequentially and store in localStorage
   const [pdfError, setPdfError] = useState(null);
@@ -499,8 +498,8 @@ export default function PDFReader() {
   // Remove loadingBook check here, always allow navigation
 
   return (
-    <SteppedContainer step={0} style={{ minHeight: '100vh', background: baseBg, color: textColor }} className={`pdf-reader-container ${theme}-mode`}>
-      <header className="pdf-reader-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', marginBottom: 16 }}>
+  <SteppedContainer step={0} style={{ minHeight: '100vh', background: baseBg, color: "var(--text-color)" }} className={`pdf-reader-container ${theme}-mode`}>
+  <header className="pdf-reader-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', marginBottom: 16, background: baseBg, color: "var(--text-color)" }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
           {/* Logo/title can be added here if needed for PDFReader */}
         </div>
@@ -508,7 +507,7 @@ export default function PDFReader() {
           {/* Theme toggle or other header actions if needed */}
         </div>
       </header>
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
         <button
           className="pdf-reader-btn"
           onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
@@ -519,7 +518,6 @@ export default function PDFReader() {
         </button>
         <span className="pdf-reader-page-indicator" style={{ fontWeight: 600, fontSize: 18 }}>
           Page {currentPage} / {
-            // Show live loaded count until all pages loaded or error
             (pdfError || (pageCount > 0 && pages.length === pageCount))
               ? pageCount
               : pages.length
@@ -538,7 +536,7 @@ export default function PDFReader() {
         </button>
       </div>
 
-      <SteppedContainer step={1} style={{ borderRadius: 8, padding: 32, margin: 16, background: pdfPageBg, maxWidth: 1100, marginLeft: 'auto', marginRight: 'auto' }} className="pdf-reader-page">
+  <SteppedContainer step={1} style={{ borderRadius: 8, padding: 32, margin: 16, background: pdfPageBg, maxWidth: 1100, marginLeft: 'auto', marginRight: 'auto', color: "var(--text-color)" }} className="pdf-reader-page">
         {/* Show loading or page content */}
         {pageObj ? (
           <div key={pageObj.page}>
@@ -610,7 +608,7 @@ export default function PDFReader() {
       {/* Show error banner between text and comments if error occurs */}
       {errorBanner}
 
-      <SteppedContainer step={2} style={{ margin: '0 auto', maxWidth: 900, borderRadius: 8, padding: 20, marginBottom: 32, marginTop: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', background: bookMetaBg }}>
+  <SteppedContainer step={2} style={{ margin: '0 auto', maxWidth: 900, borderRadius: 8, padding: 20, marginBottom: 32, marginTop: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', background: bookMetaBg, color: "var(--text-color)" }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 10 }}>
           <span style={{ fontWeight: 700, fontSize: 22 }}>{bookMeta?.title || `Book ${id}`}</span>
           {isBookmarked ? (
@@ -648,7 +646,7 @@ export default function PDFReader() {
               : "(No votes yet)"}
           </span>
         </div>
-        <SteppedContainer step={3} style={{ marginTop: 18, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', padding: 18, background: commentsOuterBg }}>
+  <SteppedContainer step={3} style={{ marginTop: 18, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', padding: 18, background: commentsOuterBg, color: "var(--text-color)" }}>
           <CommentsProvider bookId={id}>
             <CommentsSection commentToScroll={commentToScroll} commentsPageFromQuery={commentsPageFromQuery} />
           </CommentsProvider>

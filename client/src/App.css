@@ -27,54 +27,44 @@ See App.css for all available variables and defaults.
 ============================================================
 */
 
+
 :root {
- /* Custom mode variables (default to light mode) */
-  html.custom :root {
-    --background-color: #ffffff;
-    --text-color: #222222;
-    --font-family: inherit;
-    --container-bg: #f5f5f5;
-    --accent-color: #0070f3;
-    --error-color: #c00;
-    --success-color: #080;
-    /* Button styles */
-    --button-bg: #eee;
-    --button-text: #333;
-    --button-border: #bbb;
-      /* Secondary and link text colors (set dynamically for custom themes) */
-      --secondary-text-color: color-mix(in srgb, var(--text-color) 60%, #888 40%);
-      --link-color: color-mix(in srgb, var(--text-color) 80%, #0070f3 20%);
-      --meta-text: var(--secondary-text-color);
-      --edited-label: color-mix(in srgb, var(--text-color) 70%, #f5c518 30%);
-    /* Unread styles */
-    --unread-bg: #ffe0e0;
-    --unread-text: #c00;
-    --unread-shadow: #c00;
-    /* Top voted books */
-    --topvoted-bg: #f8f8f8;
-    /* Cover styles */
-    --cover-bg: #eee;
-    --cover-text: color-mix(in srgb, var(--text-color) 60%, #888 40%);
-    /* Error/success text */
-    --error-text: #c00;
-    --success-text: #080;
-    /* Delete/upvote/downvote borders */
-    --delete-border: #c00;
-    --upvote-border: #0070f3;
-    --downvote-border: #c00;
-    /* Modal styles */
-    --modal-bg: #0008;
-    --modal-content-bg: #fff;
-    --modal-content-text: var(--text-color);
-    --modal-cancel-bg: #eee;
-    --modal-cancel-text: var(--text-color);
-    /* Input borders */
-    --input-border: #ccc;
-    /* PDF Reader highlight */
-    --pdf-highlight: #f5c518;
-  }
-/* Dark mode variables */
-html.dark :root {
+  /* Default (light mode) variables */
+  --background-color: #f5f5f5;
+  --text-color: #333333;
+  --font-family: inherit;
+  --container-bg: #f0efef;
+  --accent-color: #0070f3;
+  --error-color: #c00;
+  --success-color: #080;
+  --button-bg: #0070f3;
+  --button-text: #ffffff;
+  --button-border: #0070f3;
+  --secondary-text-color: #888888;
+  --link-color: #0070f3;
+  --meta-text: var(--secondary-text-color);
+  --edited-label: #f5c518;
+  --unread-bg: #ffe0e0;
+  --unread-text: #c00;
+  --unread-shadow: #c00;
+  --topvoted-bg: #f8f8f8;
+  --cover-bg: #ffffff;
+  --cover-text: #888888;
+  --error-text: #c00;
+  --success-text: #080;
+  --delete-border: #c00;
+  --upvote-border: #0070f3;
+  --downvote-border: #c00;
+  --modal-bg: #0008;
+  --modal-content-bg: #fff;
+  --modal-content-text: #222;
+  --modal-cancel-bg: #eee;
+  --modal-cancel-text: #222;
+  --input-border: #ccc;
+  --pdf-highlight: #f5c518;
+}
+
+:root.dark {
   --background-color: #181a1b;
   --text-color: #f3f3f3;
   --container-bg: #232527;
@@ -107,40 +97,74 @@ html.dark :root {
   --input-border: #444;
   --pdf-highlight: #ffe066;
 }
-/* Light mode variables */
-html.light :root {
-    --background-color: #f0f0f0;
-    --text-color: #333333;
-    --container-bg: #ffffff;
-    --accent-color: #0070f3;
-    --error-color: #c00;
-    --success-color: #080;
-    --button-bg: #0070f3;
-    --button-text: #ffffff;
-    --button-border: #0070f3;
+
+:root.light {
+  --background-color: #f5f5f5;
+  --text-color: #333333;
+  --container-bg: #e0dddd;
+  --accent-color: #0070f3;
+  --error-color: #c00;
+  --success-color: #080;
+  --button-bg: #0070f3;
+  --button-text: #ffffff;
+  --button-border: #0070f3;
   --secondary-text-color: #888888;
   --link-color: #0070f3;
   --meta-text: var(--secondary-text-color);
   --edited-label: #f5c518;
-    --unread-bg: #ffe0e0;
-    --unread-text: #c00;
-    --unread-shadow: #c00;
-    --topvoted-bg: #f8f8f8;
-    --cover-bg: #ffffff;
-    --cover-text: #888888;
-    --error-text: #c00;
-    --success-text: #080;
-    --delete-border: #c00;
-    --upvote-border: #0070f3;
-    --downvote-border: #c00;
-    --modal-bg: #0008;
-    --modal-content-bg: #fff;
-    --modal-content-text: #222;
-    --modal-cancel-bg: #eee;
-    --modal-cancel-text: #222;
-    --input-border: #ccc;
-    --pdf-highlight: #f5c518;
-  }
+  --unread-bg: #ffe0e0;
+  --unread-text: #c00;
+  --unread-shadow: #c00;
+  --topvoted-bg: #f8f8f8;
+  --cover-bg: #ffffff;
+  --cover-text: #888888;
+  --error-text: #c00;
+  --success-text: #080;
+  --delete-border: #c00;
+  --upvote-border: #0070f3;
+  --downvote-border: #c00;
+  --modal-bg: #0008;
+  --modal-content-bg: #fff;
+  --modal-content-text: #222;
+  --modal-cancel-bg: #eee;
+  --modal-cancel-text: #222;
+  --input-border: #ccc;
+  --pdf-highlight: #f5c518;
+}
+
+:root.custom {
+  --background-color: #ffffff;
+  --text-color: #222222;
+  --font-family: inherit;
+  --container-bg: #f5f5f5;
+  --accent-color: #0070f3;
+  --error-color: #c00;
+  --success-color: #080;
+  --button-bg: #eee;
+  --button-text: #333;
+  --button-border: #bbb;
+  --secondary-text-color: color-mix(in srgb, var(--text-color) 60%, #888 40%);
+  --link-color: color-mix(in srgb, var(--text-color) 80%, #0070f3 20%);
+  --meta-text: var(--secondary-text-color);
+  --edited-label: color-mix(in srgb, var(--text-color) 70%, #f5c518 30%);
+  --unread-bg: #ffe0e0;
+  --unread-text: #c00;
+  --unread-shadow: #c00;
+  --topvoted-bg: #f8f8f8;
+  --cover-bg: #eee;
+  --cover-text: color-mix(in srgb, var(--text-color) 60%, #888 40%);
+  --error-text: #c00;
+  --success-text: #080;
+  --delete-border: #c00;
+  --upvote-border: #0070f3;
+  --downvote-border: #c00;
+  --modal-bg: #0008;
+  --modal-content-bg: #ffffff;
+  --modal-content-text: var(--text-color);
+  --modal-cancel-bg: #eeeeee;
+  --modal-cancel-text: var(--text-color);
+  --input-border: #cccccc;
+  --pdf-highlight: #f5c518;
 }
 
 body {
@@ -154,9 +178,9 @@ body {
   overflow: hidden;
 }
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
+  width: 100vw;
+  max-width: none;
+  margin: 0;
   text-align: center;
 }
 

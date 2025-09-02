@@ -715,7 +715,12 @@ def pdf_cover(file_id):
             return make_response(jsonify({'error': 'No cover available'}), 404)
         logging.info(f"[pdf-cover] Serving fallback cover for file_id={file_id}")
         response = make_response(send_file(fallback_path, mimetype='image/png'))
-        response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+        origin = request.headers.get('Origin')
+        allowed = ["http://localhost:5173", "https://storyweavechronicles.onrender.com"]
+        if origin in allowed:
+            response.headers["Access-Control-Allow-Origin"] = origin
+        else:
+            response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
         response.status_code = 404
         return response
 
@@ -796,7 +801,12 @@ def pdf_cover(file_id):
                 logging.error(f"[pdf-cover] ERROR: Memory usage {mem:.2f} MB exceeds HIGH threshold of {MEMORY_HIGH_THRESHOLD_MB} MB! Consider spinning down or restarting the server.")
             response = make_response(generate())
             response.headers["Content-Type"] = "image/jpeg"
-            response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+            origin = request.headers.get('Origin')
+            allowed = ["http://localhost:5173", "https://storyweavechronicles.onrender.com"]
+            if origin in allowed:
+                response.headers["Access-Control-Allow-Origin"] = origin
+            else:
+                response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
             return response
         except Exception as page_e:
             logging.error(f"[pdf-cover] Error processing PDF page for file_id={file_id}: {page_e}")
@@ -1014,40 +1024,45 @@ def pdf_text(file_id):
     
 @app.route('/api/update-colors', methods=['POST'])
 def update_colors():
-    data = request.get_json()
+    data = request.get_json(force=True)
     username = data.get('username')
-    backgroundColor = data.get('backgroundColor')
-    textColor = data.get('textColor')
+    background_color = data.get('backgroundColor')
+    text_color = data.get('textColor')
+    # Validate required fields
+    if not username or not background_color or not text_color:
+        return jsonify({'success': False, 'message': 'Missing required fields.'}), 400
     user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
-    if backgroundColor:
-        user.background_color = backgroundColor
-    if textColor:
-        user.text_color = textColor
-    db.session.commit()
-    # Update all comments by this user to match new colors
-    user_comments = Comment.query.filter_by(username=username).all()
-    for comment in user_comments:
-        comment.background_color = user.background_color
-        comment.text_color = user.text_color
-    db.session.commit()
-    # Return all user fields needed for frontend sync
-    return jsonify({
-        'success': True,
-        'message': 'Colors updated.',
-        'backgroundColor': user.background_color,
-        'textColor': user.text_color,
-        'username': user.username,
-        'email': user.email,
-        'font': getattr(user, 'font', None),
-        'timezone': getattr(user, 'timezone', None),
-        'is_admin': getattr(user, 'is_admin', False),
-        'bookmarks': getattr(user, 'bookmarks', []),
-        'secondaryEmails': getattr(user, 'secondary_emails', []),
-        'notificationPrefs': getattr(user, 'notification_prefs', None),
-        'notificationHistory': getattr(user, 'notification_history', None)
-    })
+    try:
+        user.background_color = background_color
+        user.text_color = text_color
+        db.session.commit()
+        # Efficiently update all comments by this user
+        comments = Comment.query.filter_by(username=username).all()
+        for comment in comments:
+            comment.background_color = background_color
+            comment.text_color = text_color
+        db.session.commit()
+        # Return all user fields needed for frontend sync
+        return jsonify({
+            'success': True,
+            'message': 'Colors updated.',
+            'backgroundColor': user.background_color,
+            'textColor': user.text_color,
+            'username': user.username,
+            'email': user.email,
+            'font': getattr(user, 'font', None),
+            'timezone': getattr(user, 'timezone', None),
+            'is_admin': getattr(user, 'is_admin', False),
+            'bookmarks': getattr(user, 'bookmarks', []),
+            'secondaryEmails': getattr(user, 'secondary_emails', []),
+            'notificationPrefs': getattr(user, 'notification_prefs', None),
+            'notificationHistory': getattr(user, 'notification_history', None)
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/get-notification-prefs', methods=['POST'])
 def get_notification_prefs():

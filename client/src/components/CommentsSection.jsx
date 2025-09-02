@@ -176,11 +176,14 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
   // Recursive comment rendering (copied and adapted from original)
   function renderComments(list, depth = 0) {
     return list.map(comment => {
-  const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
-  const commentBg = stepColor(cssBg, theme, 4 + depth);
-  const buttonBg = stepColor(cssBg, theme, 5 + depth);
+      const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
+      const commentBg = stepColor(cssBg, theme, 4 + depth);
+      const buttonBg = stepColor(cssBg, theme, 5 + depth);
       const commentText = textColor;
-      const avatarTextColor = comment.text_color || textColor;
+      // Patch: For own comments, use current theme colors for avatar
+      const isOwnComment = user && comment.username === user.username;
+      const avatarBg = isOwnComment ? backgroundColor : (comment.background_color || stepColor(commentBg, theme, 1));
+      const avatarTextColor = isOwnComment ? textColor : (comment.text_color || textColor);
       const isDeleted = comment.deleted;
       const isAdmin = user?.is_admin;
       const showBanButton = isAdmin && !comment.deleted && !comment.is_admin && comment.username !== user?.username;
@@ -201,7 +204,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
             width: 36,
             height: 36,
             borderRadius: '50%',
-        background: comment.background_color || stepColor(commentBg, theme, 1),
+            background: avatarBg,
             color: avatarTextColor,
             display: 'flex',
             alignItems: 'center',
@@ -209,7 +212,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
             fontWeight: 700,
             fontSize: 18,
             marginRight: 10,
-              border: `2.5px solid ${avatarTextColor}`
+            border: `2.5px solid ${avatarTextColor}`
           }}>
             {comment.username ? comment.username[0].toUpperCase() : '?'}
           </div>
