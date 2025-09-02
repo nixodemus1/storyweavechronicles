@@ -187,50 +187,43 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
     html.classList.remove('light', 'dark');
     html.classList.add('custom');
   }
-  // Color change handler: update context and CSS variables immediately
-  // On change: update preview only
-    const handleBackgroundColorChange = (e) => {
-      const newColor = e.target.value;
-      setPreviewBackgroundColor(newColor);
-      setPendingProfile(p => ({ ...p, backgroundColor: newColor }));
-      document.documentElement.style.setProperty('--background-color', newColor);
-      activateCustomTheme();
-      setTheme('custom');
-      setBackgroundColor(newColor);
-      // Patch: update user object in context immediately
-      if (props.setUser) {
-        props.setUser(u => u ? { ...u, background_color: newColor, backgroundColor: newColor } : u);
-      }
-    };
-    const handleTextColorChange = (e) => {
-      const newColor = e.target.value;
-      setPreviewTextColor(newColor);
-      setPendingProfile(p => ({ ...p, textColor: newColor }));
-      document.documentElement.style.setProperty('--text-color', newColor);
-      // Dynamically set secondary and link colors for contrast
-      const html = document.documentElement;
-      const themeClass = html.classList.contains('dark') ? 'dark' : (html.classList.contains('light') ? 'light' : 'custom');
-      const secondaryText = stepTextColor(newColor, themeClass, 1);
-      const linkColor = stepTextColor(newColor, themeClass, 2);
-      document.documentElement.style.setProperty('--secondary-text-color', secondaryText);
-      document.documentElement.style.setProperty('--link-color', linkColor);
-      activateCustomTheme();
-      setTheme('custom');
-      setTextColor(newColor);
-      // Patch: update user object in context immediately
-      if (props.setUser) {
-        props.setUser(u => u ? { ...u, text_color: newColor, textColor: newColor } : u);
-      }
-    };
+  // Color change handler: only preview on drag
+  const handleBackgroundColorChange = (e) => {
+    const newColor = e.target.value;
+    setPreviewBackgroundColor(newColor);
+    setPendingProfile(p => ({ ...p, backgroundColor: newColor }));
+  };
+  const handleTextColorChange = (e) => {
+    const newColor = e.target.value;
+    setPreviewTextColor(newColor);
+    setPendingProfile(p => ({ ...p, textColor: newColor }));
+  };
 
-  // On blur: commit preview color to context
+  // On blur: commit preview color to context, theme, and user
   const handleBackgroundColorBlur = () => {
     setBackgroundColor(previewBackgroundColor);
+    setTheme('custom');
     activateCustomTheme();
+    document.documentElement.style.setProperty('--background-color', previewBackgroundColor);
+    if (props.setUser) {
+      props.setUser(u => u ? { ...u, background_color: previewBackgroundColor, backgroundColor: previewBackgroundColor } : u);
+    }
   };
   const handleTextColorBlur = () => {
     setTextColor(previewTextColor);
+    setTheme('custom');
     activateCustomTheme();
+    document.documentElement.style.setProperty('--text-color', previewTextColor);
+    // Dynamically set secondary and link colors for contrast
+    const html = document.documentElement;
+    const themeClass = html.classList.contains('dark') ? 'dark' : (html.classList.contains('light') ? 'light' : 'custom');
+    const secondaryText = stepTextColor(previewTextColor, themeClass, 1);
+    const linkColor = stepTextColor(previewTextColor, themeClass, 2);
+    document.documentElement.style.setProperty('--secondary-text-color', secondaryText);
+    document.documentElement.style.setProperty('--link-color', linkColor);
+    if (props.setUser) {
+      props.setUser(u => u ? { ...u, text_color: previewTextColor, textColor: previewTextColor } : u);
+    }
   };
   return (
   <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, display: 'flex', flexDirection: 'column', gap: 32, background: previewBackgroundColor, color: previewTextColor }}>

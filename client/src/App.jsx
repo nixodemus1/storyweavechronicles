@@ -74,11 +74,10 @@ export default function App() {
     // Sync theme, backgroundColor, and textColor from user object on mount and when user changes
     useEffect(() => {
       if (user) {
-        // If user has custom colors, apply them
-        if (user.backgroundColor && user.textColor) {
+        // Only set custom theme if user has custom colors and theme is 'custom'
+        if (user.backgroundColor && user.textColor && theme === 'custom') {
           setBackgroundColor(user.backgroundColor);
           setTextColor(user.textColor);
-          setTheme('custom');
           document.documentElement.classList.remove('dark', 'light');
           document.documentElement.classList.add('custom');
           document.documentElement.style.setProperty('--background-color', user.backgroundColor);
@@ -88,14 +87,12 @@ export default function App() {
         if (user.font) setFont(user.font);
         if (user.timezone) setTimezone(user.timezone);
       }
-    }, [user]);
+    }, [user, theme]);
 
   // Sync theme and CSS variables on theme change
   useEffect(() => {
-    console.log('[Theme useEffect] Theme changed to:', theme);
     document.documentElement.classList.remove('dark', 'light', 'custom');
     document.documentElement.classList.add(theme);
-    // Instantly set CSS variables for theme
     if (theme === 'custom' && user && user.backgroundColor && user.textColor) {
       document.documentElement.style.setProperty('--background-color', user.backgroundColor);
       document.documentElement.style.setProperty('--text-color', user.textColor);
@@ -511,16 +508,10 @@ export default function App() {
   // Theme toggle button
   function ThemeToggleButton() {
     const { theme, setTheme } = useContext(ThemeContext);
-    // Cycle: light -> dark -> custom (if user has custom colors) -> light
+    // Only cycle: light <-> dark
     function handleToggle() {
       if (theme === 'light') {
         setTheme('dark');
-      } else if (theme === 'dark') {
-        if (user && user.backgroundColor && user.textColor) {
-          setTheme('custom');
-        } else {
-          setTheme('light');
-        }
       } else {
         setTheme('light');
       }
@@ -541,10 +532,10 @@ export default function App() {
           color: 'var(--header-button-text-color)',
         }}
         onClick={handleToggle}
-        title={theme === 'dark' ? 'Switch to custom/light' : theme === 'custom' ? 'Switch to light' : 'Switch to dark'}
-        aria-label={theme === 'dark' ? 'Switch to custom/light' : theme === 'custom' ? 'Switch to light' : 'Switch to dark'}
+        title={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
+        aria-label={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
       >
-        {theme === 'dark' ? '🌙' : theme === 'custom' ? '🎨' : '☀️'}
+        {theme === 'dark' ? '🌙' : '☀️'}
       </button>
     );
   }
