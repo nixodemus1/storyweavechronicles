@@ -1,7 +1,7 @@
 import React, { useContext, useState, useRef } from "react";
 import { stepColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
-import { PreviewColorContext } from "../context/PreviewColorContext.jsx";
+import { PreviewColorContext } from "../context/PreviewColorContext.js";
 import AccountTabContent from "../components/AccountTabContent";
 import NotificationsTab from "../components/NotificationsTab";
 import AdminTabContent from "../components/AdminTabContent";

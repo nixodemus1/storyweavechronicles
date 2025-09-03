@@ -1,7 +1,7 @@
 import React, { useContext, useState, useImperativeHandle, forwardRef } from "react";
 import { stepTextColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
-import { PreviewColorContext } from "../context/PreviewColorContext.jsx";
+import { PreviewColorContext } from "../context/PreviewColorContext.js";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 

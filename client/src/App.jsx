@@ -1,4 +1,5 @@
-import { PreviewColorProvider, PreviewColorContext } from "./context/PreviewColorContext.jsx";
+import { PreviewColorContext } from "./context/PreviewColorContext.js";
+import { PreviewColorProvider} from "./context/PreviewColorContext.jsx";
 import './App.css';
 import React, { useState, useEffect, useRef, useContext } from "react";
 import { useNavigate } from "react-router-dom";
