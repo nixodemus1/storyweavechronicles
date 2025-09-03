@@ -1,6 +1,7 @@
 import React, { useContext, useState, useImperativeHandle, forwardRef } from "react";
 import { stepTextColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
+import { PreviewColorContext } from "../context/PreviewColorContext.jsx";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
@@ -8,18 +9,7 @@ const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
   // Always get context first so values are available for state initializers
   const { theme, setTheme, backgroundColor, textColor, font, timezone, setBackgroundColor, setTextColor, setFont, setTimezone } = useContext(ThemeContext);
-
-  // --- Restore preview state for color picker ---
-  const [previewBackgroundColor, setPreviewBackgroundColor] = useState(backgroundColor);
-  const [previewTextColor, setPreviewTextColor] = useState(textColor);
-
-  // Sync preview state with context when context changes (e.g. theme switch)
-  React.useEffect(() => {
-    setPreviewBackgroundColor(backgroundColor);
-  }, [backgroundColor]);
-  React.useEffect(() => {
-    setPreviewTextColor(textColor);
-  }, [textColor]);
+  const { previewBackgroundColor, previewTextColor, setPreviewBackgroundColor, setPreviewTextColor, resetPreviewColors } = useContext(PreviewColorContext);
 
   // Save pending profile changes to backend
   const savePendingProfile = async () => {
@@ -160,7 +150,6 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
       return date.toLocaleString();
     }
   }
-  // ...existing code...
   // Font change handler
     const handleFontChange = (e) => {
       const newFont = e.target.value;
@@ -181,13 +170,8 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
         props.setUser(u => u ? { ...u, timezone: newTz } : u);
       }
     };
-  // --- Color picker logic: always use and update context values immediately ---
-  function activateCustomTheme() {
-    const html = document.documentElement;
-    html.classList.remove('light', 'dark');
-    html.classList.add('custom');
-  }
-  // Color change handler: only preview on drag
+
+  // Color picker change handlers: update PreviewColorContext for live preview
   const handleBackgroundColorChange = (e) => {
     const newColor = e.target.value;
     setPreviewBackgroundColor(newColor);
@@ -198,21 +182,23 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
     setPreviewTextColor(newColor);
     setPendingProfile(p => ({ ...p, textColor: newColor }));
   };
-
-  // On blur: commit preview color to context, theme, and user
+  // On blur: commit preview color to ThemeContext/user and reset PreviewColorContext
   const handleBackgroundColorBlur = () => {
     setBackgroundColor(previewBackgroundColor);
     setTheme('custom');
-    activateCustomTheme();
+    document.documentElement.classList.remove('light', 'dark');
+    document.documentElement.classList.add('custom');
     document.documentElement.style.setProperty('--background-color', previewBackgroundColor);
     if (props.setUser) {
       props.setUser(u => u ? { ...u, background_color: previewBackgroundColor, backgroundColor: previewBackgroundColor } : u);
     }
+    resetPreviewColors();
   };
   const handleTextColorBlur = () => {
     setTextColor(previewTextColor);
     setTheme('custom');
-    activateCustomTheme();
+    document.documentElement.classList.remove('light', 'dark');
+    document.documentElement.classList.add('custom');
     document.documentElement.style.setProperty('--text-color', previewTextColor);
     // Dynamically set secondary and link colors for contrast
     const html = document.documentElement;
@@ -224,9 +210,20 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
     if (props.setUser) {
       props.setUser(u => u ? { ...u, text_color: previewTextColor, textColor: previewTextColor } : u);
     }
+    resetPreviewColors();
   };
+
   return (
-  <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, display: 'flex', flexDirection: 'column', gap: 32, background: previewBackgroundColor, color: previewTextColor }}>
+    <div style={{
+      width: 400,
+      maxWidth: '95vw',
+      marginBottom: 32,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 32,
+      background: previewBackgroundColor ?? backgroundColor,
+      color: previewTextColor ?? textColor
+    }}>
       <h3>Profile Settings</h3>
       {/* Color Picker */}
       <div style={{ marginBottom: 24 }}>
@@ -235,10 +232,10 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
             Background:
       <input
         type="color"
-        value={normalizeHex(previewBackgroundColor)}
+        value={normalizeHex(previewBackgroundColor ?? backgroundColor)}
         onChange={handleBackgroundColorChange}
         onBlur={handleBackgroundColorBlur}
-        style={{ background: previewBackgroundColor, color: previewTextColor }}
+        style={{ background: previewBackgroundColor ?? backgroundColor, color: previewTextColor ?? textColor }}
       />
             <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{pendingProfile.backgroundColor}</span>
             </label>
@@ -246,10 +243,10 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
             Text:
       <input
         type="color"
-        value={normalizeHex(previewTextColor)}
+        value={normalizeHex(previewTextColor ?? textColor)}
         onChange={handleTextColorChange}
         onBlur={handleTextColorBlur}
-        style={{ background: previewBackgroundColor, color: previewTextColor, border: '1px solid #ccc', borderRadius: 4 }}
+        style={{ background: previewBackgroundColor ?? backgroundColor, color: previewTextColor ?? textColor, border: '1px solid #ccc', borderRadius: 4 }}
       />
             <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{pendingProfile.textColor}</span>
             </label>

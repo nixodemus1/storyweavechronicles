@@ -1,13 +1,14 @@
 import React, { useContext, useState, useRef } from "react";
 import { stepColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
+import { PreviewColorContext } from "../context/PreviewColorContext.jsx";
 import AccountTabContent from "../components/AccountTabContent";
 import NotificationsTab from "../components/NotificationsTab";
 import AdminTabContent from "../components/AdminTabContent";
 import SettingsTabContent from "../components/SettingsTabContent";
 import SecurityTabContent from "../components/SecurityTabContent";
 
-function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, isAdmin, setUser, sidebarRef }) {
+function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, isAdmin, setUser, sidebarRef, backgroundColor, textColor, theme }) {
   const tabs = [
     { key: 'settings', icon: '⚙️', label: 'Settings' },
     { key: 'security', icon: '🔒', label: 'Security' },
@@ -17,14 +18,10 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, isAdmi
   if (isAdmin) {
     tabs.push({ key: 'admin', icon: '🛡️', label: 'Admin' });
   }
-  // Use ThemeContext for backgroundColor, textColor, and theme
-  const { textColor: contextText} = useContext(ThemeContext);
-  const { backgroundColor, theme } = useContext(ThemeContext);
   // Use stepColor for sidebar background (darker shade)
   const sidebarBg = stepColor(backgroundColor, theme, 1);
   // Use raw backgroundColor for avatar background
   const avatarBg = backgroundColor;
-    // Use contextText for avatar border
   // Add redirect on logout
   const handleLogout = () => {
     setUser(null);
@@ -69,12 +66,12 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, isAdmi
               marginBottom: 6,
               fontWeight: 700,
               fontSize: 24,
-              border: `2px solid ${contextText}`,
+              border: `2px solid ${textColor}`,
           }}
         >
           {user?.username ? user.username[0].toUpperCase() : '?'}
         </div>
-  {sidebarExpanded && <div style={{ fontWeight: 600, fontSize: 16, color: contextText }}>{user?.username}</div>}
+  {sidebarExpanded && <div style={{ fontWeight: 600, fontSize: 16, color: textColor }}>{user?.username}</div>}
       </div>
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 0 }}>
         {tabs.map(tab => (
@@ -135,7 +132,12 @@ function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, isAdmi
 
 function ProfilePage({ user, setUser }) {
   // Use context for user and backgroundColor
-  const { user: contextUser} = useContext(ThemeContext);
+  const { user: contextUser, backgroundColor: contextBg, textColor: contextText, theme } = useContext(ThemeContext);
+  const { previewBackgroundColor, previewTextColor } = useContext(PreviewColorContext);
+
+  // logging the profile page props
+  console.log('[ProfilePage] props:');
+
   // Persist activeTab in localStorage so it survives refreshes and re-renders
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -216,7 +218,11 @@ function ProfilePage({ user, setUser }) {
   let tabContent = null;
   switch (activeTab) {
     case 'settings':
-      tabContent = <SettingsTabContent ref={settingsTabRef} user={user} setUser={setUser} />;
+      tabContent = <SettingsTabContent
+        ref={settingsTabRef}
+        user={user}
+        setUser={setUser}
+      />;
       break;
     case 'security':
       tabContent = <SecurityTabContent user={user} setUser={setUser} />;
@@ -234,17 +240,17 @@ function ProfilePage({ user, setUser }) {
       tabContent = <SettingsTabContent ref={settingsTabRef} user={user} setUser={setUser} />;
   }
 
-  const { backgroundColor} = useContext(ThemeContext);
-  // Use custom color for the outermost container background (no white space)
-  const pageBg = backgroundColor || "var(--background-color)";
-  // Use custom color for main container background (no white space)
-  const mainBg = backgroundColor || "var(--background-color)";
+  // Use preview color from context if set, else context/user
+  const effectiveBg = previewBackgroundColor ?? contextBg;
+  const effectiveText = previewTextColor ?? contextText;
+  //logging for effective props
+  console.log('[ProfilePage] effectiveBg:', effectiveBg, 'effectiveText:', effectiveText);
   return (
     <div style={{
       display: 'flex',
       minHeight: '100vh',
-      background: pageBg,
-      color: "var(--text-color)"
+      background: effectiveBg,
+      color: effectiveText
     }}>
       <ProfileSidebar
         user={effectiveUser}
@@ -255,14 +261,17 @@ function ProfilePage({ user, setUser }) {
         setUser={setUser}
         sidebarRef={sidebarRef}
         handleLogout={handleLogout}
+        backgroundColor={effectiveBg}
+        textColor={effectiveText}
+        theme={theme}
       />
       <main style={{
         marginLeft: sidebarExpanded ? 180 : 56,
         padding: '32px 24px',
         width: '100%',
         boxSizing: 'border-box',
-        background: mainBg,
-        color: "var(--text-color)"
+        background: effectiveBg,
+        color: effectiveText
       }}>
         {tabContent}
       </main>

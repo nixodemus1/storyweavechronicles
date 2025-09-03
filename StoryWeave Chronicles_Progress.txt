@@ -12,7 +12,44 @@ Improve mobile carousel, username changes, and infinite loop bugs.
 Continue general QA and bug fixes.
 Your main goals are done; focus now shifts to polishing features, fixing edge cases, and adding enhancements for a smoother user experience and easier site management.
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Here’s a summary you can use for your new session, covering all the important parts for the PreviewColorContext refactor:
 
+---
+
+**PreviewColorContext Refactor – Summary for Copilot**
+
+Goal:  
+Refactor the color/theme preview system in the StoryWeave Chronicles React frontend to use a dedicated PreviewColorContext. This will enable smooth, live color preview for all relevant components (header, sidebar, main content, profile settings container) during color picker drag, without unwanted React re-renders or update loops.
+
+Key Requirements:
+- Implement a new `PreviewColorContext` (React context) to hold preview background and text color.
+- The color picker in `SettingsTabContent` should write to `PreviewColorContext` during drag (onChange), and commit to global state (ThemeContext/user) on blur.
+- All previewable components (header, sidebar, main container, profile settings container) should read their preview color from `PreviewColorContext` if set, otherwise fall back to ThemeContext/user values.
+- Remove all local preview state and prop chains for preview color; use context instead.
+- Eliminate any useEffect or debounced logic for preview color propagation—context should handle live updates.
+- Ensure the color picker does not close or lose focus during drag due to parent re-renders.
+- The context should be reset (cleared) when drag ends (onBlur) or when the user commits the color.
+- The system should support both live preview (while dragging) and persistent color changes (on commit).
+- All color logic (background, text, sidebar, header, etc.) should use the preview color if available, otherwise use the persisted color from ThemeContext/user.
+
+Implementation Steps:
+1. Create `PreviewColorContext.js` in `src/` or `src/context/`.
+2. Wrap the app (or relevant subtree) in `PreviewColorContext.Provider` in `App.jsx`.
+3. Refactor `SettingsTabContent` to use `PreviewColorContext` for live preview during color picker drag.
+4. Refactor `ProfilePage`, header, sidebar, and main container to read preview color from `PreviewColorContext`.
+5. Remove all preview color props, local preview state, and debounced preview logic.
+6. Ensure onBlur (or commit) in color picker updates ThemeContext/user and resets PreviewColorContext.
+7. Test live preview for all components during color picker drag and commit.
+
+Other Notes:
+- The old working versions of `ProfilePage` and `SettingsTabContent` are simpler and better suited for this refactor.
+- Avoid any logic that causes parent re-renders during drag.
+- Make sure to update CSS variables for color changes as needed.
+- The context should be easy to extend for future preview features (e.g., font, accent color).
+
+---
+
+You can copy-paste this summary for your new session. If you need a checklist or code skeleton, let me know!
 --------------------------------------------------------------------------------
 
 Render's free tier for web servers provides users with 256 MB of RAM per service. 
