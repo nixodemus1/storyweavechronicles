@@ -32,6 +32,7 @@ from PIL import Image
 import psutil
 import logging
 import gc
+import requests
 
 load_dotenv()
 
@@ -396,6 +397,14 @@ def add_notification(user, type_, title, body, link=None):
             if prefs.get('emailFrequency', 'immediate') == 'immediate':
                 send_notification_email(user, title, body)
 
+def call_seed_drive_books():
+    try:
+        url = os.getenv('VITE_HOST_URL', 'http://localhost:5000') + '/api/seed-drive-books'
+        response = requests.post(url)
+        logging.info(f"Scheduled seed-drive-books response: {response.status_code} {response.text}")
+    except Exception as e:
+        logging.error(f"Error calling seed-drive-books endpoint: {e}")
+
 # Endpoint to check for new notifications for polling
 @app.route('/api/has-new-notifications', methods=['POST'])
 def has_new_notifications():
@@ -565,37 +574,41 @@ def list_pdfs(folder_id):
             page_size = 200  # Prevent excessive memory usage
         offset = (page - 1) * page_size
 
-        # Query PDFs from database (Book model)
-        total_count = Book.query.count()
-        pdfs = Book.query.order_by(Book.created_at.desc()).offset(offset).limit(page_size).all()
+        # Fetch PDFs from Google Drive folder
+        service = get_drive_service()
+        query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
+        drive_files = []
+        page_token = None
+        while True:
+            response = service.files().list(
+                q=query,
+                fields="nextPageToken, files(id, name, createdTime, modifiedTime)",
+                pageSize=1000,
+                pageToken=page_token
+            ).execute()
+            drive_files.extend(response.get('files', []))
+            page_token = response.get('nextPageToken', None)
+            if not page_token:
+                break
+
+        # Only list PDFs from Drive, do not sync to DB
+        existing_books = {b.drive_id: b for b in Book.query.filter(Book.drive_id.in_([f['id'] for f in drive_files])).all()}
+
+        # Paginate results from drive_files
+        total_count = len(drive_files)
+        paged_files = drive_files[offset:offset+page_size]
         pdf_list = []
-        for book in pdfs:
-            # Try to get createdTime and modifiedTime from version_history if present
-            created_time = None
-            modified_time = None
-            try:
-                history = json.loads(book.version_history) if book.version_history else []
-                if history and isinstance(history, list):
-                    created_time = history[0].get('created')
-            except Exception:
-                pass
-            if not created_time:
-                created_time = book.created_at.isoformat() if book.created_at else None
-            if book.updated_at:
-                modified_time = book.updated_at.isoformat()
-            else:
-                modified_time = created_time
+        for f in paged_files:
+            created_time = f.get('createdTime')
+            modified_time = f.get('modifiedTime')
             pdf_list.append({
-                'id': book.drive_id,
-                'title': book.title,
-                'external_story_id': book.external_story_id,
+                'id': f['id'],
+                'title': f.get('name', 'Untitled'),
                 'createdTime': created_time,
-                'modifiedTime': modified_time,
-                'created_at': book.created_at.isoformat() if book.created_at else None,
-                'updated_at': book.updated_at.isoformat() if book.updated_at else None
+                'modifiedTime': modified_time
             })
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[list-pdf] Memory usage: {mem:.2f} MB for folder_id={folder_id}")
+        logging.info(f"[list-pdfs] Memory usage: {mem:.2f} MB for folder_id={folder_id}")
         return jsonify({
             'pdfs': pdf_list,
             'page': page,
@@ -2110,6 +2123,7 @@ def ban_user():
     if not is_admin(admin_username):
         user = User.query.filter_by(username=target_username).first()
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    user = User.query.filter_by(username=target_username).first()
     if not user:
         return jsonify({'success': False, 'message': 'Target user not found.'}), 404
     if user.is_admin:
@@ -2140,19 +2154,20 @@ def seed_drive_books():
     Returns: {success, added_count, skipped_count, errors}
     """
     try:
-        folder_id = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
+        data = request.get_json(silent=True) or {}
+        folder_id = data.get('folder_id') or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
         if not folder_id:
             return jsonify({'success': False, 'message': 'GOOGLE_DRIVE_FOLDER_ID not set.'}), 500
         service = get_drive_service()
         # List all PDFs in the folder
-        query = f"'{folder_id}' in parents and mimeType = 'application/pdf' and trashed = false"
+        query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed = false"
         files = []
         page_token = None
         while True:
             response = service.files().list(
                 q=query,
                 spaces='drive',
-                fields='nextPageToken, files(id, name)',
+                fields='nextPageToken, files(id, name, createdTime, modifiedTime)',
                 pageToken=page_token
             ).execute()
             files.extend(response.get('files', []))
@@ -2160,38 +2175,90 @@ def seed_drive_books():
             if not page_token:
                 break
         added_count = 0
+        updated_count = 0
+        external_id_updates = 0
         skipped_count = 0
         errors = []
+        new_books = []
+        updated_books = []
         for f in files:
             drive_id = f['id']
             title = f['name']
-            # Check if already exists
-            if Book.query.filter_by(drive_id=drive_id).first():
-                skipped_count += 1
-                continue
-            # Try to extract external_story_id from PDF
-            try:
-                request = service.files().get_media(fileId=drive_id)
-                file_content = request.execute()
-                external_story_id = extract_story_id_from_pdf(file_content)
-            except Exception as e:
+            created_time = f.get('createdTime')
+            modified_time = f.get('modifiedTime')
+            book = Book.query.filter_by(drive_id=drive_id).first()
+            if not book:
+                # New book: extract external_story_id
                 external_story_id = None
-                errors.append(f"Error extracting story ID for {title}: {e}")
-            book = Book(
-                drive_id=drive_id,
-                title=title,
-                external_story_id=external_story_id,
-                version_history=None
-            )
-            db.session.add(book)
-            added_count += 1
+                try:
+                    file_request = service.files().get_media(fileId=drive_id)
+                    file_content = file_request.execute()
+                    external_story_id = extract_story_id_from_pdf(file_content)
+                except Exception as e:
+                    errors.append(f"Error extracting story ID for {title}: {e}")
+                book = Book(
+                    drive_id=drive_id,
+                    title=title,
+                    external_story_id=external_story_id,
+                    version_history=None,
+                    created_at=datetime.datetime.fromisoformat(created_time.replace('Z', '+00:00')) if created_time else datetime.datetime.now(datetime.UTC),
+                    updated_at=datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00')) if modified_time else None
+                )
+                db.session.add(book)
+                added_count += 1
+                new_books.append({'id': drive_id, 'title': title})
+            else:
+                # Existing book: update metadata if changed
+                updated = False
+                # Update title if changed
+                if book.title != title:
+                    book.title = title
+                    updated = True
+                # Update modified time if changed
+                if modified_time:
+                    new_updated_at = datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
+                    if new_updated_at.tzinfo is None:
+                        new_updated_at = new_updated_at.replace(tzinfo=datetime.timezone.utc)
+                    if book.updated_at and book.updated_at.tzinfo is None:
+                        book.updated_at = book.updated_at.replace(tzinfo=datetime.timezone.utc)
+                    if not book.updated_at or book.updated_at < new_updated_at:
+                        book.updated_at = new_updated_at
+                        updated = True
+                # Update external_story_id if missing/null
+                if not book.external_story_id or not str(book.external_story_id).strip():
+                    try:
+                        file_request = service.files().get_media(fileId=drive_id)
+                        file_content = file_request.execute()
+                        external_story_id = extract_story_id_from_pdf(file_content)
+                        if external_story_id:
+                            book.external_story_id = external_story_id
+                            external_id_updates += 1
+                            updated = True
+                    except Exception as e:
+                        errors.append(f"Error extracting story ID for {title}: {e}")
+                if updated:
+                    updated_count += 1
+                    updated_books.append({'id': drive_id, 'title': title})
         db.session.commit()
+        # Use notification utility endpoints for new and updated books
+        for book_info in new_books:
+            try:
+                notify_new_book(book_info['id'], book_info['title'])
+            except Exception as e:
+                errors.append(f"Error notifying new book {book_info['title']}: {e}")
+        for book_info in updated_books:
+            try:
+                notify_book_update(book_info['id'], book_info['title'])
+            except Exception as e:
+                errors.append(f"Error notifying book update {book_info['title']}: {e}")
         return jsonify({
             'success': True,
             'added_count': added_count,
+            'updated_count': updated_count,
+            'external_id_updates': external_id_updates,
             'skipped_count': skipped_count,
             'errors': errors,
-            'message': f'Seeded {added_count} new books, skipped {skipped_count} already present.'
+            'message': f"Seeded {added_count} new books, updated {updated_count} existing books, {external_id_updates} external IDs set."
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2326,5 +2393,7 @@ if __name__ == '__main__':
     scheduler.add_job(lambda: send_scheduled_emails('monthly'), 'cron', day=1, hour=8)
     # Change from hourly to daily for backup new book check
     scheduler.add_job(check_and_notify_new_books, 'cron', hour=9)
+    # Add scheduled job to call seed-drive-books endpoint daily at 10am
+    scheduler.add_job(call_seed_drive_books, 'cron', hour=10)
     scheduler.start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=os.getenv("DEBUG", True))

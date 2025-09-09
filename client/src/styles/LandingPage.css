@@ -1,365 +1,238 @@
-/* Global theme styles */
-.light-mode {
-  transition: background 0.2s, color 0.2s;
-}
-.dark-mode {
-  transition: background 0.2s, color 0.2s;
-}
-
-.dark-mode .landing-description,
-.dark-mode .top-list,
-.dark-mode .carousel-item {
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-}
-.dark-mode .searchbar-input {
-  border-color: #444 !important;
-}
-.dark-mode .pdf-reader-btn {
-  border-color: #444 !important;
-}
-
-/* Theme toggle button */
-.theme-toggle-btn {
-  background: none;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 1.5rem;
-  margin-right: 64px;
-  margin-left: 0;
-  transition: color 0.18s, border 0.18s, box-shadow 0.18s;
-  color: #f5c518;
-  box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
-  padding: 4px 8px;
-  z-index: 2;
-}
-.theme-toggle-btn:hover {
-  color: #0070f3;
-  border-color: #0070f3;
-  box-shadow: 0 0 0 3px #0070f333;
-}
-/* Search bar styles */
-.searchbar-container {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin-bottom: 1.5rem;
-  margin-top: 1.5rem;
-}
-.searchbar-input {
-  width: 340px;
-  max-width: 90vw;
-  padding: 0.7em 1.2em;
-  border: 1.5px solid #ccc;
-  border-radius: 6px;
-  font-size: 1.08rem;
-  outline: none;
-  transition: border 0.2s;
-  background: #fff;
-  color: #23272f;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
-}
-.searchbar-input:focus {
-  border-color: #0070f3;
-}
-.searchbar-input:disabled {
-  background: #f5f5f5;
-  color: #aaa;
-  cursor: not-allowed;
-}
-.header {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  /* background and color set by inline style for user customization */
-  padding: 1.5rem 0 1rem 0;
-  min-height: 80px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-  width: 100%;
-  /* Remove z-index and position for now */
-  border: none;
-  position: relative;
-}
-/* Login button in header */
-.login-btn {
-  position: absolute;
-  right: 280px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: #0070f3;
-  color: #fff;
-  padding: 0.5rem 1.2rem;
-  border-radius: 6px;
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 1rem;
-  letter-spacing: 1px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  transition: background 0.2s;
-  z-index: 10;
-}
-.login-btn:hover {
-  background: #005bb5;
-}
-.slick-prev:before, .slick-next:before {
-  color: #fff !important;
-  font-size: 32px !important;
-  text-shadow: 0 2px 8px #23272f;
-}
-.slick-dots li button:before {
-  color: #23272f !important;
-  font-size: 16px !important;
-}
-.slick-dots li.slick-active button:before {
-  color: #0070f3 !important;
-}
-.carousel-container {
-  flex: 1;
-  padding: 2rem 0 3rem 0;
-  width: auto;
-  min-width: 0;
-  margin: 0 auto;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  overflow-x: visible;
-  border: none;
-  position: relative;
-  /* background and color set by inline style for user customization */
-}
-/* Wrap the carousel and controls for layout */
-.carousel-inner {
-  width: 100%;
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  justify-content: center;
-  position: relative;
-}
-.carousel-controls {
-  width: 100%;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  margin-top: 16px;
-  gap: 32px;
-}
-/* Robust slick carousel fixes */
-.slick-slider {
-  width: 100% !important;
-  max-width: 100vw !important;
-  min-width: 0 !important;
-  overflow: visible !important;
-  margin-bottom: 48px !important;
-  min-height: 340px;
-}
-.slick-arrow {
-  position: absolute !important;
-  bottom: 32px !important;
-  top: auto !important;
-  transform: none !important;
-  margin: 0 !important;
-  width: 40px;
-  height: 40px;
-  background: rgba(35,39,47,0.7);
-  border-radius: 50%;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  z-index: 2;
-  box-shadow: none !important;
-}
-.slick-prev {
-  left: 10% !important;
-  right: auto !important;
-}
-.slick-next {
-  right: 10% !important;
-  left: auto !important;
-}
-.landing-page-carousel {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  height: 320px !important;
-  min-width: 200px !important;
-  max-width: 220px !important;
-  box-sizing: border-box !important;
+/* Consistent book cover sizing everywhere */
+.book-cover {
+	width: 110px !important;
+	height: 160px !important;
+	min-width: 64px !important;
+	min-height: 96px !important;
+	max-width: 110px !important;
+	max-height: 160px !important;
+	object-fit: cover !important;
+	border-radius: 6px !important;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 1em;
+	box-sizing: border-box;
+	flex-shrink: 0; /* Prevent cover from shrinking in flex row */
 }
 .carousel-item {
-  position: relative;
-  /* background set by inline style for user customization */
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-}
-/* Force slick-track to use 100% width and prevent horizontal overflow */
-.slick-track {
-  width: 100% !important;
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: stretch;
-}
-.book-cover {
-  width: 180px;
-  height: 260px;
-  object-fit: cover;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  margin-bottom: 1rem;
-}
-.book-title {
-  margin-top: 0.5rem;
-  font-size: 1.1rem;
-  /* color and background set by inline style for user customization */
-  text-align: center;
-  border-radius: 4px;
-  max-width: 180px;
-  left: 0 !important;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  word-break: break-word;
-  right: 0 !important;
-}
-.slick-dots {
-  position: relative !important;
-  margin-top: 8px !important;
-  margin-bottom: 0 !important;
-  z-index: 1;
-}
-.slick-slide {
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  height: 320px;
-}
-.landing-description {
-  max-width: 800px;
-  margin: 2rem auto 0 auto;
-  padding: 1.5rem 2rem;
-  /* background and color set by inline style for user customization */
-  border-radius: 8px;
-  font-size: 1.15rem;
-  text-align: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+	width: 110px !important;
+	min-width: 110px !important;
+	max-width: 110px !important;
+	display: block !important;
+	box-sizing: border-box;
 }
 
-/* Top-10 lists layout */
+.book-title {
+	width: 100%;
+	word-break: break-word;
+	white-space: normal;
+	text-align: center;
+	box-sizing: border-box;
+}
+
+/* Placeholder variants for covers */
+.book-loading {
+	background: #e0ffe0 !important;
+	color: #080 !important;
+	font-style: italic;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+}
+.book-nocover {
+	background: #ffe0e0 !important;
+	color: #c00 !important;
+	font-style: italic;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+}
+.book-missing {
+	background: #eee !important;
+	color: #c00 !important;
+	font-style: italic;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+/* Top Lists Section */
+.landing-description {
+	background: #ccc;
+	border-radius: 8px;
+	padding: 24px 20px 20px 20px;
+	margin-bottom: 32px;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
 .top-lists-container {
-  display: flex;
-  flex-direction: row;
-  justify-content: center;
-  align-items: flex-start;
-  gap: 2.5rem;
-  margin-top: 2rem;
-  /* background and color set by inline style for user customization */
+	display: flex;
+	gap: 24px;
+	flex-wrap: wrap;
+	justify-content: center;
 }
+
 .top-list {
-  flex: 1 1 0;
-  min-width: 0;
-  /* background and color set by inline style for user customization */
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-  padding: 1rem 1.5rem 1.5rem 1.5rem;
-  text-align: left;
-  max-width: 320px;
+	background: #b8b8b8;
+	border-radius: 8px;
+	padding: 16px 12px 12px 12px;
+	flex: 1 1 320px;
+	min-width: 280px;
+	max-width: 400px;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+	margin-bottom: 16px;
 }
+
 .top-list h3 {
-  margin-top: 0;
-  margin-bottom: 1rem;
-  font-size: 1.15rem;
-  /* color set by inline style for user customization */
-  text-align: center;
+	margin: 0 0 12px 0;
+	font-size: 1.1em;
+	font-weight: 600;
+	color: #222;
 }
+
 .top-list ol {
-  padding-left: 1.2em;
-  margin: 0;
+	list-style: decimal inside;
+	padding: 0;
+	margin: 0;
 }
+
 .top-list li {
-  margin-bottom: 0.7em;
-  list-style-position: inside;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 10px;
 }
+
+.top-list li:last-child {
+	margin-bottom: 0;
+}
+
+.top-list img {
+	object-fit: cover;
+	border-radius: 6px;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+	background: #eee;
+}
+
 .top-list-link {
-  background: none;
-  border: none;
-  /* color set by inline style for user customization */
-  font-size: 1.05rem;
-  text-align: left;
-  cursor: pointer;
-  padding: 0;
-  font-weight: 500;
-  transition: color 0.18s;
-  text-decoration: underline dotted #0070f3 1.5px;
+	border: none;
+	background: none;
+	color: #222;
+	cursor: pointer;
+	font-size: 1em;
+	font-weight: 500;
+	text-align: left;
+	padding: 0;
+	transition: color 0.15s;
 }
-.top-list-link:hover {
-  color: #0070f3;
-  text-decoration: underline solid #0070f3 2px;
+
+.top-list-link:hover,
+.top-list-link:focus {
+	color: #0078d4;
+	text-decoration: underline;
 }
-/* --- MOBILE FRIENDLY STYLES --- */
+
+.top-list > ol > li > div[depth="3"] {
+	display: inline-block;
+	border-radius: 4px;
+	background: #a3a3a3;
+	padding: 4px 8px;
+	min-width: 0;
+	word-break: break-word;
+	white-space: normal;
+}
+
+/* Footer Section */
+.landing-footer {
+	width: 100%;
+	display: flex;
+	justify-content: center;
+	margin-top: 40px;
+	margin-bottom: 24px;
+	border-radius: 8px;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+	background: #ccc;
+}
+
+.landing-footer button {
+	padding: 10px 28px;
+	border-radius: 8px;
+	border: 1.5px solid #333;
+	background: #ccc;
+	color: #333;
+	font-weight: 700;
+	font-size: 18px;
+	cursor: pointer;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+	transition: background 0.15s, color 0.15s;
+}
+.landing-footer button:hover,
+.landing-footer button:focus {
+	background: #b8b8b8;
+	color: #0078d4;
+}
+
+
+.slick-track {
+  white-space: nowrap !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+}
+.slick-list {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+/* Remove all width/min-width from .slick-slide to let Slick measure .carousel-item */
+.slick-slide {
+	width: auto !important;
+	min-width: unset !important;
+	max-width: unset !important;
+}
+
 @media (max-width: 700px) {
-  .landing-page {
-    padding: 0 !important;
-    min-height: 100vh;
-  }
-  .searchbar-container,
-  .searchbar-input {
-    width: 98vw !important;
-    max-width: 98vw !important;
-    font-size: 1rem !important;
-    padding: 10px 8px !important;
-  }
-  .carousel-container {
-    padding: 1rem 0 1.5rem 0 !important;
-    min-width: 0 !important;
-  }
-  .slick-slider {
-    min-height: 220px !important;
-    margin-bottom: 24px !important;
-  }
-  .carousel-item {
-    border-radius: 8px !important;
-    min-width: 0 !important;
-    max-width: 98vw !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-  }
-  .book-cover {
-    width: 110px !important;
-    height: 160px !important;
-    border-radius: 6px !important;
-    margin-bottom: 0.5rem !important;
-  }
-  .book-title {
-    font-size: 0.95rem !important;
-    max-width: 110px !important;
-    margin-top: 0.3rem !important;
-  }
-  .landing-description {
-    padding: 1rem 0.5rem !important;
-    font-size: 1rem !important;
-    border-radius: 6px !important;
-    max-width: 98vw !important;
-  }
-  .top-lists-container {
-    flex-direction: column !important;
-    gap: 1.2rem !important;
-    align-items: stretch !important;
-    margin-top: 1rem !important;
-  }
-  .top-list {
-    max-width: 98vw !important;
-    padding: 0.7rem 0.5rem 1rem 0.5rem !important;
-    font-size: 0.98rem !important;
-    border-radius: 6px !important;
-  }
-  .top-list h3 {
-    font-size: 1rem !important;
-    margin-bottom: 0.7rem !important;
-  }
-  .top-list-link {
-    font-size: 0.98rem !important;
-  }
+	.book-cover {
+		width: 64px !important;
+		height: 96px !important;
+		min-width: 64px !important;
+		min-height: 96px !important;
+		max-width: 64px !important;
+		max-height: 96px !important;
+		object-fit: cover !important;
+		flex: none !important;
+		flex-shrink: 0 !important;
+	}
+	.carousel-item {
+		display: block !important;
+		width: 64px !important;
+		min-width: 64px !important;
+		max-width: 64px !important;
+		flex: none !important;
+		flex-direction: unset !important;
+		align-items: unset !important;
+		justify-content: unset !important;
+	}
+	/* Only truncate carousel book titles with ellipsis on mobile */
+	.carousel-item .book-title {
+		width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		display: block;
+		max-width: 100%;
+	}
+	.book-title {
+		width: 100%;
+		word-break: break-word;
+		white-space: normal;
+		text-align: center;
+	}
+	/* Hide dots and always show arrows on mobile carousel */
+	.slick-dots {
+		display: none !important;
+	}
+	.slick-arrow {
+		display: block !important;
+	}
+	.top-lists-container {
+		flex-direction: column;
+		gap: 0;
+	}
+	.top-list {
+		max-width: 100%;
+	}
 }

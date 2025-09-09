@@ -3,11 +3,13 @@ import { stepColor } from "../utils/colorUtils";
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 function getCoverFromCache(bookId) {
   try {
-    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
+    const cacheRaw = localStorage.getItem('swc_cover_cache');
+    const cache = JSON.parse(cacheRaw || '{}');
     const entry = cache[bookId];
     if (!entry) return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
     if (typeof entry === 'string') {
       // Legacy: treat as url, no timestamp
+      if (entry.startsWith('blob:')) return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
       return { url: entry, expired: false };
     }
     // entry: { url, ts }
@@ -16,22 +18,37 @@ function getCoverFromCache(bookId) {
       const expired = !entry.ts || (now - entry.ts > 3600 * 1000); // 1 hour expiry
       return { url: '/no-cover.png', expired };
     }
+    if (entry.url && entry.url.startsWith('blob:')) {
+      // Blob URLs cannot be cached, treat as cache miss
+      return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
+    }
     return { url: entry.url, expired: false };
-  } catch {
+  } catch (e) {
+    console.warn('Cover cache corrupted, clearing:', e);
+    localStorage.removeItem('swc_cover_cache');
     return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
   }
 }
 function setCoverInCache(bookId, url) {
   try {
-    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
+    if (url && url.startsWith('blob:')) return; // Never cache blob URLs
+    const cacheRaw = localStorage.getItem('swc_cover_cache');
+    let cache = {};
+    try {
+      cache = JSON.parse(cacheRaw || '{}');
+    } catch (e) {
+      console.warn('Cover cache corrupted, clearing:', e);
+      localStorage.removeItem('swc_cover_cache');
+      cache = {};
+    }
     if (url === '/no-cover.png') {
       cache[bookId] = { url, ts: Date.now() };
     } else {
       cache[bookId] = { url };
     }
     localStorage.setItem('swc_cover_cache', JSON.stringify(cache));
-  } catch {
-    null;
+  } catch (e) {
+    console.warn('Failed to set cover in cache:', e);
   }
 }
 function useCachedCovers(pdfs) {
@@ -46,9 +63,14 @@ function useCachedCovers(pdfs) {
       const bookId = pdf.drive_id || pdf.id;
       if (!bookId) return;
       const { url, expired } = getCoverFromCache(bookId);
-      newCovers[bookId] = url;
+      // Never use blob URLs from cache
+      if (url && url.startsWith('blob:')) {
+        newCovers[bookId] = undefined;
+      } else {
+        newCovers[bookId] = url;
+      }
       // Track loading state
-      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
+      if (!url || expired || (url.startsWith('blob:')) || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
         newLoading[bookId] = true;
         let sessionId = (user && user.sessionId) || localStorage.getItem('swc_session_id');
         let coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
@@ -218,45 +240,25 @@ function SearchBar({ pdfs, navigate }) {
 
 function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
   // Always show a maximum of 20 covers in the carousel
-  const pdfs20 = React.useMemo(() => pdfs.slice(0, 20), [pdfs]);
+  const pdfs20 = React.useMemo(() => {
+    const arr = pdfs.slice(0, 20);
+    return arr;
+  }, [pdfs]);
   const { covers, loadingCovers } = useCachedCovers(pdfs20);
-  const [isMobile, setIsMobile] = React.useState(window.innerWidth <= 700);
-  React.useEffect(() => {
-    function handleResize() {
-      setIsMobile(window.innerWidth <= 700);
-    }
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
-  // For mobile, each dot = 1 book, so slidesToShow/slidesToScroll = 1, dots = pdfs20.length > 1
-  const mobileSettings = {
-    ...settings,
-    slidesToShow: 1,
-    slidesToScroll: 1,
-    centerMode: false,
-    infinite: false,
-    dots: pdfs20.length > 1,
-    speed: 350,
-    centerPadding: '0px',
-    responsive: [],
-  };
-  const appliedSettings = isMobile ? mobileSettings : settings;
-
-  const coverStyle = isMobile
-    ? { width: 110, height: 160, objectFit: 'cover', borderRadius: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', marginBottom: '0.5rem' }
-    : { width: 170, height: 260, objectFit: 'cover', borderRadius: 6, boxShadow: '0 2px 16px rgba(0,0,0,0.12)' };
+  // Hybrid fix: Set width inline on .carousel-item for mobile, let Slick measure
+  const isMobile = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 700px)').matches;
+  // Restore: set width inline to 64px for mobile, matching .book-cover
+  // Desktop: set width, minWidth, maxWidth to 110px to match .book-cover
   const itemStyle = isMobile
-    ? { cursor: 'pointer', minWidth: 0, maxWidth: '98vw', borderRadius: 8 }
-    : { cursor: 'pointer' };
-  const titleStyle = isMobile
-    ? { fontSize: '0.95rem', maxWidth: 110, marginTop: '0.3rem', padding: '0.15em 0.3em', borderRadius: 4 }
-    : { fontSize: '1.1rem', maxWidth: 180, marginTop: 8, padding: '0.25em 0.5em', borderRadius: 4 };
+    ? { cursor: 'pointer', borderRadius: 8, width: 64, minWidth: 64, maxWidth: 64 }
+    : { cursor: 'pointer', borderRadius: 8, width: 110, minWidth: 110, maxWidth: 110 };
+  const titleStyle = { fontSize: '0.95rem', marginTop: '0.3rem', padding: '0.15em 0.3em', borderRadius: 4 };
 
   return (
     <SteppedContainer depth={depth} style={{ marginBottom: 32 }}>
       <div className="carousel-container">
-        <Slider {...appliedSettings}
+        <Slider {...settings}
           beforeChange={() => { window._carouselDragged = false; }}
           afterChange={() => { window._carouselDragged = false; }}
         >
@@ -270,31 +272,15 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
                 <SteppedContainer depth={depth + 1} key={bookId || Math.random()} className="carousel-item" style={itemStyle}>
                   {bookId ? (
                     pdf.missing
-                      ? <div style={{
-                          width: coverStyle.width, height: coverStyle.height,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: '#eee', color: '#c00', borderRadius: coverStyle.borderRadius,
-                          fontSize: 18, fontStyle: 'italic', boxShadow: coverStyle.boxShadow
-                        }}>Missing Book</div>
+                      ? <div className="book-cover book-missing">Missing Book</div>
                       : isLoading
-                        ? <div style={{
-                            width: coverStyle.width, height: coverStyle.height,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: '#e0ffe0', color: '#080', borderRadius: coverStyle.borderRadius,
-                            fontSize: 18, fontStyle: 'italic', boxShadow: coverStyle.boxShadow
-                          }}>Loading Cover...</div>
+                        ? <div className="book-cover book-loading">Loading Cover...</div>
                         : coverUrl === '/no-cover.png'
-                          ? <div style={{
-                              width: coverStyle.width, height: coverStyle.height,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              background: '#ffe0e0', color: '#c00', borderRadius: coverStyle.borderRadius,
-                              fontSize: 18, fontStyle: 'italic', boxShadow: coverStyle.boxShadow
-                            }}>No Cover</div>
+                          ? <div className="book-cover book-nocover">No Cover</div>
                           : <img
                               src={coverUrl}
                               alt={pdf.title}
                               className="book-cover"
-                              style={coverStyle}
                               onError={e => {
                                 if (e.target.src !== '/no-cover.png') {
                                   setCoverInCache(bookId, '/no-cover.png');
@@ -357,23 +343,13 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
                 <li key={bookId || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   {bookId ? (
                     isLoading ? (
-                      <div style={{
-                        width: 64, height: 96,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: '#e0ffe0', color: '#080', borderRadius: 6,
-                        fontSize: 16, fontStyle: 'italic', boxShadow: '0 2px 8px rgba(0,0,0,0.10)'
-                      }}>Loading Cover...</div>
+                      <div className="book-cover book-loading">Loading Cover...</div>
                     ) : coverUrl === '/no-cover.png' ? (
-                      <div style={{
-                        width: 64, height: 96,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: '#ffe0e0', color: '#c00', borderRadius: 6,
-                        fontSize: 16, fontStyle: 'italic', boxShadow: '0 2px 8px rgba(0,0,0,0.10)'
-                      }}>No Cover</div>
+                      <div className="book-cover book-nocover">No Cover</div>
                     ) : (
                       <img src={coverUrl}
                         alt={pdf.title}
-                        style={{ width: 64, height: 96, objectFit: 'cover', borderRadius: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.10)' }}
+                        className="book-cover"
                         onError={e => {
                           if (e.target.src !== '/no-cover.png') {
                             setCoverInCache(bookId, '/no-cover.png');
@@ -422,23 +398,13 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
                 <li key={bookId || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   {bookId ? (
                     isLoading ? (
-                      <div style={{
-                        width: 64, height: 96,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: '#e0ffe0', color: '#080', borderRadius: 6,
-                        fontSize: 16, fontStyle: 'italic', boxShadow: '0 2px 8px rgba(0,0,0,0.10)'
-                      }}>Loading Cover...</div>
+                      <div className="book-cover book-loading">Loading Cover...</div>
                     ) : coverUrl === '/no-cover.png' ? (
-                      <div style={{
-                        width: 64, height: 96,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: '#ffe0e0', color: '#c00', borderRadius: 6,
-                        fontSize: 16, fontStyle: 'italic', boxShadow: '0 2px 8px rgba(0,0,0,0.10)'
-                      }}>No Cover</div>
+                      <div className="book-cover book-nocover">No Cover</div>
                     ) : (
                       <img src={coverUrl}
                         alt={pdf.title}
-                        style={{ width: 64, height: 96, objectFit: 'cover', borderRadius: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.10)' }}
+                        className="book-cover"
                         onError={e => {
                           if (e.target.src !== '/no-cover.png') {
                             setCoverInCache(bookId, '/no-cover.png');
@@ -496,15 +462,14 @@ export default function LandingPage() {
     dots: true,
     infinite: true,
     speed: 500,
-    slidesToShow: 10,
+    slidesToShow: 9,
     slidesToScroll: 1,
-    totalSlides: 20,
-    centerMode: true,
-    centerPadding: '40px',
     swipeToSlide: true,
+    centerMode: true,
+    variableWidth: false,
     responsive: [
-      { breakpoint: 900, settings: { slidesToShow: 2 } },
-      { breakpoint: 600, settings: { slidesToShow: 1 } },
+      // Mobile: 1 book per slide
+      { breakpoint: 700, settings: { slidesToShow: 1, slidesToScroll: 1, infinite: true, centerMode: false, variableWidth: true } },
     ],
   };
 

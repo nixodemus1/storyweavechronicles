@@ -19,7 +19,7 @@ function useCachedCovers(pdfs) {
     let sessionId = null;
     try {
       sessionId = (window?.ThemeContext?.user?.sessionId) || localStorage.getItem('swc_session_id');
-    } catch {}
+    } catch {console.warn('Failed to access localStorage for session_id');}
 
     // Batch fetch covers in groups of 3 with a 300ms delay
     function batchFetchCovers(queue, batchSize = 3, delay = 300) {
@@ -352,8 +352,11 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
       const { url, expired } = getCoverFromCache(bookId);
       if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
         if (url !== '/no-cover.png' || expired) {
-          // Use GET to fetch cover (backend only allows GET)
-          fetch(`${API_BASE_URL}/pdf-cover/${bookId}`)
+          // Always attach session_id to cover fetch
+          let sessionId = (window?.ThemeContext?.user?.sessionId) || localStorage.getItem('swc_session_id');
+          let coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
+          if (sessionId) coverUrl += `?session_id=${encodeURIComponent(sessionId)}`;
+          fetch(coverUrl)
             .then(res => res.ok ? res.blob() : null)
             .then(blob => {
               let coverUrl = null;

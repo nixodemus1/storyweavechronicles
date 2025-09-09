@@ -23,6 +23,31 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
   const [unbanUser, setUnbanUser] = useState("");
   const [unbanStatus, setUnbanStatus] = useState("");
 
+  // Seed Drive Books state
+  const [seedStatus, setSeedStatus] = useState("");
+  const [seedLoading, setSeedLoading] = useState(false);
+
+  async function handleSeedDriveBooks() {
+    setSeedLoading(true);
+    setSeedStatus("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/seed-drive-books`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSeedStatus(`Seeded: ${data.added_count} new, ${data.updated_count} updated, ${data.external_id_updates} external IDs. Message: ${data.message}`);
+      } else {
+        setSeedStatus(data.message || "Failed to seed books.");
+      }
+    } catch (e) {
+      setSeedStatus("Error calling seed-drive-books endpoint: ", e);
+    }
+    setSeedLoading(false);
+  }
+
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
   const containerBg = stepColor(cssBg, theme, 1);
   const buttonBg = stepColor(backgroundColor, theme, 2);
@@ -72,6 +97,17 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
 
   return (
     <div style={{ width: 400, maxWidth: "95vw", marginBottom: 32, background: containerBg, borderRadius: 8, padding: "18px 16px" }}>
+      {/* Manual Seed Drive Books Button */}
+      <div style={{ marginBottom: 24 }}>
+        <button
+          onClick={handleSeedDriveBooks}
+          disabled={seedLoading}
+          style={{ background: buttonBg, color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: seedLoading ? 0.6 : 1 }}
+        >
+          {seedLoading ? "Seeding..." : "Seed Google Drive Books"}
+        </button>
+        {seedStatus && <div style={{ color: seedStatus.includes("Seeded") ? 'var(--success-text, #080)' : 'var(--error-text, #c00)', marginTop: 8 }}>{seedStatus}</div>}
+      </div>
       <h3 style={{ color: textColor }}>Admin Tools</h3>
       {/* Emergency Email Form */}
       <form onSubmit={handleSendEmail} style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 28 }}>

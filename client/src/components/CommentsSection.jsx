@@ -4,7 +4,7 @@ import { useCommentsContext } from "./commentsContext";
 import { stepColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
 
-export default function CommentsSection({ commentToScroll, commentsPageFromQuery }) {
+export default function CommentsSection({ commentToScroll, commentsPageFromQuery, bookId }) {
   const {
     comments,
     commentsLoading,
@@ -50,11 +50,17 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
       return;
     }
     if (!newComment.trim()) return;
+    // Use bookId from props, fallback to user.bookId if needed
+  const actualBookId = bookId || (user && user.bookId);
+    if (!actualBookId) {
+      setMsg("Book ID missing. Cannot add comment.");
+      return;
+    }
     const res = await fetch(`${import.meta.env.VITE_HOST_URL}/api/add-comment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        book_id: user.bookId,
+        book_id: actualBookId,
         username: user.username,
         text: newComment,
         parent_id: replyTo
@@ -187,22 +193,29 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
       const isDeleted = comment.deleted;
       const isAdmin = user?.is_admin;
       const showBanButton = isAdmin && !comment.deleted && !comment.is_admin && comment.username !== user?.username;
+      // Responsive margin for replies: reduce on mobile
+      const isMobile = window.innerWidth < 600;
+      const replyMargin = isMobile ? depth * 8 : depth * 24;
+      const avatarSize = isMobile ? 28 : 36;
+      const fontSize = isMobile ? 14 : 18;
       return (
         <div key={comment.id} id={`comment-${comment.id}`} style={{
           background: commentBg,
           color: commentText,
           borderRadius: 6,
-          margin: '12px 0 0 0',
-          padding: '12px 16px',
-          marginLeft: depth * 24,
+          margin: isMobile ? '8px 0 0 0' : '12px 0 0 0',
+          padding: isMobile ? '8px 8px' : '12px 16px',
+          marginLeft: replyMargin,
           boxShadow: depth === 0 ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 12
+          display: isMobile ? 'block' : 'flex',
+          alignItems: isMobile ? 'stretch' : 'flex-start',
+          gap: isMobile ? 6 : 12,
+          textAlign: 'left',
+          fontSize: fontSize
         }}>
           <div style={{
-            width: 36,
-            height: 36,
+            width: avatarSize,
+            height: avatarSize,
             borderRadius: '50%',
             background: avatarBg,
             color: avatarTextColor,
@@ -210,65 +223,65 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
             alignItems: 'center',
             justifyContent: 'center',
             fontWeight: 700,
-            fontSize: 18,
-            marginRight: 10,
+            fontSize: fontSize,
+            marginRight: isMobile ? 6 : 10,
             border: `2.5px solid ${avatarTextColor}`
           }}>
             {comment.username ? comment.username[0].toUpperCase() : '?'}
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontWeight: 600 }}>{isDeleted ? 'Deleted User' : comment.username}</span>
-                <span style={{ fontSize: 12, color: 'var(--meta-text, #888)' }}>{new Date(comment.timestamp).toLocaleString()}</span>
-                {comment.edited && !isDeleted && <span style={{ fontSize: 11, color: 'var(--edited-label, #f5c518)', marginLeft: 6 }}>(edited)</span>}
+            <div style={{ flex: 1, textAlign: 'left' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 8 }}>
+              <span style={{ fontWeight: 600, fontSize: fontSize }}>{isDeleted ? 'Deleted User' : comment.username}</span>
+                <span style={{ fontSize: isMobile ? 10 : 12, color: 'var(--meta-text, #888)' }}>{new Date(comment.timestamp).toLocaleString()}</span>
+                {comment.edited && !isDeleted && <span style={{ fontSize: isMobile ? 9 : 11, color: 'var(--edited-label, #f5c518)', marginLeft: 6 }}>(edited)</span>}
             </div>
               {isDeleted ? (
-                <div style={{ margin: '8px 0', fontStyle: 'italic', color: 'var(--deleted-text, #888)' }}>Comment not available (user deleted)</div>
+                <div style={{ margin: isMobile ? '6px 0' : '8px 0', fontStyle: 'italic', color: 'var(--deleted-text, #888)', fontSize: isMobile ? 12 : undefined }}>Comment not available (user deleted)</div>
             ) : editId === comment.id ? (
               <div>
                 <textarea
                   value={editText}
                   onChange={e => setEditText(e.target.value)}
                   rows={2}
-                  style={{ width: '100%', marginTop: 6, borderRadius: 4 }}
+                  style={{ width: '100%', marginTop: 6, borderRadius: 4, fontSize: fontSize }}
                 />
                 <button
                   onClick={() => handleEditComment(comment.id)}
-                  style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', marginRight: 8, cursor: 'pointer' }}
+                  style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: isMobile ? '4px 6px' : '4px 10px', marginRight: 8, cursor: 'pointer', fontSize: fontSize }}
                 >Save</button>
                 <button
                   onClick={() => { setEditId(null); setEditText(""); }}
-                  style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}
+                  style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: isMobile ? '4px 6px' : '4px 10px', cursor: 'pointer', fontSize: fontSize }}
                 >Cancel</button>
               </div>
             ) : (
-              <div style={{ margin: '8px 0' }}>{comment.text}</div>
+              <div style={{ margin: isMobile ? '6px 0' : '8px 0', textAlign: 'left', fontSize: fontSize }}>{comment.text}</div>
             )}
             {!isDeleted && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: isMobile ? 'center' : 'center', gap: isMobile ? 8 : 10, justifyContent: 'flex-start', marginTop: isMobile ? 4 : 0 }}>
                 <button
                   onClick={() => handleVoteComment(comment.id, 1)}
-                    style={{ background: buttonBg, color: commentText, border: '1px solid var(--upvote-border, #0070f3)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--upvote-border, #0070f3)' }}
+                    style={{ background: buttonBg, color: commentText, border: '1px solid var(--upvote-border, #0070f3)', borderRadius: 4, padding: isMobile ? '6px 10px' : '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--upvote-border, #0070f3)', fontSize: fontSize, minWidth: 60 }}
                 >▲ {comment.upvotes}</button>
                 <button
                   onClick={() => handleVoteComment(comment.id, -1)}
-                    style={{ background: buttonBg, color: commentText, border: '1px solid var(--downvote-border, #c00)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--downvote-border, #c00)' }}
+                    style={{ background: buttonBg, color: commentText, border: '1px solid var(--downvote-border, #c00)', borderRadius: 4, padding: isMobile ? '6px 10px' : '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--downvote-border, #c00)', fontSize: fontSize, minWidth: 60 }}
                 >▼ {comment.downvotes}</button>
                 <button
                   onClick={() => setReplyTo(comment.id)}
-                  style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', cursor: 'pointer' }}
+                  style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: isMobile ? '6px 10px' : '4px 10px', cursor: 'pointer', fontSize: fontSize, minWidth: 60 }}
                 >Reply</button>
                 {(user && (user.username === comment.username || user.is_admin)) && (
                   <>
                     {user.username === comment.username && (
                       <button
                         onClick={() => { setEditId(comment.id); setEditText(comment.text); }}
-                        style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: '4px 10px', marginRight: 8, cursor: 'pointer' }}
+                        style={{ background: buttonBg, color: commentText, border: `1px solid ${commentText}`, borderRadius: 4, padding: isMobile ? '6px 10px' : '4px 10px', marginRight: 8, cursor: 'pointer', fontSize: fontSize, minWidth: 60 }}
                       >Edit</button>
                     )}
                     <button
                       onClick={() => handleDeleteComment(comment.id)}
-                        style={{ background: buttonBg, color: commentText, border: '1px solid var(--delete-border, #c00)', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--delete-border, #c00)' }}
+                        style={{ background: buttonBg, color: commentText, border: '1px solid var(--delete-border, #c00)', borderRadius: 4, padding: isMobile ? '6px 10px' : '4px 10px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--delete-border, #c00)', fontSize: fontSize, minWidth: 60 }}
                     >Delete</button>
                   </>
                 )}
@@ -294,7 +307,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
       {commentsLoading ? <div>Loading comments...</div> : <>
         <div style={{ background: commentsContainerBg, color: textColor, borderRadius: 8, padding: 18, marginTop: 18, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           {/* Writing box above comments */}
-          <div style={{ marginBottom: 18 }}>
+          <div style={{ marginBottom: 18, display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
             <textarea
               value={newComment}
               onChange={e => setNewComment(e.target.value)}

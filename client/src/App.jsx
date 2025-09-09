@@ -38,14 +38,6 @@ export default function App() {
       </button>
     );
   }
-  // Track theme and user settings (declare all state hooks first)
-  // Theme should be 'dark' or 'light', matching the CSS class
-  const [theme, setTheme] = useState(() => {
-    // Try to detect initial theme from html class
-    if (document.documentElement.classList.contains('dark')) return 'dark';
-    if (document.documentElement.classList.contains('light')) return 'light';
-    return 'light';
-  });
   const [backgroundColor, setBackgroundColor] = useState("#fff");
   const [textColor, setTextColor] = useState("#222");
   const [font, setFont] = useState("");
@@ -60,6 +52,64 @@ export default function App() {
       return null;
     }
   });
+  // Track theme and user settings (declare all state hooks first)
+  // Theme should be 'dark', 'light', or 'custom', matching the CSS class
+  const [theme, setTheme] = useState(() => {
+    try {
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme) return savedTheme;
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const userObj = JSON.parse(stored);
+        if (userObj.backgroundColor && userObj.textColor) {
+          return 'custom';
+        }
+      }
+    } catch {console.log("Error parsing user/theme from localStorage");}
+    if (document.documentElement.classList.contains('dark')) return 'dark';
+    if (document.documentElement.classList.contains('light')) return 'light';
+    return 'light';
+  });
+
+  // Persist theme to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+  // If user changes and has custom colors, set theme to 'custom' only if theme is not already set in localStorage
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme');
+    if (!savedTheme && user && user.backgroundColor && user.textColor) {
+      setTheme('custom');
+    }
+  }, [user]);
+
+  // On mount, if user is logged in (session/cookie exists) but localStorage is empty, fetch user profile from backend
+  useEffect(() => {
+    async function fetchUserProfile() {
+      try {
+        // Only fetch if no user in localStorage but session/cookie exists
+        if (!user) {
+          const res = await fetch(`${API_BASE_URL}/api/get-profile`, {
+            method: 'GET',
+            credentials: 'include', // send cookies
+            headers: { 'Content-Type': 'application/json' }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && data.user) {
+              setUser(data.user);
+              localStorage.setItem('user', JSON.stringify(data.user));
+            }
+          }
+        }
+      } catch (err) {
+        console.log("Error fetching user profile on mount:", err);
+      }
+    }
+    fetchUserProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Save user to localStorage on change
   useEffect(() => {
     window.setUser = setUser;
@@ -491,7 +541,7 @@ export default function App() {
                   top: 70,
                   right: 60,
                   minWidth: 320,
-                  background: headerButtonColor,
+                  background: backgroundColor,
                   color: headerButtonTextColor,
                   borderRadius: 10,
                   boxShadow: '0 4px 24px rgba(0,0,0,0.12)',

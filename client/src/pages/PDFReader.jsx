@@ -499,41 +499,43 @@ export default function PDFReader() {
 
   return (
   <SteppedContainer step={0} style={{ minHeight: '100vh', background: baseBg, color: "var(--text-color)" }} className={`pdf-reader-container ${theme}-mode`}>
-  <header className="pdf-reader-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', marginBottom: 16, background: baseBg, color: "var(--text-color)" }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+  <header className="pdf-reader-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', marginBottom: 16, background: baseBg, color: "var(--text-color)", flexDirection: window.innerWidth < 600 ? 'column' : 'row', gap: window.innerWidth < 600 ? 10 : 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: window.innerWidth < 600 ? 10 : 18 }}>
           {/* Logo/title can be added here if needed for PDFReader */}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: window.innerWidth < 600 ? 10 : 18 }}>
           {/* Theme toggle or other header actions if needed */}
         </div>
       </header>
-  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-        <button
-          className="pdf-reader-btn"
-          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-          disabled={currentPage === 1}
-          style={{ background: navButtonBg, color: navButtonText, border: `1px solid ${navButtonText}`, borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer', marginRight: 8 }}
-        >
-          ◀ Prev
-        </button>
-        <span className="pdf-reader-page-indicator" style={{ fontWeight: 600, fontSize: 18 }}>
-          Page {currentPage} / {
-            (pdfError || (pageCount > 0 && pages.length === pageCount))
-              ? pageCount
-              : pages.length
-          }
-        </span>
-        <button
-          className="pdf-reader-btn"
-          onClick={() => setCurrentPage(p => {
-            const maxPage = (pdfError || (pageCount > 0 && pages.length === pageCount)) ? pageCount : pages.length;
-            return Math.min(maxPage, p + 1);
-          })}
-          disabled={currentPage === ((pdfError || (pageCount > 0 && pages.length === pageCount)) ? pageCount : pages.length)}
-          style={{ background: navButtonBg, color: navButtonText, border: `1px solid ${navButtonText}`, borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: currentPage === ((pdfError || (pageCount > 0 && pages.length === pageCount)) ? pageCount : pages.length) ? 'not-allowed' : 'pointer', marginLeft: 8 }}
-        >
-          Next ▶
-        </button>
+  <div style={{ display: window.innerWidth < 600 ? 'block' : 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 16, width: window.innerWidth < 600 ? '100%' : 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: window.innerWidth < 600 ? 12 : 8, width: '100%' }}>
+          <button
+            className="pdf-reader-btn"
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            style={{ background: navButtonBg, color: navButtonText, border: `1px solid ${navButtonText}`, borderRadius: 6, padding: window.innerWidth < 600 ? '12px 18px' : '6px 16px', fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer', fontSize: window.innerWidth < 600 ? 18 : 16 }}
+          >
+            ◀ Prev
+          </button>
+          <span className="pdf-reader-page-indicator" style={{ fontWeight: 600, fontSize: window.innerWidth < 600 ? 18 : 18, margin: '0 8px', minWidth: 90, textAlign: 'center' }}>
+            Page {currentPage} / {
+              (pdfError || (pageCount > 0 && pages.length === pageCount))
+                ? pageCount
+                : pages.length
+            }
+          </span>
+          <button
+            className="pdf-reader-btn"
+            onClick={() => setCurrentPage(p => {
+              const maxPage = (pdfError || (pageCount > 0 && pages.length === pageCount)) ? pageCount : pages.length;
+              return Math.min(maxPage, p + 1);
+            })}
+            disabled={currentPage === ((pdfError || (pageCount > 0 && pages.length === pageCount)) ? pageCount : pages.length)}
+            style={{ background: navButtonBg, color: navButtonText, border: `1px solid ${navButtonText}`, borderRadius: 6, padding: window.innerWidth < 600 ? '12px 18px' : '6px 16px', fontWeight: 600, cursor: currentPage === ((pdfError || (pageCount > 0 && pages.length === pageCount)) ? pageCount : pages.length) ? 'not-allowed' : 'pointer', fontSize: window.innerWidth < 600 ? 18 : 16 }}
+          >
+            Next ▶
+          </button>
+        </div>
       </div>
 
   <SteppedContainer step={1} style={{ borderRadius: 8, padding: 32, margin: 16, background: pdfPageBg, maxWidth: 1100, marginLeft: 'auto', marginRight: 'auto', color: "var(--text-color)" }} className="pdf-reader-page">
@@ -541,7 +543,7 @@ export default function PDFReader() {
         {pageObj ? (
           <div key={pageObj.page}>
             {pageObj.images && pageObj.images.length > 0 && (
-              <div className="pdf-reader-images" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+              <div className="pdf-reader-images" style={{ display: 'flex', flexWrap: 'wrap', gap: window.innerWidth < 600 ? 8 : 16, justifyContent: 'center', alignItems: 'center', marginBottom: window.innerWidth < 600 ? 8 : 16 }}>
                 {pageObj.images.map((img, idx) => {
                   let src, ext;
                   if (typeof img === 'string') {
@@ -567,8 +569,8 @@ export default function PDFReader() {
                         margin: '0 auto',
                         display: 'block'
                       } : {
-                        maxWidth: '100%',
-                        maxHeight: '400px',
+                        maxWidth: window.innerWidth < 600 ? '100%' : '100%',
+                        maxHeight: window.innerWidth < 600 ? '180px' : '400px',
                         width: 'auto',
                         height: 'auto',
                         objectFit: 'contain',
@@ -581,7 +583,7 @@ export default function PDFReader() {
               </div>
             )}
             {pageObj.text && (
-              <div className="pdf-reader-text" style={{ width: '100%', wordBreak: 'break-word', whiteSpace: 'pre-line' }}>
+              <div className="pdf-reader-text" style={{ width: '100%', wordBreak: 'break-word', whiteSpace: 'pre-line', fontSize: window.innerWidth < 600 ? 15 : undefined }}>
                 {renderPageText(pageObj)}
               </div>
             )}
@@ -589,14 +591,14 @@ export default function PDFReader() {
         ) : (
           <div style={{
             width: '100%',
-            minHeight: 300,
+            minHeight: window.innerWidth < 600 ? 180 : 300,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             background: '#e0ffe0',
             color: '#080',
             borderRadius: 16,
-            fontSize: 22,
+            fontSize: window.innerWidth < 600 ? 16 : 22,
             fontStyle: 'italic',
             boxShadow: '0 2px 16px rgba(0,0,0,0.10)'
           }}>
@@ -624,22 +626,82 @@ export default function PDFReader() {
           )}
           {bookmarkMsg && <span style={{ marginLeft: 10, color: bookmarkMsg.includes('Bookmarked') ? 'green' : '#c00', fontSize: 14 }}>{bookmarkMsg}</span>}
         </div>
-        <div style={{ marginBottom: 10 }}>
+        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-start' }}>
           <span style={{ fontWeight: 500, marginRight: 8 }}>Your Rating:</span>
-          {[1,2,3,4,5].map(star => (
-            <span
-              key={star}
-              style={{
-                fontSize: 22,
-                color: star <= userVote ? '#f5c518' : '#ccc',
-                cursor: user ? 'pointer' : 'not-allowed',
-                opacity: user ? 1 : 0.5,
-                marginRight: 2
-              }}
-              title={user ? `Rate ${star} star${star > 1 ? 's' : ''}` : "Log in to vote"}
-              onClick={() => user && handleVote(star)}
-            >★</span>
-          ))}
+          <div id="swc-rating-stars" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {(() => {
+              // Get computed background color from rating container
+              let bgColor = baseBg;
+              try {
+                const ratingDiv = document.getElementById('swc-rating-stars');
+                if (ratingDiv) {
+                  const computed = window.getComputedStyle(ratingDiv);
+                  bgColor = computed.backgroundColor || baseBg;
+                } else {
+                  bgColor = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || baseBg;
+                }
+              } catch {
+                bgColor = baseBg;
+              }
+              // Convert to RGB for comparison
+              function hexToRgb(hex) {
+                hex = hex.replace('#', '');
+                if (hex.length === 3) hex = hex.split('').map(x => x + x).join('');
+                const num = parseInt(hex, 16);
+                return [num >> 16 & 255, num >> 8 & 255, num & 255];
+              }
+              function isYellow(color) {
+                // Accepts hex or rgb(a)
+                if (!color) return false;
+                if (color.startsWith('#')) {
+                  const [r,g,b] = hexToRgb(color);
+                  // Check for yellow: high R and G, low B
+                  return r > 200 && g > 200 && b < 100;
+                }
+                if (color.startsWith('rgb')) {
+                  const vals = color.match(/\d+/g).map(Number);
+                  return vals[0] > 200 && vals[1] > 200 && vals[2] < 100;
+                }
+                return false;
+              }
+              function isRed(color) {
+                // Accepts hex or rgb(a)
+                if (!color) return false;
+                if (color.startsWith('#')) {
+                  const [r,g,b] = hexToRgb(color);
+                  // Check for red: high R, low G and B
+                  return r > 180 && g < 100 && b < 100;
+                }
+                if (color.startsWith('rgb')) {
+                  const vals = color.match(/\d+/g).map(Number);
+                  return vals[0] > 180 && vals[1] < 100 && vals[2] < 100;
+                }
+                return false;
+              }
+              // Emoji: hearts
+              const redHeart = '❤️';
+              const blueHeart = '💙';
+              const blackHeart = '🖤';
+              const useBlue = isYellow(bgColor) || isRed(bgColor);
+              // If userVote is null or 0, show all black hearts
+              const vote = userVote || 0;
+              return [1,2,3,4,5].map(star => (
+                <span
+                  key={star}
+                  style={{
+                    fontSize: 28,
+                    cursor: user ? 'pointer' : 'not-allowed',
+                    opacity: user ? 1 : 0.7,
+                    marginRight: 2,
+                    userSelect: 'none',
+                    transition: 'transform 0.1s',
+                  }}
+                  title={user ? `Rate ${star} heart${star > 1 ? 's' : ''}` : "Log in to vote"}
+                  onClick={() => user && handleVote(star)}
+                >{star <= vote ? (useBlue ? blueHeart : redHeart) : blackHeart}</span>
+              ));
+            })()}
+          </div>
           <span style={{ marginLeft: 8, color: '#888', fontSize: 13 }}>
             {voteStats.count > 0
               ? `Avg: ${voteStats.average} (${voteStats.count} vote${voteStats.count > 1 ? 's' : ''})`
@@ -648,7 +710,7 @@ export default function PDFReader() {
         </div>
   <SteppedContainer step={3} style={{ marginTop: 18, borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', padding: 18, background: commentsOuterBg, color: "var(--text-color)" }}>
           <CommentsProvider bookId={id}>
-            <CommentsSection commentToScroll={commentToScroll} commentsPageFromQuery={commentsPageFromQuery} />
+            <CommentsSection bookId={id} commentToScroll={commentToScroll} commentsPageFromQuery={commentsPageFromQuery} />
           </CommentsProvider>
         </SteppedContainer>
       </SteppedContainer>
