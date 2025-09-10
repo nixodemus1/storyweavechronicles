@@ -56,36 +56,51 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
         } else {
           updated = selected.filter(e => e !== email);
         }
+        // Immediately save with the updated state
+        setSaving(true);
+        fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user.username, prefs: { ...prev, emailChannels: updated } })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) {
+              setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, emailChannels: updated } } : u);
+            } else {
+              // Optionally show error to user
+              alert('Failed to save notification preferences.');
+            }
+          })
+          .catch(() => {
+            alert('Failed to save notification preferences.');
+          })
+          .finally(() => setSaving(false));
         return { ...prev, emailChannels: updated };
       });
-      setSaving(true);
-      fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, prefs: { ...prefs, emailChannels: checked ? [...(prefs.emailChannels || []), email] : (prefs.emailChannels || []).filter(e => e !== email) } })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, emailChannels: checked ? [...(prefs.emailChannels || []), email] : (prefs.emailChannels || []).filter(e => e !== email) } } : u);
-          }
-        })
-        .finally(() => setSaving(false));
     } else {
-      setPrefs(prev => ({ ...prev, [name]: checked }));
-      setSaving(true);
-      fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, prefs: { ...prefs, [name]: checked } })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, [name]: checked } } : u);
-          }
+      setPrefs(prev => {
+        const updatedPrefs = { ...prev, [name]: checked };
+        setSaving(true);
+        fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user.username, prefs: updatedPrefs })
         })
-        .finally(() => setSaving(false));
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) {
+              setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, [name]: checked } } : u);
+            } else {
+              alert('Failed to save notification preferences.');
+            }
+          })
+          .catch(() => {
+            alert('Failed to save notification preferences.');
+          })
+          .finally(() => setSaving(false));
+        return updatedPrefs;
+      });
     }
   }
 

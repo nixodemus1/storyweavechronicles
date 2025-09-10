@@ -838,7 +838,51 @@ def pdf_cover(file_id):
             if cover_queue_active == entry:
                 cover_queue_active = None
             cover_queue_lock.release()
+            # --- Aggressive cleanup of large objects before GC and RAM throttling ---
+            try:
+                # Delete large objects if they exist in local scope
+                for varname in ['doc', 'img_bytes', 'out', 'pix', 'page']:
+                    if varname in locals():
+                        try:
+                            del locals()[varname]
+                        except Exception:
+                            pass
+                # Also clear any temp files if needed (handled by context manager above)
+            except Exception as cleanup_e:
+                logging.error(f"[pdf-cover] Error during manual cleanup: {cleanup_e}")
+            # Force GC and RAM throttling
+            gc.collect()
+            mem = psutil.Process().memory_info().rss / (1024 * 1024)
+            MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
+            MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
+            # If memory is above HIGH threshold, wait for GC to clear RAM before next session
+            if mem > MEMORY_HIGH_THRESHOLD_MB:
+                logging.warning(f"[pdf-cover] Waiting for RAM to drop below HIGH threshold after GC. Current: {mem:.2f} MB")
+                wait_start = time.time()
+                max_wait = 10  # seconds
+                while mem > MEMORY_LOW_THRESHOLD_MB and time.time() - wait_start < max_wait:
+                    gc.collect()
+                    time.sleep(0.2)
+                    mem = psutil.Process().memory_info().rss / (1024 * 1024)
+                logging.info(f"[pdf-cover] RAM after GC wait: {mem:.2f} MB (waited {time.time() - wait_start:.2f}s)")
+        # --- Aggressive GC and RAM wait before next session ---
+        # Clean up and force GC
+        gc.collect()
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
+        MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
+        # If memory is above HIGH threshold, wait for GC to clear RAM before next session
+        if mem > MEMORY_HIGH_THRESHOLD_MB:
+            logging.warning(f"[pdf-cover] Waiting for RAM to drop below HIGH threshold after GC. Current: {mem:.2f} MB")
+            wait_start = time.time()
+            max_wait = 10  # seconds
+            while mem > MEMORY_LOW_THRESHOLD_MB and time.time() - wait_start < max_wait:
+                gc.collect()
+                time.sleep(0.2)
+                mem = psutil.Process().memory_info().rss / (1024 * 1024)
+            logging.info(f"[pdf-cover] RAM after GC wait: {mem:.2f} MB (waited {time.time() - wait_start:.2f}s)")
 
+            
 @app.route('/api/pdf-text/<file_id>', methods=['GET'])
 def pdf_text(file_id):
     """
@@ -1084,20 +1128,47 @@ def get_notification_prefs():
     user = User.query.filter_by(username=username).first() if username else None
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
+    # Define all expected keys and their defaults
+    expected_defaults = {
+        'email': False,
+        'push': False,
+        'newsletter': False,
+        'siteUpdates': True,
+        'newBook': True,
+        'bookmarkUpdates': True,
+        'replyNotifications': True,
+        'emailChannels': [],
+        'emailFrequency': 'immediate',
+        'muteAll': False,
+        'newBooks': True,
+        'updates': True,
+        'announcements': True,
+        'channels': ['primary']
+    }
     if user.notification_prefs:
         prefs = json.loads(user.notification_prefs)
     else:
-        prefs = {
-            'muteAll': False,
-            'newBooks': True,
-            'updates': True,
-            'announcements': True,
-            'channels': ['primary'],
-            'emailFrequency': 'immediate'
-        }
+        prefs = expected_defaults.copy()
         user.notification_prefs = json.dumps(prefs)
         db.session.commit()
-    return jsonify({'success': True, 'prefs': prefs})
+    # Normalize: ensure all expected keys are present
+    normalized = expected_defaults.copy()
+    normalized.update(prefs)
+    # Type normalization: ensure booleans are booleans, arrays are arrays
+    for k, v in expected_defaults.items():
+        if isinstance(v, bool):
+            normalized[k] = bool(normalized.get(k, v))
+        elif isinstance(v, list):
+            val = normalized.get(k, v)
+            if not isinstance(val, list):
+                try:
+                    val = list(val) if isinstance(val, (tuple, set)) else [val] if val else []
+                except Exception:
+                    val = []
+            normalized[k] = val
+        else:
+            normalized[k] = normalized.get(k, v)
+    return jsonify({'success': True, 'prefs': normalized})
 
 @app.route('/api/notify-reply', methods=['POST'])
 def notify_reply():
@@ -1518,6 +1589,7 @@ def drive_webhook():
                     notify_new_book(new_book.drive_id, new_book.title)
                 else:
                     book.title = file['name']
+                   
                     book.updated_at = file.get('modifiedTime')
                     db.session.commit()
                     logging.info(f"Updated book in DB: {file['name']}")
@@ -2194,8 +2266,8 @@ def seed_drive_books():
                     file_request = service.files().get_media(fileId=drive_id)
                     file_content = file_request.execute()
                     external_story_id = extract_story_id_from_pdf(file_content)
-                except Exception as e:
-                    errors.append(f"Error extracting story ID for {title}: {e}")
+                except Exception:
+                    external_story_id = None
                 book = Book(
                     drive_id=drive_id,
                     title=title,
