@@ -1079,6 +1079,42 @@ def pdf_text(file_id):
                 logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock in error cleanup.")
         return jsonify({"success": False, "error": str(e)}), 500
     
+@app.route('/api/cancel-session', methods=['POST'])
+def cancel_session():
+    """
+    Cancel all active and queued requests for a given session_id and type ('cover' or 'text').
+    Body: { "session_id": "...", "type": "cover" | "text" }
+    """
+    data = request.get_json(force=True)
+    session_id = data.get('session_id')
+    req_type = data.get('type')
+    if not session_id or req_type not in ['cover', 'text']:
+        return jsonify({'success': False, 'message': 'Missing session_id or invalid type.'}), 400
+
+    removed = 0
+    if req_type == 'cover':
+        with cover_queue_lock:
+            # Remove from queue
+            before = len(cover_request_queue)
+            cover_request_queue[:] = [e for e in cover_request_queue if e['session_id'] != session_id]
+            removed = before - len(cover_request_queue)
+            # Cancel active if matches
+            global cover_queue_active
+            if cover_queue_active and cover_queue_active.get('session_id') == session_id:
+                cover_queue_active = None
+    elif req_type == 'text':
+        with text_queue_lock:
+            before = len(text_request_queue)
+            text_request_queue[:] = [e for e in text_request_queue if e['session_id'] != session_id]
+            removed = before - len(text_request_queue)
+            global text_queue_active
+            if text_queue_active and text_queue_active.get('session_id') == session_id:
+                text_queue_active = None
+
+    # Remove session heartbeat
+    session_last_seen.pop(session_id, None)
+    return jsonify({'success': True, 'removed': removed, 'message': f'Cancelled session {session_id} for {req_type}.'})
+    
 @app.route('/api/update-colors', methods=['POST'])
 def update_colors():
     data = request.get_json(force=True)
@@ -1409,6 +1445,139 @@ def update_profile_settings():
             pass
     db.session.commit()
     return jsonify({'success': True, 'message': 'Profile settings updated.', 'font': user.font, 'timezone': user.timezone, 'comments_page_size': user.comments_page_size})
+
+@app.route('/api/export-account', methods=['POST'])
+def export_account():
+    data = request.get_json(force=True)
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+
+    account = {
+        'username': user.username,
+        'email': user.email,
+        'background_color': user.background_color,
+        'text_color': user.text_color,
+        'font': user.font,
+        'timezone': user.timezone,
+        'comments_page_size': user.comments_page_size,
+        'secondary_emails': json.loads(user.secondary_emails) if user.secondary_emails else [],
+        'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
+        'notification_prefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
+        'notification_history': json.loads(user.notification_history) if user.notification_history else [],
+        # Optionally include votes and comments:
+        'votes': [
+            {
+                'book_id': v.book_id,
+                'value': v.value,
+                'timestamp': v.timestamp.isoformat()
+            } for v in Vote.query.filter_by(username=username).all()
+        ],
+        'comments': [
+            {
+                'book_id': c.book_id,
+                'parent_id': c.parent_id,
+                'text': c.text,
+                'timestamp': c.timestamp.isoformat(),
+                'edited': c.edited,
+                'upvotes': c.upvotes,
+                'downvotes': c.downvotes,
+                'deleted': c.deleted,
+                'background_color': c.background_color,
+                'text_color': c.text_color
+            } for c in Comment.query.filter_by(username=username).all()
+        ]
+    }
+    return jsonify({'success': True, 'account': account})
+
+@app.route('/api/import-account', methods=['POST'])
+def import_account():
+    data = request.get_json(force=True)
+    username = data.get('username')
+    account = data.get('account')
+    user = User.query.filter_by(username=username).first()
+    if not user or not account:
+        return jsonify({'success': False, 'message': 'User not found or invalid data.'}), 400
+
+    # Update basic fields
+    user.email = account.get('email', user.email)
+    user.background_color = account.get('background_color', user.background_color)
+    user.text_color = account.get('text_color', user.text_color)
+    user.font = account.get('font', user.font)
+    user.timezone = account.get('timezone', user.timezone)
+    user.comments_page_size = account.get('comments_page_size', user.comments_page_size)
+    user.secondary_emails = json.dumps(account.get('secondary_emails', []))
+    user.bookmarks = json.dumps(account.get('bookmarks', []))
+    user.notification_prefs = json.dumps(account.get('notification_prefs', {}))
+    user.notification_history = json.dumps(account.get('notification_history', []))
+
+    db.session.commit()
+
+    # Optionally merge votes and comments (skip duplicates)
+    # Votes
+    imported_votes = account.get('votes', [])
+    for v in imported_votes:
+        if not Vote.query.filter_by(username=username, book_id=v.get('book_id')).first():
+            vote = Vote(
+                username=username,
+                book_id=v.get('book_id'),
+                value=v.get('value', 1),
+                timestamp=datetime.datetime.fromisoformat(v.get('timestamp')) if v.get('timestamp') else datetime.datetime.now(datetime.UTC)
+            )
+            db.session.add(vote)
+    # Comments
+    imported_comments = account.get('comments', [])
+    for c in imported_comments:
+        if not Comment.query.filter_by(username=username, book_id=c.get('book_id'), text=c.get('text')).first():
+            comment = Comment(
+                book_id=c.get('book_id'),
+                username=username,
+                parent_id=c.get('parent_id'),
+                text=c.get('text'),
+                timestamp=datetime.datetime.fromisoformat(c.get('timestamp')) if c.get('timestamp') else datetime.datetime.now(datetime.UTC),
+                edited=c.get('edited', False),
+                upvotes=c.get('upvotes', 0),
+                downvotes=c.get('downvotes', 0),
+                deleted=c.get('deleted', False),
+                background_color=c.get('background_color'),
+                text_color=c.get('text_color')
+            )
+            db.session.add(comment)
+    db.session.commit()
+
+    return jsonify({'success': True, 'message': 'Account data imported.'})
+
+@app.route('/api/admin/send-newsletter', methods=['POST'])
+def send_newsletter():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    subject = data.get('subject')
+    message = data.get('message')
+    errors = []
+    sent_count = 0
+
+    # Only allow admins
+    if not is_admin(admin_username):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    # Compose newsletter subject and body
+    today = datetime.datetime.now().strftime('%m/%d/%Y')
+    newsletter_subject = f"Newsletter {today} - {subject}"
+    newsletter_body = f"{message}\n\nSincerely,\n{admin_username}"
+
+    # Send only to users with newsletter enabled in notification_prefs
+    users = User.query.all()
+    for user in users:
+        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+        if prefs.get('newsletter', False) and user.email:
+            try:
+                send_notification_email(user, newsletter_subject, newsletter_body)
+                sent_count += 1
+            except Exception as e:
+                errors.append(f"Failed to send to {user.username}: {e}")
+
+    return jsonify({'success': True, 'message': f'Newsletter sent to {sent_count} user(s).', 'errors': errors})
 
 @app.route('/api/login', methods=['POST'])
 def login():

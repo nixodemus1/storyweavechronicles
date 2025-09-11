@@ -27,6 +27,13 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
   const [seedStatus, setSeedStatus] = useState("");
   const [seedLoading, setSeedLoading] = useState(false);
 
+  // Add these states near the top
+  const [newsletterSubject, setNewsletterSubject] = useState("");
+  const [newsletterMsg, setNewsletterMsg] = useState("");
+  const [newsletterStatus, setNewsletterStatus] = useState("");
+  const [newsletterSending, setNewsletterSending] = useState(false);
+
+
   async function handleSeedDriveBooks() {
     setSeedLoading(true);
     setSeedStatus("");
@@ -47,6 +54,31 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
     }
     setSeedLoading(false);
   }
+
+  // Add this function
+async function handleSendNewsletter(e) {
+  e.preventDefault();
+  setNewsletterSending(true);
+  setNewsletterStatus("");
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/send-newsletter`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        adminUsername: user.username,
+        subject: newsletterSubject,
+        message: newsletterMsg
+      })
+    });
+    const data = await res.json();
+    setNewsletterStatus(data.success ? "Newsletter sent successfully." : data.message || "Failed to send newsletter.");
+    setNewsletterSubject("");
+    setNewsletterMsg("");
+  } catch {
+    setNewsletterStatus("Failed to send newsletter.");
+  }
+  setNewsletterSending(false);
+}
 
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
   const containerBg = stepColor(cssBg, theme, 1);
@@ -152,6 +184,37 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
           {saving ? "Sending..." : "Send Emergency Email"}
         </button>
         {emailStatus && <div style={{ color: emailStatus.includes("success") ? 'var(--success-text, #080)' : 'var(--error-text, #c00)', marginTop: 8 }}>{emailStatus}</div>}
+      </form>
+      {/* Newsletter Form */}
+      <h3 style={{ color: textColor, marginTop: 32 }}>Send Newsletter</h3>
+      <form onSubmit={handleSendNewsletter} style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 28 }}>
+        <label style={{ color: textColor }}>
+          Subject:
+          <input
+            type="text"
+            value={newsletterSubject}
+            onChange={e => setNewsletterSubject(e.target.value)}
+            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid var(--input-border, #ccc)", minWidth: 120 }}
+            required
+          />
+        </label>
+        <label style={{ color: textColor }}>
+          Message:
+          <textarea
+            value={newsletterMsg}
+            onChange={e => setNewsletterMsg(e.target.value)}
+            style={{ marginLeft: 8, padding: 6, borderRadius: 4, border: "1px solid var(--input-border, #ccc)", minWidth: 120, minHeight: 60 }}
+            required
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={newsletterSending}
+          style={{ background: buttonBg, color: textColor, border: "none", borderRadius: 4, padding: "8px 16px", fontWeight: 600, cursor: "pointer", opacity: newsletterSending ? 0.6 : 1 }}
+        >
+          {newsletterSending ? "Sending..." : "Send Newsletter"}
+        </button>
+        {newsletterStatus && <div style={{ color: newsletterStatus.includes("success") ? 'var(--success-text, #080)' : 'var(--error-text, #c00)', marginTop: 8 }}>{newsletterStatus}</div>}
       </form>
       {/* Admin Rights Form */}
       <form onSubmit={handleAdminAction} style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 28 }}>

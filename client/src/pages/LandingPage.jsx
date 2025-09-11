@@ -101,7 +101,8 @@ function useCachedCovers(pdfs) {
   }, [pdfs, user]);
   return { covers, loadingCovers };
 }
-import React, { useEffect, useState, useContext } from "react";
+import React, { useEffect, useState, useContext, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import "../styles/LandingPage.css";
 import Slider from "react-slick";
 import { useNavigate } from "react-router-dom";
@@ -449,14 +450,31 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const { theme, backgroundColor: _backgroundColor, textColor } = useContext(ThemeContext);
+  const { theme, backgroundColor: _backgroundColor, textColor, user } = useContext(ThemeContext);
+
+  // Cancel cover queue session ONLY on route change (true navigation away)
+  const location = useLocation();
+  const prevPathRef = useRef(location.pathname);
+  useEffect(() => {
+    prevPathRef.current = location.pathname;
+    return () => {
+      if (prevPathRef.current !== location.pathname) {
+        const sessionId = user?.session_id || localStorage.getItem('session_id');
+        if (sessionId) {
+          fetch(`${API_BASE_URL}/api/cancel-session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId, type: 'cover' })
+          });
+        }
+      }
+    };
+  }, [location.pathname, user]);
 
   const [pdfs, setPdfs] = useState([]);
   const [topNewest, setTopNewest] = useState([]);
   const [topVoted, setTopVoted] = useState([]);
   const [loadingPdfs, setLoadingPdfs] = useState(false);
-  // ...existing code...
-  const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
   const settings = {
     dots: true,

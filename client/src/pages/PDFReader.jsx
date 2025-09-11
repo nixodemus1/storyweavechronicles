@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { useParams } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
 import { SteppedContainer } from "../components/ContainerDepthContext.jsx";
@@ -103,6 +104,25 @@ function purgeUnusedBookCache(currentBookId) {
 }
 
 export default function PDFReader() {
+  // Cancel text queue session on unmount/navigation away
+    const location = useLocation();
+    const prevPathRef = useRef(location.pathname);
+    useEffect(() => {
+      prevPathRef.current = location.pathname;
+      return () => {
+        if (prevPathRef.current !== location.pathname) {
+          const sessionId = (user && user.sessionId) || localStorage.getItem('swc_session_id');
+          if (sessionId) {
+            fetch(`${API_BASE_URL}/api/cancel-session`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session_id: sessionId, type: 'text' })
+            });
+          }
+        }
+      };
+    }, [location.pathname, user]);
+    
   // Utility: Print localStorage usage and breakdown
   function printLocalStorageUsage() {
     let totalBytes = 0;

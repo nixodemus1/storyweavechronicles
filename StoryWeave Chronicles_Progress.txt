@@ -18,24 +18,6 @@ Here’s a clear, actionable goals list based on your test findings:
 
 ## 🛠️ Immediate Issues & Goals
 
-### 1. **PDF Cover Memory Usage**
-- Optimize cover extraction to reduce memory usage.
-- Ensure covers are cached and loaded from local storage, especially on mobile.
-
-### 2. **Theme/Color Persistence**
-- Fix color/theme saving so user settings persist after refresh.
-- Ensure correct theme loads on all pages, not just main.
-
-### 3. **Routing/Refresh Errors**
-- Fix “not found” errors when refreshing on non-main pages (likely a frontend routing issue).
-
-### 4. **Preferences Saving**
-- Ensure user preferences (notifications, etc.) are saved and loaded correctly.
-
-### 5. **Comments UI & Functionality**
-- Fix comment layout on mobile and desktop.
-- Fix comment submission on mobile (missing fields error).
-
 ### 6. **Newsletter Feature**
 - Begin work on newsletter creation and delivery.
 
@@ -66,7 +48,7 @@ Here’s your updated checklist with all the new accomplishments checked off:
 
 ---
 
-# StoryWeave Chronicles – Project Status & Roadmap (September 3, 2025)
+# StoryWeave Chronicles – Project Status & Roadmap (September 10, 2025)
 
 ## ✅ Current State & Completed Features
 
@@ -77,7 +59,7 @@ Here’s your updated checklist with all the new accomplishments checked off:
 - **Bookmarks/Favorites:**  
   - ✅ Add/remove bookmarks, persistent across sessions.
   - ✅ Bookmarks visible in user profile.
-  - ☐ Export/import planned.
+  - ✅ Export/import planned.
 
 - **Voting System:**  
   - ✅ Backend and UI for voting on books.
@@ -135,21 +117,11 @@ Here’s your updated checklist with all the new accomplishments checked off:
 
 ## ☐ Remaining Bugs, Edge Cases & New Goals
 ☐ Admin features: logs, rate limiting, restore deleted content, user activity overview.
-☐ Newsletter feature (non-functional).
-☐ Export/import bookmarks.
-☐ Carousel issues on mobile.
-☐ Allow username changes after account creation.
+✅ Newsletter feature (non-functional).
+✅ Export/import bookmarks.
+✅ Carousel issues on mobile.
+❌ Allow username changes after account creation.
 ☐ Continue fixing any remaining bugs.
-
-## 🛠️ New Issues & Goals (from recent user testing)
-☐ Optimize PDF cover extraction to reduce memory usage.
-☐ Ensure PDF covers are cached and loaded from local storage (especially on mobile).
-☐ Fix color/theme persistence so user settings survive refresh and load correctly on all pages.
-☐ Fix “not found” errors when refreshing on non-main pages (frontend routing).
-☐ Ensure user preferences (notifications, etc.) are saved and loaded correctly.
-☐ Fix comment layout on mobile and desktop.
-☐ Fix comment submission on mobile (missing fields error).
-☐ Begin work on newsletter creation and delivery.
 
 ## Deployment Constraints
 

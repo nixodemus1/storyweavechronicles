@@ -250,14 +250,14 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
       });
   }, [user?.username]);
 
-
   // Use unified cover cache logic from LandingPage.jsx
   const covers = useCachedCovers(books);
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
   const containerBg = stepColor(cssBg, theme, 1);
+  const itemBg = stepColor(cssBg, theme, 2);
 
   return (
-    <div style={{ width: 400, maxWidth: '95vw', marginBottom: 32, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
+    <div style={{ width: 400, maxWidth: '95vw', marginBottom: 0, background: containerBg, borderRadius: 8, padding: '18px 16px' }}>
       <h3 style={{ color: textColor }}>Your Top Voted Books</h3>
       {loading ? (
         <div style={{ color: 'var(--meta-text, #888)' }}>Loading...</div>
@@ -276,7 +276,7 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
-                background: 'var(--topvoted-bg, #f8f8f8)',
+                background: itemBg,
                 borderRadius: 6,
                 padding: '6px 8px',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
@@ -287,7 +287,7 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                       ? <div style={{
                           width: 38, height: 54,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: 'var(--cover-bg, #eee)', color: 'var(--cover-text, #888)', borderRadius: 4,
+                          background: stepColor(cssBg, theme, 3), color: textColor, borderRadius: 4,
                           fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
                         }}>No Cover</div>
                       : <img
@@ -305,8 +305,8 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                     <span style={{ color: 'var(--error-text, #c00)', fontSize: 12 }}>[No valid book id]</span>
                   )}
                 </Link>
-                <span style={{ fontWeight: 600, textDecoration: 'underline', fontSize: 16 }}>{book.name}</span>
-                <span style={{ fontSize: 13, color: 'var(--meta-text, #888)' }}>
+                <span style={{ fontWeight: 600, textDecoration: 'underline', fontSize: 16, color: textColor }}>{book.name}</span>
+                <span style={{ fontSize: 13, color: textColor }}>
                   Votes: {book.votes}
                 </span>
               </li>
@@ -425,12 +425,63 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
 });
 
 const AccountTabContent = React.memo(function AccountTabContent({ user, setUser }) {
-  const { backgroundColor, theme } = useContext(ThemeContext);
+  const { backgroundColor, theme, textColor } = useContext(ThemeContext);
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
   const overviewBg = stepColor(cssBg, theme, 1);
   // Comments page size state
   const [commentsPageSize, setCommentsPageSize] = useState(user?.comments_page_size || 10);
   const [savingPageSize, setSavingPageSize] = useState(false);
+
+  // --- Import/Export Handlers ---
+  const handleExportAccount = async () => {
+    if (!user?.username) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/export-account`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username })
+      });
+      const data = await res.json();
+      if (data.success && data.account) {
+        const blob = new Blob([JSON.stringify(data.account, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `storyweave_account_${user.username}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        alert('Failed to export account data.');
+      }
+    } catch (e) {
+      alert('Error exporting account data: ' + e);
+    }
+  };
+
+  const handleImportAccount = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const accountData = JSON.parse(text);
+      const res = await fetch(`${API_BASE_URL}/api/import-account`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user?.username, account: accountData })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Account data imported successfully!');
+        // Optionally refresh user data here
+      } else {
+        alert('Failed to import account data: ' + (data.message || 'Unknown error'));
+      }
+    } catch (e) {
+      alert('Error importing account data: ' + e);
+    }
+  };
 
   // Save page size to backend
   const handlePageSizeChange = async (e) => {
@@ -492,6 +543,42 @@ const AccountTabContent = React.memo(function AccountTabContent({ user, setUser 
       <BookmarksTab user={user} />
       <UserCommentsSection user={user} />
       <UserTopVotedBooksTab user={user} />
+      {/* --- Import/Export Buttons Container --- */}
+      <div style={{ width: 400, maxWidth: '95vw', margin: '24px auto 32px auto', background: stepColor(cssBg, theme, 2), borderRadius: 8, padding: '18px 16px', display: 'flex', gap: 16, justifyContent: 'center', flexDirection: 'row' }}>
+        <button
+          onClick={handleExportAccount}
+          style={{
+            padding: '8px 18px',
+            borderRadius: 8,
+            border: `1.5px solid ${textColor}`,
+            background: stepColor(backgroundColor, theme, 3),
+            color: textColor,
+            fontWeight: 600,
+            fontSize: 16,
+            cursor: 'pointer',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+          }}
+        >Export Account Data</button>
+        <label style={{
+          padding: '8px 18px',
+          borderRadius: 8,
+          border: `1.5px solid ${textColor}`,
+          background: stepColor(backgroundColor, theme, 3),
+          color: textColor,
+          fontWeight: 600,
+          fontSize: 16,
+          cursor: 'pointer',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
+        }}>
+          Import Account Data
+          <input
+            type="file"
+            accept="application/json"
+            style={{ display: 'none' }}
+            onChange={handleImportAccount}
+          />
+        </label>
+      </div>
     </>
   );
 });

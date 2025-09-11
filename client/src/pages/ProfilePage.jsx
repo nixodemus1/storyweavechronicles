@@ -7,6 +7,7 @@ import NotificationsTab from "../components/NotificationsTab";
 import AdminTabContent from "../components/AdminTabContent";
 import SettingsTabContent from "../components/SettingsTabContent";
 import SecurityTabContent from "../components/SecurityTabContent";
+const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, isAdmin, setUser, sidebarRef, backgroundColor, textColor, theme }) {
   const tabs = [
@@ -245,6 +246,7 @@ function ProfilePage({ user, setUser }) {
   const effectiveText = previewTextColor ?? contextText;
   //logging for effective props
   console.log('[ProfilePage] effectiveBg:', effectiveBg, 'effectiveText:', effectiveText);
+  // ...existing code...
   return (
     <div style={{
       display: 'flex',
@@ -273,6 +275,7 @@ function ProfilePage({ user, setUser }) {
         background: effectiveBg,
         color: effectiveText
       }}>
+        {/* --- Existing tab content --- */}
         {tabContent}
       </main>
     </div>
