@@ -698,26 +698,31 @@ def cleanup_locals(locals_dict):
             try:
                 if hasattr(obj, 'close'):
                     obj.close()
-            except Exception:
-                pass
+                    logging.info(f"[cleanup_locals] Closed object: {varname}")
+            except Exception as e:
+                logging.warning(f"[cleanup_locals] Error closing {varname}: {e}")
             try:
                 del obj
-            except Exception:
-                pass
+                logging.info(f"[cleanup_locals] Deleted object: {varname}")
+            except Exception as e:
+                logging.warning(f"[cleanup_locals] Error deleting {varname}: {e}")
     # PIL image cleanup (if any)
     img = locals_dict.get('img')
     if img is not None:
         try:
             img.close()
-        except Exception:
-            pass
+            logging.info("[cleanup_locals] Closed PIL image: img")
+        except Exception as e:
+            logging.warning(f"[cleanup_locals] Error closing img: {e}")
         try:
             del img
-        except Exception:
-            pass
+            logging.info("[cleanup_locals] Deleted PIL image: img")
+        except Exception as e:
+            logging.warning(f"[cleanup_locals] Error deleting img: {e}")
     # Aggressive GC
     for _ in range(3):
         gc.collect()
+    logging.info("[cleanup_locals] Finished cleanup and GC.")
 
 @app.route('/pdf-cover/<file_id>', methods=['GET'])
 def pdf_cover(file_id):
@@ -764,7 +769,11 @@ def pdf_cover(file_id):
         logging.info(f"[pdf-cover] Serving fallback cover for file_id={file_id}")
         response = make_response(send_file(fallback_path, mimetype='image/png'))
         origin = request.headers.get('Origin')
-        allowed = ["http://localhost:5173", "https://storyweavechronicles.onrender.com"]
+        allowed = [
+            "http://localhost:5173",
+            "https://storyweavechronicles.onrender.com",
+            "https://swcflaskbackend.onrender.com"
+        ]
         if origin in allowed:
             response.headers["Access-Control-Allow-Origin"] = origin
         else:
@@ -774,7 +783,10 @@ def pdf_cover(file_id):
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
         logging.info(f"[pdf-cover] Memory usage after fallback: {mem:.2f} MB")
         # tracemalloc logging (optional)
-        logging.info(tracemalloc.take_snapshot().statistics('filename'))
+        if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
+            logging.info(tracemalloc.take_snapshot().statistics('filename'))
+        else:
+            logging.info("[pdf-cover] tracemalloc is not tracing; skipping snapshot.")
         return response
 
     logging.info(f"[pdf-cover] Request for file_id={file_id}")
@@ -858,7 +870,10 @@ def pdf_cover(file_id):
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
             # tracemalloc logging (optional)
-            logging.info(tracemalloc.take_snapshot().statistics('filename'))
+            if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
+                logging.info(tracemalloc.take_snapshot().statistics('filename'))
+            else:
+                logging.info("[pdf-cover] tracemalloc is not tracing; skipping snapshot.")
             MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
             MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
             if mem > MEMORY_LOW_THRESHOLD_MB:
@@ -880,7 +895,10 @@ def pdf_cover(file_id):
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] Memory usage after page error: {mem:.2f} MB")
             # tracemalloc logging (optional)
-            logging.info(tracemalloc.take_snapshot().statistics('filename'))
+            if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
+                logging.info(tracemalloc.take_snapshot().statistics('filename'))
+            else:
+                logging.info("[pdf-cover] tracemalloc is not tracing; skipping snapshot.")
             return send_fallback()
     except Exception as e:
         logging.error(f"[pdf-cover] Error fetching file from Drive for file_id={file_id}: {e}")
