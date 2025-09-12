@@ -34,6 +34,7 @@ import logging
 import gc
 import requests
 import concurrent.futures
+import tracemalloc;
 
 load_dotenv()
 
@@ -153,7 +154,7 @@ app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
-CORS(app, origins=["http://localhost:5173", "https://storyweavechronicles.onrender.com"])
+CORS(app, origins=["http://localhost:5173", "https://storyweavechronicles.onrender.com", "https://swcflaskbackend.onrender.com"])
 mail = Mail(app)
 
 service_account_info = {
@@ -689,6 +690,35 @@ def cover_queue_health():
         'sessions': status['sessions'],
     })
 
+def cleanup_locals(locals_dict):
+    # Helper to close/delete large objects
+    for varname in ['doc', 'img_bytes', 'out', 'pix', 'page']:
+        obj = locals_dict.get(varname)
+        if obj is not None:
+            try:
+                if hasattr(obj, 'close'):
+                    obj.close()
+            except Exception:
+                pass
+            try:
+                del obj
+            except Exception:
+                pass
+    # PIL image cleanup (if any)
+    img = locals_dict.get('img')
+    if img is not None:
+        try:
+            img.close()
+        except Exception:
+            pass
+        try:
+            del img
+        except Exception:
+            pass
+    # Aggressive GC
+    for _ in range(3):
+        gc.collect()
+
 @app.route('/pdf-cover/<file_id>', methods=['GET'])
 def pdf_cover(file_id):
     global cover_queue_active
@@ -725,6 +755,11 @@ def pdf_cover(file_id):
         fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
         if not os.path.exists(fallback_path):
             logging.error(f"[pdf-cover] Fallback image not found at {fallback_path}")
+            cleanup_locals(locals())
+            mem = psutil.Process().memory_info().rss / (1024 * 1024)
+            logging.info(f"[pdf-cover] Memory usage after fallback: {mem:.2f} MB")
+            # tracemalloc logging (optional)
+            logging.info(tracemalloc.take_snapshot().statistics('filename'))
             return make_response(jsonify({'error': 'No cover available'}), 404)
         logging.info(f"[pdf-cover] Serving fallback cover for file_id={file_id}")
         response = make_response(send_file(fallback_path, mimetype='image/png'))
@@ -735,6 +770,11 @@ def pdf_cover(file_id):
         else:
             response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
         response.status_code = 404
+        cleanup_locals(locals())
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[pdf-cover] Memory usage after fallback: {mem:.2f} MB")
+        # tracemalloc logging (optional)
+        logging.info(tracemalloc.take_snapshot().statistics('filename'))
         return response
 
     logging.info(f"[pdf-cover] Request for file_id={file_id}")
@@ -750,6 +790,9 @@ def pdf_cover(file_id):
         # Check if PDF header is valid
         if not pdf_bytes or not pdf_bytes.startswith(b'%PDF'):
             logging.error(f"[pdf-cover] Invalid PDF content for file_id={file_id}. Header: {pdf_header}")
+            cleanup_locals(locals())
+            mem = psutil.Process().memory_info().rss / (1024 * 1024)
+            logging.info(f"[pdf-cover] Memory usage after invalid PDF: {mem:.2f} MB")
             return send_fallback()
         # Always try temp file first, fallback to in-memory if temp file fails
         doc = None
@@ -767,6 +810,9 @@ def pdf_cover(file_id):
                 logging.info(f"[pdf-cover] fitz.open succeeded from memory for file_id={file_id}")
             except Exception as mem_e:
                 logging.error(f"[pdf-cover] fitz.open failed from memory for file_id={file_id}: {mem_e}")
+                cleanup_locals(locals())
+                mem = psutil.Process().memory_info().rss / (1024 * 1024)
+                logging.info(f"[pdf-cover] Memory usage after fitz.open error: {mem:.2f} MB")
                 return send_fallback()
         try:
             page = doc.load_page(0)
@@ -811,6 +857,8 @@ def pdf_cover(file_id):
                     logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
+            # tracemalloc logging (optional)
+            logging.info(tracemalloc.take_snapshot().statistics('filename'))
             MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
             MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
             if mem > MEMORY_LOW_THRESHOLD_MB:
@@ -828,9 +876,19 @@ def pdf_cover(file_id):
             return response
         except Exception as page_e:
             logging.error(f"[pdf-cover] Error processing PDF page for file_id={file_id}: {page_e}")
+            cleanup_locals(locals())
+            mem = psutil.Process().memory_info().rss / (1024 * 1024)
+            logging.info(f"[pdf-cover] Memory usage after page error: {mem:.2f} MB")
+            # tracemalloc logging (optional)
+            logging.info(tracemalloc.take_snapshot().statistics('filename'))
             return send_fallback()
     except Exception as e:
         logging.error(f"[pdf-cover] Error fetching file from Drive for file_id={file_id}: {e}")
+        cleanup_locals(locals())
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[pdf-cover] Memory usage after fetch error: {mem:.2f} MB")
+        # tracemalloc logging (optional)
+        logging.info(tracemalloc.take_snapshot().statistics('filename'))
         return send_fallback()
     finally:
         acquired = cover_queue_lock.acquire(timeout=5)
@@ -844,20 +902,7 @@ def pdf_cover(file_id):
                 cover_queue_active = None
             cover_queue_lock.release()
             # --- Aggressive cleanup of large objects before GC and RAM throttling ---
-            try:
-                # Delete large objects if they exist in local scope
-                for varname in ['doc', 'img_bytes', 'out', 'pix', 'page']:
-                    if varname in locals():
-                        try:
-                            del locals()[varname]
-                        except Exception:
-                            pass
-                # Also clear any temp files if needed (handled by context manager above)
-            except Exception as cleanup_e:
-                logging.error(f"[pdf-cover] Error during manual cleanup: {cleanup_e}")
-            # --- Force more frequent GC in cleanup ---
-            for _ in range(5):
-                gc.collect()
+            cleanup_locals(locals())
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
             MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
