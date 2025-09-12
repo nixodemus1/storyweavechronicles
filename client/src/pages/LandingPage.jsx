@@ -88,14 +88,26 @@ function useCachedCovers(pdfs) {
         img.onload = () => {
           setCoverInCache(bookId, coverUrl);
           setTimeout(() => {
-            if (isMounted) setCovers(c => ({ ...c, [bookId]: coverUrl }));
+            if (isMounted) setCovers(c => {
+              const updated = { ...c, [bookId]: coverUrl };
+              // --- LOG ALL COVERS FETCHED ---
+              console.log('[LandingPage] Cover loaded:', bookId, coverUrl);
+              // Log all covers after every update
+              console.log('[LandingPage] All covers:', updated);
+              return updated;
+            });
             if (isMounted) setLoadingCovers(l => ({ ...l, [bookId]: false }));
           }, 0);
         };
         img.onerror = () => {
           setCoverInCache(bookId, '/no-cover.png');
           setTimeout(() => {
-            if (isMounted) setCovers(c => ({ ...c, [bookId]: '/no-cover.png' }));
+            if (isMounted) setCovers(c => {
+              const updated = { ...c, [bookId]: '/no-cover.png' };
+              console.log('[LandingPage] Cover failed:', bookId);
+              console.log('[LandingPage] All covers:', updated);
+              return updated;
+            });
             if (isMounted) setLoadingCovers(l => ({ ...l, [bookId]: false }));
           }, 0);
         };
@@ -106,6 +118,8 @@ function useCachedCovers(pdfs) {
     });
     if (isMounted) setCovers(newCovers);
     if (isMounted) setLoadingCovers(newLoading);
+    // --- LOG ALL COVERS INITIALLY ---
+    console.log('[LandingPage] Initial covers:', newCovers);
     return () => { isMounted = false; };
   }, [pdfs, user]);
   return { covers, loadingCovers };

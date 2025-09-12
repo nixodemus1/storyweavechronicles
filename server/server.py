@@ -2009,7 +2009,6 @@ def user_top_voted_books():
         result.append({
             'id': book.drive_id,
             'title': book.title,
-            'name': book.title,
             'cover_url': f'/pdf-cover/{book.drive_id}',
             'votes': vote.value if vote else None
         })
@@ -2526,6 +2525,7 @@ def simulate_cover_load():
     """
     import random
     import time
+    import json
     data = request.get_json(force=True)
     file_ids = data.get('file_ids', [])
     num_users = int(data.get('num_users', 200))
@@ -2534,27 +2534,44 @@ def simulate_cover_load():
         return jsonify({'success': False, 'message': 'file_ids required'}), 400
     results = []
     start_time = time.time()
-    def simulate_user(user_idx):
-        session_id = f"simuser-{user_idx}-{uuid.uuid4()}"
-        file_id = random.choice(file_ids)
-        url = f"http://localhost:{os.getenv('PORT', 5000)}/pdf-cover/{file_id}?session_id={session_id}"
-        try:
-            resp = requests.get(url, timeout=30)
-            status = resp.status_code
-            log_msg = f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} status={status}"
-            logging.info(log_msg)
-            return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'status': status}
-        except Exception as e:
-            logging.error(f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} ERROR: {e}")
-            return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'error': str(e)}
-    # Use ThreadPoolExecutor for concurrency
-    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
-        futures = [executor.submit(simulate_user, i) for i in range(num_users)]
-        for future in concurrent.futures.as_completed(futures):
-            results.append(future.result())
-    duration = time.time() - start_time
-    mem = psutil.Process().memory_info().rss / (1024 * 1024)
-    logging.info(f"[SIM] Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB")
+    # --- Attach FileHandler for simulation logging ---
+    log_path = os.path.join(os.path.dirname(__file__), 'logs.txt')
+    sim_handler = logging.FileHandler(log_path, mode='w', encoding='utf-8')
+    sim_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    sim_handler.setFormatter(formatter)
+    logging.getLogger().addHandler(sim_handler)
+    # Save current handlers to restore later
+    old_handlers = [h for h in logging.getLogger().handlers if h is not sim_handler]
+    try:
+        def simulate_user(user_idx):
+            session_id = f"simuser-{user_idx}-{uuid.uuid4()}"
+            file_id = random.choice(file_ids)
+            url = f"http://localhost:{os.getenv('PORT', 5000)}/pdf-cover/{file_id}?session_id={session_id}"
+            try:
+                resp = requests.get(url, timeout=30)
+                status = resp.status_code
+                log_msg = f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} status={status}"
+                logging.info(log_msg)
+                return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'status': status}
+            except Exception as e:
+                logging.error(f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} ERROR: {e}")
+                return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'error': str(e)}
+        # Use ThreadPoolExecutor for concurrency
+        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(simulate_user, i) for i in range(num_users)]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+        duration = time.time() - start_time
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[SIM] Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB")
+    finally:
+        # Remove simulation handler and restore previous handlers
+        logging.getLogger().removeHandler(sim_handler)
+        sim_handler.close()
+    # --- Write simulation results to logs.txt (append) ---
+    with open(log_path, 'a', encoding='utf-8') as f:
+        f.write(f"Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB\n")
     return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
 
 if __name__ == '__main__':
@@ -2578,7 +2595,7 @@ if __name__ == '__main__':
                         # Only send unread notifications for this period
                         unread = [n for n in history if not n.get('read')]
                         if unread:
-                            subject = f"Your {frequency.capitalize()} StoryWeave Notifications"
+                            subject = f"Your {frequency.capitalize()} Notification Summary"
                             body_lines = [
                                 f"Hi {user.username or user.email},",
                                 "",
