@@ -862,11 +862,8 @@ def pdf_cover(file_id):
                 except Exception as gen_e:
                     logging.error(f"[pdf-cover] Generator ERROR: session_id={session_id}, file_id={file_id}, error={gen_e}")
                     raise
-                finally:
-                    out.close()
-                    for _ in range(3):
-                        gc.collect()
-                    logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
+                # Do not close 'out' here; cleanup will happen after response
+
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
             # tracemalloc logging (optional)
@@ -888,6 +885,15 @@ def pdf_cover(file_id):
                 response.headers["Access-Control-Allow-Origin"] = origin
             else:
                 response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+            # Cleanup after response is returned
+            def cleanup_after_response(response):
+                out.close()
+                cleanup_locals(locals())
+                for _ in range(3):
+                    gc.collect()
+                logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
+                return response
+            response.call_on_close(lambda: cleanup_after_response(response))
             return response
         except Exception as page_e:
             logging.error(f"[pdf-cover] Error processing PDF page for file_id={file_id}: {page_e}")
