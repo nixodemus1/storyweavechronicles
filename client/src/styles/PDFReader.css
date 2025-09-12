@@ -44,9 +44,13 @@
 }
 
 /* Increase font size for better readability */
+.pdf-reader-text {
+  text-align: left;
+}
 .pdf-reader-text p {
   line-height: 1.7;
   font-size: 18px;
+  text-align: left;
 }
 
 /* --- Mobile Responsive Styles --- */
@@ -85,6 +89,7 @@
   .pdf-reader-text p {
     font-size: 16px;
     line-height: 1.5;
+    text-align: left;
   }
   .pdf-reader-error {
     padding: 1rem;

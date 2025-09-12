@@ -1,6 +1,15 @@
 import { stepColor } from "../utils/colorUtils";
-// LocalStorage cover cache utilities
+import React, { useEffect, useState, useContext, useRef } from "react";
+import { useLocation } from "react-router-dom";
+import "../styles/LandingPage.css";
+import Slider from "react-slick";
+import { useNavigate } from "react-router-dom";
+import { ThemeContext } from "../themeContext";
+import { ContainerDepthProvider, SteppedContainer } from "../components/ContainerDepthContext";
+
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
+
+// LocalStorage cover cache utilities
 function getCoverFromCache(bookId) {
   try {
     const cacheRaw = localStorage.getItem('swc_cover_cache');
@@ -101,14 +110,6 @@ function useCachedCovers(pdfs) {
   }, [pdfs, user]);
   return { covers, loadingCovers };
 }
-import React, { useEffect, useState, useContext, useRef } from "react";
-import { useLocation } from "react-router-dom";
-import "../styles/LandingPage.css";
-import Slider from "react-slick";
-import { useNavigate } from "react-router-dom";
-import { ThemeContext } from "../themeContext";
-import { ContainerDepthProvider, SteppedContainer } from "../components/ContainerDepthContext";
-
 
 function SearchBar({ pdfs, navigate }) {
   const [searchInput, setSearchInput] = useState("");
@@ -526,7 +527,7 @@ export default function LandingPage() {
         console.error("Error fetching all books:", err);
         setLoadingPdfs(false);
       });
-  }, [API_BASE_URL]);
+  }, []);
 
   // Fetch top voted book IDs and then fetch their details
   useEffect(() => {
@@ -554,7 +555,7 @@ export default function LandingPage() {
       .catch(err => {
         console.error("Error fetching top voted books:", err);
       });
-  }, [API_BASE_URL]);
+  }, []);
 
   // Helper to clear all cover cache and trigger re-fetch
   function retryAllCovers() {

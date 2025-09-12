@@ -1,0 +1,350 @@
+2025-09-11T21:11:56.229889679Z 2025-09-11 21:11:56,229 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK
+2025-09-11T21:11:56.23008828Z 127.0.0.1 - - [11/Sep/2025:21:11:56 +0000] "GET /pdf-cover/1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 7005 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:11:56.531694715Z 2025-09-11 21:11:56,531 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK (gc.collect called)
+2025-09-11T21:11:56.532245936Z 2025-09-11 21:11:56,532 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:11:56.532263967Z 2025-09-11 21:11:56,532 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:11:56.53231594Z 2025-09-11 21:11:56,532 INFO [pdf-cover] Request for file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:11:56.53232302Z 2025-09-11 21:11:56,532 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:11:56.533820823Z 2025-09-11 21:11:56,533 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:11:56.534873231Z 2025-09-11 21:11:56,534 INFO [pdf-cover] Got Drive service for file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:11:58.161948851Z 2025-09-11 21:11:58,161 INFO [pdf-cover] Downloaded PDF size: 308895 bytes, header: b'%PDF-1.7'
+2025-09-11T21:11:58.162401156Z 2025-09-11 21:11:58,162 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmp25cvf12f.pdf
+2025-09-11T21:11:58.162952557Z 2025-09-11 21:11:58,162 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:11:59.430971764Z 2025-09-11 21:11:59,429 INFO [pdf-cover] Memory usage: 201.34 MB for file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:11:59.431000886Z 2025-09-11 21:11:59,429 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:12:00.129033544Z 2025-09-11 21:12:00,128 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:12:00.129307149Z 127.0.0.1 - - [11/Sep/2025:21:12:00 +0000] "GET /pdf-cover/18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 8083 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:12:00.531445006Z 2025-09-11 21:12:00,530 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS (gc.collect called)
+2025-09-11T21:12:00.607559052Z 2025-09-11 21:12:00,607 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:12:01.750080662Z 127.0.0.1 - - [11/Sep/2025:21:12:01 +0000] "GET /api/top-voted-books HTTP/1.1" 200 278 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:12:01.88247146Z 127.0.0.1 - - [11/Sep/2025:21:12:01 +0000] "GET /api/all-books HTTP/1.1" 200 14590 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:12:01.94143589Z 2025-09-11 21:12:01,941 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:12:03.059122991Z 127.0.0.1 - - [11/Sep/2025:21:12:03 +0000] "GET /api/top-voted-books HTTP/1.1" 200 278 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:12:03.15741263Z 127.0.0.1 - - [11/Sep/2025:21:12:03 +0000] "GET /api/all-books HTTP/1.1" 200 14590 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:12:03.244507511Z 127.0.0.1 - - [11/Sep/2025:21:12:03 +0000] "GET /api/all-books HTTP/1.1" 200 14590 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:12:03.304029392Z 2025-09-11 21:12:03,303 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:12:04.309696548Z 127.0.0.1 - - [11/Sep/2025:21:12:04 +0000] "GET /api/top-voted-books HTTP/1.1" 200 278 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:21:19.356110173Z 127.0.0.1 - - [11/Sep/2025:21:21:19 +0000] "OPTIONS /api/has-new-notifications HTTP/1.1" 200 0 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:21:19.745225211Z 127.0.0.1 - - [11/Sep/2025:21:21:19 +0000] "POST /api/has-new-notifications HTTP/1.1" 200 16 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:21:20.074003151Z 127.0.0.1 - - [11/Sep/2025:21:21:20 +0000] "OPTIONS /api/get-notification-history HTTP/1.1" 200 0 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:21:20.737541702Z 2025-09-11 21:21:20,737 INFO [get-notification-history] Requested username: rin
+2025-09-11T21:21:20.737594075Z 2025-09-11 21:21:20,737 INFO [get-notification-history] Found user: rin, notification_history type: <class 'str'>, value: '[{"id": "3066dee1-1295-4458-b9cc-b6823117630d", "type": "announcement", "title": "Welcome to Storyweave Chronicles!", "body": "Thank you for registering. Explore stories, bookmark your favorites, and
+2025-09-11T21:21:20.737717282Z 2025-09-11 21:21:20,737 INFO [get-notification-history] Parsed notification_history, type: <class 'list'>, length: 12
+2025-09-11T21:21:20.737757644Z 2025-09-11 21:21:20,737 INFO [get-notification-history] Returning 12 notifications out of 12 total.
+2025-09-11T21:21:20.765505334Z 127.0.0.1 - - [11/Sep/2025:21:21:20 +0000] "POST /api/get-notification-history HTTP/1.1" 200 5000 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:13.16372932Z 127.0.0.1 - - [11/Sep/2025:21:23:13 +0000] "GET /api/all-books HTTP/1.1" 200 14590 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:13.221669165Z 2025-09-11 21:23:13,221 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:14.263545956Z 127.0.0.1 - - [11/Sep/2025:21:23:14 +0000] "GET /api/top-voted-books HTTP/1.1" 200 278 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:14.351670296Z 127.0.0.1 - - [11/Sep/2025:21:23:14 +0000] "GET /api/books?ids=1x9otXDy2HnWQz7RWkXZNYTfwk0jEhcCY,1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY,13-8AxJpZvLlLzz3T-CPNruqpxe620m3A,12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV,1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C,1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA,1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H,1TPwUZnwPGOYOgf2Btg8yzFkeEmsYEC_V,1jRen2Awr_tV9-y72GRy8zvPofi5I51-G,1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO,1eluIlVWOaooBh229NIAua8HYgQfBMDUq,1QX6bFgIMRd14OtGVYwxYV5eogMxLp2Rg,15sGdoAK8uVVMoF02u-dnRsCdl_UBlQW7,1H-mzJlACnKSdCkBXC6C89EYQ0ihI6Zk2,1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5,1CVEes2ziRDkQ19D1qWS87U0IuA-pr7CL,1UT74OECJeoUdWYqFbfO2hA371hkAhGoz,1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK,1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6,18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS HTTP/1.1" 200 4231 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:14.440049709Z 127.0.0.1 - - [11/Sep/2025:21:23:14 +0000] "GET /api/all-books HTTP/1.1" 200 14590 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:14.622264477Z 127.0.0.1 - - [11/Sep/2025:21:23:14 +0000] "GET /api/books?ids=1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6,1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5 HTTP/1.1" 200 445 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:14.678926631Z 2025-09-11 21:23:14,678 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:15.804733071Z 127.0.0.1 - - [11/Sep/2025:21:23:15 +0000] "GET /api/top-voted-books HTTP/1.1" 200 278 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:15.890387234Z 127.0.0.1 - - [11/Sep/2025:21:23:15 +0000] "GET /api/books?ids=1x9otXDy2HnWQz7RWkXZNYTfwk0jEhcCY,1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY,13-8AxJpZvLlLzz3T-CPNruqpxe620m3A,12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV,1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C,1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA,1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H,1TPwUZnwPGOYOgf2Btg8yzFkeEmsYEC_V,1jRen2Awr_tV9-y72GRy8zvPofi5I51-G,1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO,1eluIlVWOaooBh229NIAua8HYgQfBMDUq,1QX6bFgIMRd14OtGVYwxYV5eogMxLp2Rg,15sGdoAK8uVVMoF02u-dnRsCdl_UBlQW7,1H-mzJlACnKSdCkBXC6C89EYQ0ihI6Zk2,1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5,1CVEes2ziRDkQ19D1qWS87U0IuA-pr7CL,1UT74OECJeoUdWYqFbfO2hA371hkAhGoz,1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK,1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6,18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS HTTP/1.1" 200 4231 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:16.165787721Z 127.0.0.1 - - [11/Sep/2025:21:23:16 +0000] "GET /api/books?ids=1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6,1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5 HTTP/1.1" 200 445 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:16.28746206Z 2025-09-11 21:23:16,287 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:23:16.287493252Z 2025-09-11 21:23:16,287 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:23:16.287595417Z 2025-09-11 21:23:16,287 INFO [pdf-cover] Request for file_id=1jRen2Awr_tV9-y72GRy8zvPofi5I51-G
+2025-09-11T21:23:16.287691143Z 2025-09-11 21:23:16,287 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1jRen2Awr_tV9-y72GRy8zvPofi5I51-G
+2025-09-11T21:23:16.289625399Z 2025-09-11 21:23:16,289 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:16.291199786Z 2025-09-11 21:23:16,291 INFO [pdf-cover] Got Drive service for file_id=1jRen2Awr_tV9-y72GRy8zvPofi5I51-G
+2025-09-11T21:23:18.384979602Z 2025-09-11 21:23:18,384 INFO [pdf-cover] Downloaded PDF size: 322499 bytes, header: b'%PDF-1.7'
+2025-09-11T21:23:18.385418887Z 2025-09-11 21:23:18,385 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmpyebl1lou.pdf
+2025-09-11T21:23:18.385981118Z 2025-09-11 21:23:18,385 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1jRen2Awr_tV9-y72GRy8zvPofi5I51-G
+2025-09-11T21:23:20.022902931Z 2025-09-11 21:23:20,022 INFO [pdf-cover] Memory usage: 211.46 MB for file_id=1jRen2Awr_tV9-y72GRy8zvPofi5I51-G
+2025-09-11T21:23:20.022924152Z 2025-09-11 21:23:20,022 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:23:20.821306297Z 2025-09-11 21:23:20,821 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1jRen2Awr_tV9-y72GRy8zvPofi5I51-G
+2025-09-11T21:23:20.82353315Z 2025-09-11 21:23:20,821 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=1jRen2Awr_tV9-y72GRy8zvPofi5I51-G, duration=0.00s
+2025-09-11T21:23:21.222719662Z 2025-09-11 21:23:21,222 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1jRen2Awr_tV9-y72GRy8zvPofi5I51-G (gc.collect called)
+2025-09-11T21:23:21.223137425Z 127.0.0.1 - - [11/Sep/2025:21:23:21 +0000] "GET /pdf-cover/1jRen2Awr_tV9-y72GRy8zvPofi5I51-G?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 8310 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:21.223860935Z 2025-09-11 21:23:21,223 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:23:21.224000983Z 2025-09-11 21:23:21,223 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:23:21.224060376Z 2025-09-11 21:23:21,223 INFO [pdf-cover] Request for file_id=13-8AxJpZvLlLzz3T-CPNruqpxe620m3A
+2025-09-11T21:23:21.224125109Z 2025-09-11 21:23:21,224 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=13-8AxJpZvLlLzz3T-CPNruqpxe620m3A
+2025-09-11T21:23:21.226621037Z 2025-09-11 21:23:21,226 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:21.228829589Z 2025-09-11 21:23:21,228 INFO [pdf-cover] Got Drive service for file_id=13-8AxJpZvLlLzz3T-CPNruqpxe620m3A
+2025-09-11T21:23:23.154569879Z 2025-09-11 21:23:23,154 INFO [pdf-cover] Downloaded PDF size: 138277 bytes, header: b'%PDF-1.7'
+2025-09-11T21:23:23.155028384Z 2025-09-11 21:23:23,154 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmpwnnlcie2.pdf
+2025-09-11T21:23:23.155656089Z 2025-09-11 21:23:23,155 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=13-8AxJpZvLlLzz3T-CPNruqpxe620m3A
+2025-09-11T21:23:24.634881197Z 2025-09-11 21:23:24,634 INFO [pdf-cover] Memory usage: 211.46 MB for file_id=13-8AxJpZvLlLzz3T-CPNruqpxe620m3A
+2025-09-11T21:23:24.636987783Z 2025-09-11 21:23:24,634 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:23:25.533047273Z 2025-09-11 21:23:25,531 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=13-8AxJpZvLlLzz3T-CPNruqpxe620m3A
+2025-09-11T21:23:25.533078155Z 2025-09-11 21:23:25,531 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=13-8AxJpZvLlLzz3T-CPNruqpxe620m3A, duration=0.00s
+2025-09-11T21:23:26.023646406Z 2025-09-11 21:23:26,023 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=13-8AxJpZvLlLzz3T-CPNruqpxe620m3A (gc.collect called)
+2025-09-11T21:23:26.024407108Z 127.0.0.1 - - [11/Sep/2025:21:23:26 +0000] "GET /pdf-cover/13-8AxJpZvLlLzz3T-CPNruqpxe620m3A?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 9682 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:26.024839242Z 2025-09-11 21:23:26,024 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:23:26.024891755Z 2025-09-11 21:23:26,024 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:23:26.026005746Z 2025-09-11 21:23:26,024 INFO [pdf-cover] Request for file_id=1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H
+2025-09-11T21:23:26.026016087Z 2025-09-11 21:23:26,024 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H
+2025-09-11T21:23:26.027312748Z 2025-09-11 21:23:26,027 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:26.029373082Z 2025-09-11 21:23:26,029 INFO [pdf-cover] Got Drive service for file_id=1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H
+2025-09-11T21:23:27.687700326Z 2025-09-11 21:23:27,687 INFO [pdf-cover] Downloaded PDF size: 147134 bytes, header: b'%PDF-1.7'
+2025-09-11T21:23:27.688161901Z 2025-09-11 21:23:27,688 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmprov9go9b.pdf
+2025-09-11T21:23:27.688718002Z 2025-09-11 21:23:27,688 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H
+2025-09-11T21:23:29.027261542Z 2025-09-11 21:23:29,027 INFO [pdf-cover] Memory usage: 212.59 MB for file_id=1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H
+2025-09-11T21:23:29.027548728Z 2025-09-11 21:23:29,027 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:23:29.734928064Z 2025-09-11 21:23:29,734 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H
+2025-09-11T21:23:29.820784519Z 2025-09-11 21:23:29,820 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H, duration=0.09s
+2025-09-11T21:23:30.224067637Z 2025-09-11 21:23:30,223 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H (gc.collect called)
+2025-09-11T21:23:30.224415596Z 127.0.0.1 - - [11/Sep/2025:21:23:30 +0000] "GET /pdf-cover/1zQcM8Gd5kM3gD_LCPtdrN5xCIaPxA9_H?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 8845 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:30.224985947Z 2025-09-11 21:23:30,224 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:23:30.225004638Z 2025-09-11 21:23:30,224 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:23:30.225081872Z 2025-09-11 21:23:30,225 INFO [pdf-cover] Request for file_id=1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY
+2025-09-11T21:23:30.225086973Z 2025-09-11 21:23:30,225 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY
+2025-09-11T21:23:30.226650389Z 2025-09-11 21:23:30,226 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:30.227806153Z 2025-09-11 21:23:30,227 INFO [pdf-cover] Got Drive service for file_id=1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY
+2025-09-11T21:23:32.348136402Z 2025-09-11 21:23:32,347 INFO [pdf-cover] Downloaded PDF size: 106407 bytes, header: b'%PDF-1.7'
+2025-09-11T21:23:32.348359514Z 2025-09-11 21:23:32,348 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmplfg2hsl6.pdf
+2025-09-11T21:23:32.348870292Z 2025-09-11 21:23:32,348 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY
+2025-09-11T21:23:33.628206198Z 2025-09-11 21:23:33,627 INFO [pdf-cover] Memory usage: 213.71 MB for file_id=1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY
+2025-09-11T21:23:33.62825592Z 2025-09-11 21:23:33,628 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:23:34.33442456Z 2025-09-11 21:23:34,334 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY
+2025-09-11T21:23:34.334593759Z 2025-09-11 21:23:34,334 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY, duration=0.00s
+2025-09-11T21:23:34.73356879Z 2025-09-11 21:23:34,733 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY (gc.collect called)
+2025-09-11T21:23:34.73392826Z 127.0.0.1 - - [11/Sep/2025:21:23:34 +0000] "GET /pdf-cover/1wra4KGHBm_ClGlJeb7MBgAJA2I63NpKY?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 8133 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:34.734528373Z 2025-09-11 21:23:34,734 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:23:34.734547844Z 2025-09-11 21:23:34,734 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:23:34.734601537Z 2025-09-11 21:23:34,734 INFO [pdf-cover] Request for file_id=1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA
+2025-09-11T21:23:34.73466622Z 2025-09-11 21:23:34,734 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA
+2025-09-11T21:23:34.821276536Z 2025-09-11 21:23:34,821 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:34.823301678Z 2025-09-11 21:23:34,823 INFO [pdf-cover] Got Drive service for file_id=1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA
+2025-09-11T21:23:37.063343698Z 2025-09-11 21:23:37,063 INFO [pdf-cover] Downloaded PDF size: 127907 bytes, header: b'%PDF-1.7'
+2025-09-11T21:23:37.063625993Z 2025-09-11 21:23:37,063 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmp3hud43kc.pdf
+2025-09-11T21:23:37.064097919Z 2025-09-11 21:23:37,064 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA
+2025-09-11T21:23:38.329102574Z 2025-09-11 21:23:38,328 INFO [pdf-cover] Memory usage: 214.84 MB for file_id=1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA
+2025-09-11T21:23:38.329222261Z 2025-09-11 21:23:38,329 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:23:39.031252012Z 2025-09-11 21:23:39,031 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA
+2025-09-11T21:23:39.031379089Z 2025-09-11 21:23:39,031 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA, duration=0.00s
+2025-09-11T21:23:39.522737054Z 2025-09-11 21:23:39,522 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA (gc.collect called)
+2025-09-11T21:23:39.523235531Z 127.0.0.1 - - [11/Sep/2025:21:23:39 +0000] "GET /pdf-cover/1uFwGwEpISke-9giQbC_mY5N2DbXCRAUA?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 10521 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:39.523929919Z 2025-09-11 21:23:39,523 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:23:39.523950361Z 2025-09-11 21:23:39,523 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:23:39.523998103Z 2025-09-11 21:23:39,523 INFO [pdf-cover] Request for file_id=1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO
+2025-09-11T21:23:39.524038856Z 2025-09-11 21:23:39,523 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO
+2025-09-11T21:23:39.526019505Z 2025-09-11 21:23:39,525 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:39.527770511Z 2025-09-11 21:23:39,527 INFO [pdf-cover] Got Drive service for file_id=1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO
+2025-09-11T21:23:40.899864181Z 2025-09-11 21:23:40,899 INFO [pdf-cover] Downloaded PDF size: 221991 bytes, header: b'%PDF-1.7'
+2025-09-11T21:23:40.9003909Z 2025-09-11 21:23:40,900 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmp9ni54ogf.pdf
+2025-09-11T21:23:40.901086609Z 2025-09-11 21:23:40,900 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO
+2025-09-11T21:23:42.231765425Z 2025-09-11 21:23:42,231 INFO [pdf-cover] Memory usage: 218.96 MB for file_id=1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO
+2025-09-11T21:23:42.231801407Z 2025-09-11 21:23:42,231 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:23:42.934014288Z 2025-09-11 21:23:42,933 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO
+2025-09-11T21:23:42.934440012Z 2025-09-11 21:23:42,933 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO, duration=0.00s
+2025-09-11T21:23:43.332561765Z 2025-09-11 21:23:43,332 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO (gc.collect called)
+2025-09-11T21:23:43.333057172Z 127.0.0.1 - - [11/Sep/2025:21:23:43 +0000] "GET /pdf-cover/1DiRN4ddvNKoF_X2UXbp_5ItTyo4xsILO?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 10916 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:43.334923065Z 2025-09-11 21:23:43,333 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:23:43.334937766Z 2025-09-11 21:23:43,333 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:23:43.334940636Z 2025-09-11 21:23:43,333 INFO [pdf-cover] Request for file_id=1eluIlVWOaooBh229NIAua8HYgQfBMDUq
+2025-09-11T21:23:43.334943356Z 2025-09-11 21:23:43,333 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1eluIlVWOaooBh229NIAua8HYgQfBMDUq
+2025-09-11T21:23:43.336057117Z 2025-09-11 21:23:43,335 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:43.337773472Z 2025-09-11 21:23:43,337 INFO [pdf-cover] Got Drive service for file_id=1eluIlVWOaooBh229NIAua8HYgQfBMDUq
+2025-09-11T21:23:45.307602402Z 2025-09-11 21:23:45,307 INFO [pdf-cover] Downloaded PDF size: 238098 bytes, header: b'%PDF-1.7'
+2025-09-11T21:23:45.308014435Z 2025-09-11 21:23:45,307 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmph73e1qt7.pdf
+2025-09-11T21:23:45.308578036Z 2025-09-11 21:23:45,308 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1eluIlVWOaooBh229NIAua8HYgQfBMDUq
+2025-09-11T21:23:46.931473195Z 2025-09-11 21:23:46,930 INFO [pdf-cover] Memory usage: 223.09 MB for file_id=1eluIlVWOaooBh229NIAua8HYgQfBMDUq
+2025-09-11T21:23:46.931503127Z 2025-09-11 21:23:46,930 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:23:47.731581164Z 2025-09-11 21:23:47,731 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1eluIlVWOaooBh229NIAua8HYgQfBMDUq
+2025-09-11T21:23:47.731730043Z 2025-09-11 21:23:47,731 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=1eluIlVWOaooBh229NIAua8HYgQfBMDUq, duration=0.00s
+2025-09-11T21:23:48.134570586Z 2025-09-11 21:23:48,133 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1eluIlVWOaooBh229NIAua8HYgQfBMDUq (gc.collect called)
+2025-09-11T21:23:48.134627079Z 127.0.0.1 - - [11/Sep/2025:21:23:48 +0000] "GET /pdf-cover/1eluIlVWOaooBh229NIAua8HYgQfBMDUq?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 11989 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:48.224624031Z 2025-09-11 21:23:48,221 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:23:48.224643152Z 2025-09-11 21:23:48,221 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:23:48.224647513Z 2025-09-11 21:23:48,221 INFO [pdf-cover] Request for file_id=1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5
+2025-09-11T21:23:48.224651883Z 2025-09-11 21:23:48,221 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5
+2025-09-11T21:23:48.224655873Z 2025-09-11 21:23:48,224 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:48.227910123Z 2025-09-11 21:23:48,226 INFO [pdf-cover] Got Drive service for file_id=1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5
+2025-09-11T21:23:49.685121056Z 2025-09-11 21:23:49,684 INFO [pdf-cover] Downloaded PDF size: 529762 bytes, header: b'%PDF-1.7'
+2025-09-11T21:23:49.685970183Z 2025-09-11 21:23:49,685 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmpiu82qlvs.pdf
+2025-09-11T21:23:49.68682194Z 2025-09-11 21:23:49,686 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5
+2025-09-11T21:23:51.52899189Z 2025-09-11 21:23:51,528 INFO [pdf-cover] Memory usage: 227.84 MB for file_id=1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5
+2025-09-11T21:23:51.529011411Z 2025-09-11 21:23:51,528 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:23:52.420972475Z 2025-09-11 21:23:52,420 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5
+2025-09-11T21:23:52.421122544Z 2025-09-11 21:23:52,421 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5, duration=0.00s
+2025-09-11T21:23:52.825179964Z 2025-09-11 21:23:52,823 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5 (gc.collect called)
+2025-09-11T21:23:52.82547991Z 2025-09-11 21:23:52,825 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:23:52.825560805Z 2025-09-11 21:23:52,825 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:23:52.825638489Z 2025-09-11 21:23:52,825 INFO [pdf-cover] Request for file_id=1UT74OECJeoUdWYqFbfO2hA371hkAhGoz
+2025-09-11T21:23:52.825684282Z 2025-09-11 21:23:52,825 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1UT74OECJeoUdWYqFbfO2hA371hkAhGoz
+2025-09-11T21:23:52.825738485Z 127.0.0.1 - - [11/Sep/2025:21:23:52 +0000] "GET /pdf-cover/1QxGKtoIePqPqQXAfBA88pjhXn4HGTrA5?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 10101 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:52.827938766Z 2025-09-11 21:23:52,827 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:52.829736675Z 2025-09-11 21:23:52,829 INFO [pdf-cover] Got Drive service for file_id=1UT74OECJeoUdWYqFbfO2hA371hkAhGoz
+2025-09-11T21:23:55.933576315Z 2025-09-11 21:23:55,933 INFO [pdf-cover] Downloaded PDF size: 4310788 bytes, header: b'%PDF-1.7'
+2025-09-11T21:23:56.02342699Z 2025-09-11 21:23:56,023 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmpy_uv0wsz.pdf
+2025-09-11T21:23:56.024305938Z 2025-09-11 21:23:56,024 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1UT74OECJeoUdWYqFbfO2hA371hkAhGoz
+2025-09-11T21:23:57.7346677Z 2025-09-11 21:23:57,734 INFO [pdf-cover] Memory usage: 241.09 MB for file_id=1UT74OECJeoUdWYqFbfO2hA371hkAhGoz
+2025-09-11T21:23:57.820829452Z 2025-09-11 21:23:57,820 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:23:58.632137438Z 2025-09-11 21:23:58,631 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1UT74OECJeoUdWYqFbfO2hA371hkAhGoz
+2025-09-11T21:23:58.632405763Z 2025-09-11 21:23:58,632 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=1UT74OECJeoUdWYqFbfO2hA371hkAhGoz, duration=0.00s
+2025-09-11T21:23:59.128396443Z 2025-09-11 21:23:59,127 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1UT74OECJeoUdWYqFbfO2hA371hkAhGoz (gc.collect called)
+2025-09-11T21:23:59.128579513Z 127.0.0.1 - - [11/Sep/2025:21:23:59 +0000] "GET /pdf-cover/1UT74OECJeoUdWYqFbfO2hA371hkAhGoz?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 8256 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:23:59.129140954Z 2025-09-11 21:23:59,129 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:23:59.129149664Z 2025-09-11 21:23:59,129 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:23:59.129237009Z 2025-09-11 21:23:59,129 INFO [pdf-cover] Request for file_id=1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6
+2025-09-11T21:23:59.130019582Z 2025-09-11 21:23:59,129 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6
+2025-09-11T21:23:59.13341697Z 2025-09-11 21:23:59,132 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:23:59.134630856Z 2025-09-11 21:23:59,134 INFO [pdf-cover] Got Drive service for file_id=1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6
+2025-09-11T21:24:01.421072724Z 2025-09-11 21:24:01,420 INFO [pdf-cover] Downloaded PDF size: 588784 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:01.421980594Z 2025-09-11 21:24:01,421 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmprv324gmw.pdf
+2025-09-11T21:24:01.423984184Z 2025-09-11 21:24:01,422 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6
+2025-09-11T21:24:03.132327155Z 2025-09-11 21:24:03,132 INFO [pdf-cover] Memory usage: 241.09 MB for file_id=1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6
+2025-09-11T21:24:03.132476083Z 2025-09-11 21:24:03,132 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:04.021112943Z 2025-09-11 21:24:04,020 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6
+2025-09-11T21:24:04.021299224Z 2025-09-11 21:24:04,021 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6, duration=0.00s
+2025-09-11T21:24:04.431784408Z 2025-09-11 21:24:04,431 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6 (gc.collect called)
+2025-09-11T21:24:04.432151098Z 127.0.0.1 - - [11/Sep/2025:21:24:04 +0000] "GET /pdf-cover/1N2x_p-WTtnYrxgKzNmdZuEHFFhhDhpG6?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 9337 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:04.43289503Z 2025-09-11 21:24:04,432 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:24:04.434604044Z 2025-09-11 21:24:04,434 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:24:04.43472297Z 2025-09-11 21:24:04,434 INFO [pdf-cover] Request for file_id=1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C
+2025-09-11T21:24:04.434808205Z 2025-09-11 21:24:04,434 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C
+2025-09-11T21:24:04.437057419Z 2025-09-11 21:24:04,436 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:04.523953411Z 2025-09-11 21:24:04,521 INFO [pdf-cover] Got Drive service for file_id=1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C
+2025-09-11T21:24:05.970813542Z 2025-09-11 21:24:05,970 INFO [pdf-cover] Downloaded PDF size: 143130 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:05.971202394Z 2025-09-11 21:24:05,971 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmpz2sro3sf.pdf
+2025-09-11T21:24:05.971763045Z 2025-09-11 21:24:05,971 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C
+2025-09-11T21:24:07.331684362Z 2025-09-11 21:24:07,331 INFO [pdf-cover] Memory usage: 241.09 MB for file_id=1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C
+2025-09-11T21:24:07.331797679Z 2025-09-11 21:24:07,331 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:08.033800348Z 2025-09-11 21:24:08,033 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C
+2025-09-11T21:24:08.03402364Z 2025-09-11 21:24:08,033 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C, duration=0.00s
+2025-09-11T21:24:08.430323693Z 2025-09-11 21:24:08,429 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C (gc.collect called)
+2025-09-11T21:24:08.430607909Z 127.0.0.1 - - [11/Sep/2025:21:24:08 +0000] "GET /pdf-cover/1ETX-UTIEd9eRNy9lKOlK4WN7JXNsiu3C?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 10510 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:08.431194901Z 2025-09-11 21:24:08,431 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:24:08.431206351Z 2025-09-11 21:24:08,431 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:24:08.431285476Z 2025-09-11 21:24:08,431 INFO [pdf-cover] Request for file_id=12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV
+2025-09-11T21:24:08.431309777Z 2025-09-11 21:24:08,431 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV
+2025-09-11T21:24:08.433049043Z 2025-09-11 21:24:08,432 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:08.434741616Z 2025-09-11 21:24:08,434 INFO [pdf-cover] Got Drive service for file_id=12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV
+2025-09-11T21:24:10.153136041Z 2025-09-11 21:24:10,152 INFO [pdf-cover] Downloaded PDF size: 129001 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:10.153552024Z 2025-09-11 21:24:10,153 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmpsnz_o567.pdf
+2025-09-11T21:24:10.154076023Z 2025-09-11 21:24:10,153 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV
+2025-09-11T21:24:11.333421773Z 2025-09-11 21:24:11,333 INFO [pdf-cover] Memory usage: 242.21 MB for file_id=12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV
+2025-09-11T21:24:11.333526539Z 2025-09-11 21:24:11,333 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:12.129757564Z 2025-09-11 21:24:12,129 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV
+2025-09-11T21:24:12.129946004Z 2025-09-11 21:24:12,129 INFO [pdf-cover] Generator FINISH: session_id=swc_fpu75v08paq_1755811194637, file_id=12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV, duration=0.00s
+2025-09-11T21:24:12.52431629Z 2025-09-11 21:24:12,524 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV (gc.collect called)
+2025-09-11T21:24:12.524700342Z 127.0.0.1 - - [11/Sep/2025:21:24:12 +0000] "GET /pdf-cover/12hi-r0Y40ALynwXXJcmCxw_5CkjGZekV?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 9029 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:12.525348187Z 2025-09-11 21:24:12,525 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:24:12.525365258Z 2025-09-11 21:24:12,525 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:24:12.525426171Z 2025-09-11 21:24:12,525 INFO [pdf-cover] Request for file_id=1x9otXDy2HnWQz7RWkXZNYTfwk0jEhcCY
+2025-09-11T21:24:12.525436952Z 2025-09-11 21:24:12,525 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1x9otXDy2HnWQz7RWkXZNYTfwk0jEhcCY
+2025-09-11T21:24:12.527547139Z 2025-09-11 21:24:12,527 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:12.529263573Z 2025-09-11 21:24:12,529 INFO [pdf-cover] Got Drive service for file_id=1x9otXDy2HnWQz7RWkXZNYTfwk0jEhcCY
+2025-09-11T21:24:14.216793665Z 2025-09-11 21:24:14,216 INFO [pdf-cover] Downloaded PDF size: 115778 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:14.217202618Z 2025-09-11 21:24:14,217 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmps_w6f5rv.pdf
+2025-09-11T21:24:14.217821472Z 2025-09-11 21:24:14,217 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1x9otXDy2HnWQz7RWkXZNYTfwk0jEhcCY
+2025-09-11T21:24:15.63270307Z 2025-09-11 21:24:15,632 INFO [pdf-cover] Memory usage: 243.21 MB for file_id=1x9otXDy2HnWQz7RWkXZNYTfwk0jEhcCY
+2025-09-11T21:24:15.632809226Z 2025-09-11 21:24:15,632 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:16.425136636Z 2025-09-11 21:24:16,424 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1x9otXDy2HnWQz7RWkXZNYTfwk0jEhcCY
+2025-09-11T21:24:16.425430602Z 127.0.0.1 - - [11/Sep/2025:21:24:16 +0000] "GET /pdf-cover/1x9otXDy2HnWQz7RWkXZNYTfwk0jEhcCY?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 7903 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:16.833387587Z 2025-09-11 21:24:16,833 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1x9otXDy2HnWQz7RWkXZNYTfwk0jEhcCY (gc.collect called)
+2025-09-11T21:24:16.834201622Z 2025-09-11 21:24:16,834 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:24:16.834215722Z 2025-09-11 21:24:16,834 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:24:16.834279546Z 2025-09-11 21:24:16,834 INFO [pdf-cover] Request for file_id=1TPwUZnwPGOYOgf2Btg8yzFkeEmsYEC_V
+2025-09-11T21:24:16.834458536Z 2025-09-11 21:24:16,834 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1TPwUZnwPGOYOgf2Btg8yzFkeEmsYEC_V
+2025-09-11T21:24:16.83635299Z 2025-09-11 21:24:16,836 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:16.922206334Z 2025-09-11 21:24:16,922 INFO [pdf-cover] Got Drive service for file_id=1TPwUZnwPGOYOgf2Btg8yzFkeEmsYEC_V
+2025-09-11T21:24:18.47323177Z 2025-09-11 21:24:18,473 INFO [pdf-cover] Downloaded PDF size: 129382 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:18.473527546Z 2025-09-11 21:24:18,473 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmp82t_8cu4.pdf
+2025-09-11T21:24:18.474101967Z 2025-09-11 21:24:18,474 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1TPwUZnwPGOYOgf2Btg8yzFkeEmsYEC_V
+2025-09-11T21:24:20.022669627Z 2025-09-11 21:24:20,022 INFO [pdf-cover] Memory usage: 243.21 MB for file_id=1TPwUZnwPGOYOgf2Btg8yzFkeEmsYEC_V
+2025-09-11T21:24:20.022699738Z 2025-09-11 21:24:20,022 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:20.734773743Z 2025-09-11 21:24:20,734 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1TPwUZnwPGOYOgf2Btg8yzFkeEmsYEC_V
+2025-09-11T21:24:20.735205717Z 127.0.0.1 - - [11/Sep/2025:21:24:20 +0000] "GET /pdf-cover/1TPwUZnwPGOYOgf2Btg8yzFkeEmsYEC_V?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 11117 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:21.225971328Z 2025-09-11 21:24:21,225 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1TPwUZnwPGOYOgf2Btg8yzFkeEmsYEC_V (gc.collect called)
+2025-09-11T21:24:21.226570971Z 2025-09-11 21:24:21,226 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:24:21.226582562Z 2025-09-11 21:24:21,226 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:24:21.226647495Z 2025-09-11 21:24:21,226 INFO [pdf-cover] Request for file_id=15sGdoAK8uVVMoF02u-dnRsCdl_UBlQW7
+2025-09-11T21:24:21.226661856Z 2025-09-11 21:24:21,226 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=15sGdoAK8uVVMoF02u-dnRsCdl_UBlQW7
+2025-09-11T21:24:21.228346999Z 2025-09-11 21:24:21,228 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:21.229497433Z 2025-09-11 21:24:21,229 INFO [pdf-cover] Got Drive service for file_id=15sGdoAK8uVVMoF02u-dnRsCdl_UBlQW7
+2025-09-11T21:24:23.061402655Z 2025-09-11 21:24:23,061 INFO [pdf-cover] Downloaded PDF size: 494353 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:23.061894053Z 2025-09-11 21:24:23,061 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmpc__md8q5.pdf
+2025-09-11T21:24:23.06258088Z 2025-09-11 21:24:23,062 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=15sGdoAK8uVVMoF02u-dnRsCdl_UBlQW7
+2025-09-11T21:24:24.729907438Z 2025-09-11 21:24:24,729 INFO [pdf-cover] Memory usage: 247.96 MB for file_id=15sGdoAK8uVVMoF02u-dnRsCdl_UBlQW7
+2025-09-11T21:24:24.729974552Z 2025-09-11 21:24:24,729 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:25.526472841Z 2025-09-11 21:24:25,526 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=15sGdoAK8uVVMoF02u-dnRsCdl_UBlQW7
+2025-09-11T21:24:25.526716545Z 127.0.0.1 - - [11/Sep/2025:21:24:25 +0000] "GET /pdf-cover/15sGdoAK8uVVMoF02u-dnRsCdl_UBlQW7?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 10395 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:25.922212443Z 2025-09-11 21:24:25,921 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=15sGdoAK8uVVMoF02u-dnRsCdl_UBlQW7 (gc.collect called)
+2025-09-11T21:24:25.922939873Z 2025-09-11 21:24:25,922 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:24:25.922972895Z 2025-09-11 21:24:25,922 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:24:25.923059389Z 2025-09-11 21:24:25,922 INFO [pdf-cover] Request for file_id=1H-mzJlACnKSdCkBXC6C89EYQ0ihI6Zk2
+2025-09-11T21:24:25.923083541Z 2025-09-11 21:24:25,923 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1H-mzJlACnKSdCkBXC6C89EYQ0ihI6Zk2
+2025-09-11T21:24:25.924991096Z 2025-09-11 21:24:25,924 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:25.926569193Z 2025-09-11 21:24:25,926 INFO [pdf-cover] Got Drive service for file_id=1H-mzJlACnKSdCkBXC6C89EYQ0ihI6Zk2
+2025-09-11T21:24:27.367987744Z 2025-09-11 21:24:27,367 INFO [pdf-cover] Downloaded PDF size: 417738 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:27.368489471Z 2025-09-11 21:24:27,368 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmpwgyyqjrr.pdf
+2025-09-11T21:24:27.369085704Z 2025-09-11 21:24:27,369 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1H-mzJlACnKSdCkBXC6C89EYQ0ihI6Zk2
+2025-09-11T21:24:29.031386335Z 2025-09-11 21:24:29,031 INFO [pdf-cover] Memory usage: 252.84 MB for file_id=1H-mzJlACnKSdCkBXC6C89EYQ0ihI6Zk2
+2025-09-11T21:24:29.031563775Z 2025-09-11 21:24:29,031 WARNING [pdf-cover] WARNING: Memory usage 252.84 MB exceeds LOW threshold of 250 MB!
+2025-09-11T21:24:29.031705232Z 2025-09-11 21:24:29,031 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:29.832459937Z 2025-09-11 21:24:29,832 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1H-mzJlACnKSdCkBXC6C89EYQ0ihI6Zk2
+2025-09-11T21:24:29.832635496Z 127.0.0.1 - - [11/Sep/2025:21:24:29 +0000] "GET /pdf-cover/1H-mzJlACnKSdCkBXC6C89EYQ0ihI6Zk2?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 9166 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:30.232314405Z 2025-09-11 21:24:30,232 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1H-mzJlACnKSdCkBXC6C89EYQ0ihI6Zk2 (gc.collect called)
+2025-09-11T21:24:30.232911458Z 2025-09-11 21:24:30,232 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:24:30.233020784Z 2025-09-11 21:24:30,232 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:24:30.233077817Z 2025-09-11 21:24:30,232 INFO [pdf-cover] Request for file_id=1CVEes2ziRDkQ19D1qWS87U0IuA-pr7CL
+2025-09-11T21:24:30.233090938Z 2025-09-11 21:24:30,233 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1CVEes2ziRDkQ19D1qWS87U0IuA-pr7CL
+2025-09-11T21:24:30.320468116Z 2025-09-11 21:24:30,234 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:30.322471306Z 2025-09-11 21:24:30,322 INFO [pdf-cover] Got Drive service for file_id=1CVEes2ziRDkQ19D1qWS87U0IuA-pr7CL
+2025-09-11T21:24:31.797168642Z 2025-09-11 21:24:31,796 INFO [pdf-cover] Downloaded PDF size: 353076 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:31.798367808Z 2025-09-11 21:24:31,798 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmphhvi5a4m.pdf
+2025-09-11T21:24:31.799909403Z 2025-09-11 21:24:31,799 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1CVEes2ziRDkQ19D1qWS87U0IuA-pr7CL
+2025-09-11T21:24:33.226439393Z 2025-09-11 21:24:33,226 INFO [pdf-cover] Memory usage: 255.71 MB for file_id=1CVEes2ziRDkQ19D1qWS87U0IuA-pr7CL
+2025-09-11T21:24:33.226475235Z 2025-09-11 21:24:33,226 WARNING [pdf-cover] WARNING: Memory usage 255.71 MB exceeds LOW threshold of 250 MB!
+2025-09-11T21:24:33.226610862Z 2025-09-11 21:24:33,226 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:34.026263016Z 2025-09-11 21:24:34,026 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1CVEes2ziRDkQ19D1qWS87U0IuA-pr7CL
+2025-09-11T21:24:34.02651425Z 127.0.0.1 - - [11/Sep/2025:21:24:34 +0000] "GET /pdf-cover/1CVEes2ziRDkQ19D1qWS87U0IuA-pr7CL?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 8273 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:34.424553147Z 2025-09-11 21:24:34,423 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1CVEes2ziRDkQ19D1qWS87U0IuA-pr7CL (gc.collect called)
+2025-09-11T21:24:34.425292128Z 2025-09-11 21:24:34,425 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:24:34.429899342Z 2025-09-11 21:24:34,425 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:24:34.429917033Z 2025-09-11 21:24:34,425 INFO [pdf-cover] Request for file_id=1QX6bFgIMRd14OtGVYwxYV5eogMxLp2Rg
+2025-09-11T21:24:34.429921443Z 2025-09-11 21:24:34,425 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1QX6bFgIMRd14OtGVYwxYV5eogMxLp2Rg
+2025-09-11T21:24:34.429924354Z 2025-09-11 21:24:34,427 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:34.429927704Z 2025-09-11 21:24:34,429 INFO [pdf-cover] Got Drive service for file_id=1QX6bFgIMRd14OtGVYwxYV5eogMxLp2Rg
+2025-09-11T21:24:36.841756693Z 2025-09-11 21:24:36,841 INFO [pdf-cover] Downloaded PDF size: 255346 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:36.842393008Z 2025-09-11 21:24:36,842 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmpw8tad0tb.pdf
+2025-09-11T21:24:36.843210834Z 2025-09-11 21:24:36,843 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1QX6bFgIMRd14OtGVYwxYV5eogMxLp2Rg
+2025-09-11T21:24:38.232399984Z 2025-09-11 21:24:38,232 INFO [pdf-cover] Memory usage: 260.59 MB for file_id=1QX6bFgIMRd14OtGVYwxYV5eogMxLp2Rg
+2025-09-11T21:24:38.232436406Z 2025-09-11 21:24:38,232 WARNING [pdf-cover] WARNING: Memory usage 260.59 MB exceeds LOW threshold of 250 MB!
+2025-09-11T21:24:38.232549513Z 2025-09-11 21:24:38,232 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:39.025488776Z 2025-09-11 21:24:39,025 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1QX6bFgIMRd14OtGVYwxYV5eogMxLp2Rg
+2025-09-11T21:24:39.025800293Z 127.0.0.1 - - [11/Sep/2025:21:24:39 +0000] "GET /pdf-cover/1QX6bFgIMRd14OtGVYwxYV5eogMxLp2Rg?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 7780 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:39.429183416Z 2025-09-11 21:24:39,428 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1QX6bFgIMRd14OtGVYwxYV5eogMxLp2Rg (gc.collect called)
+2025-09-11T21:24:39.429918966Z 2025-09-11 21:24:39,429 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:24:39.429938697Z 2025-09-11 21:24:39,429 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:24:39.430149379Z 2025-09-11 21:24:39,429 INFO [pdf-cover] Request for file_id=1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK
+2025-09-11T21:24:39.430154659Z 2025-09-11 21:24:39,429 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK
+2025-09-11T21:24:39.432239404Z 2025-09-11 21:24:39,432 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:39.43415874Z 2025-09-11 21:24:39,434 INFO [pdf-cover] Got Drive service for file_id=1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK
+2025-09-11T21:24:41.074906682Z 2025-09-11 21:24:41,072 INFO [pdf-cover] Downloaded PDF size: 373106 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:41.074925903Z 2025-09-11 21:24:41,073 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmpw5a5c2ch.pdf
+2025-09-11T21:24:41.074932443Z 2025-09-11 21:24:41,074 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK
+2025-09-11T21:24:42.625145052Z 2025-09-11 21:24:42,624 INFO [pdf-cover] Memory usage: 266.09 MB for file_id=1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK
+2025-09-11T21:24:42.626312487Z 2025-09-11 21:24:42,625 WARNING [pdf-cover] WARNING: Memory usage 266.09 MB exceeds LOW threshold of 250 MB!
+2025-09-11T21:24:42.626326577Z 2025-09-11 21:24:42,625 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:43.52245234Z 2025-09-11 21:24:43,522 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK
+2025-09-11T21:24:43.522742746Z 127.0.0.1 - - [11/Sep/2025:21:24:43 +0000] "GET /pdf-cover/1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 7005 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:43.926190132Z 2025-09-11 21:24:43,925 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=1JyCzaP1TIOPPl45eHiNiaobgLR5NO4tK (gc.collect called)
+2025-09-11T21:24:43.926815857Z 2025-09-11 21:24:43,926 INFO [pdf-cover] Queue length after append: 1
+2025-09-11T21:24:43.926918973Z 2025-09-11 21:24:43,926 INFO [pdf-cover] Entering waiting loop: Queue length in wait loop: 1
+2025-09-11T21:24:43.927120954Z 2025-09-11 21:24:43,926 INFO [pdf-cover] Request for file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:24:43.927127154Z 2025-09-11 21:24:43,927 INFO [pdf-cover] Queue entry: session_id=swc_fpu75v08paq_1755811194637, file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:24:43.929111084Z 2025-09-11 21:24:43,929 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:43.931058461Z 2025-09-11 21:24:43,930 INFO [pdf-cover] Got Drive service for file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:24:46.493362117Z 2025-09-11 21:24:46,493 INFO [pdf-cover] Downloaded PDF size: 308895 bytes, header: b'%PDF-1.7'
+2025-09-11T21:24:46.493812892Z 2025-09-11 21:24:46,493 INFO [pdf-cover] wrote PDF to temp file: /tmp/tmp08gyaia2.pdf
+2025-09-11T21:24:46.494514131Z 2025-09-11 21:24:46,494 INFO [pdf-cover] fitz.open succeeded from temp file for file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:24:47.935886358Z 2025-09-11 21:24:47,933 INFO [pdf-cover] Memory usage: 268.96 MB for file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:24:47.935905229Z 2025-09-11 21:24:47,933 WARNING [pdf-cover] WARNING: Memory usage 268.96 MB exceeds LOW threshold of 250 MB!
+2025-09-11T21:24:47.93590987Z 2025-09-11 21:24:47,934 INFO [pdf-cover] Queue length after popleft: 0
+2025-09-11T21:24:48.730109612Z 2025-09-11 21:24:48,729 INFO [pdf-cover] Generator START: session_id=swc_fpu75v08paq_1755811194637, file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS
+2025-09-11T21:24:48.730375927Z 127.0.0.1 - - [11/Sep/2025:21:24:48 +0000] "GET /pdf-cover/18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS?session_id=swc_fpu75v08paq_1755811194637 HTTP/1.1" 200 8083 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:49.134749544Z 2025-09-11 21:24:49,134 INFO [pdf-cover] Generator CLEANUP: session_id=swc_fpu75v08paq_1755811194637, file_id=18Zfe-BcyKLG4iAt4msbxjJ103qusmqHS (gc.collect called)
+2025-09-11T21:24:49.280139511Z 2025-09-11 21:24:49,279 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:50.541715184Z 127.0.0.1 - - [11/Sep/2025:21:24:50 +0000] "GET /api/top-voted-books HTTP/1.1" 200 278 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:50.631638393Z 127.0.0.1 - - [11/Sep/2025:21:24:50 +0000] "GET /api/all-books HTTP/1.1" 200 14590 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:50.690424394Z 2025-09-11 21:24:50,690 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-11T21:24:51.663923473Z 127.0.0.1 - - [11/Sep/2025:21:24:51 +0000] "GET /api/top-voted-books HTTP/1.1" 200 278 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:24:51.747892043Z 127.0.0.1 - - [11/Sep/2025:21:24:51 +0000] "GET /api/all-books HTTP/1.1" 200 14590 "https://storyweavechronicles.onrender.com/" "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+2025-09-11T21:40:09.057619317Z [2025-09-11 21:40:09 +0000] [38] [INFO] Handling signal: term
+2025-09-11T21:40:09.058227331Z [2025-09-11 21:40:09 +0000] [39] [INFO] Worker exiting (pid: 39)
+2025-09-11T21:40:11.022504363Z [2025-09-11 21:40:11 +0000] [38] [INFO] Shutting down: Master

@@ -105,6 +105,7 @@ function purgeUnusedBookCache(currentBookId) {
 
 export default function PDFReader() {
   // Cancel text queue session on unmount/navigation away
+    const { theme, user, setUser } = useContext(ThemeContext);
     const location = useLocation();
     const prevPathRef = useRef(location.pathname);
     useEffect(() => {
@@ -150,33 +151,15 @@ export default function PDFReader() {
       console.warn(`L ${item.label}: ${mb} MB`);
     });
   }
-  // Ensure a session ID exists in localStorage
-    useEffect(() => {
-      let sessionId = localStorage.getItem('swc_session_id');
-      if (!sessionId) {
-        // Generate a random session ID
-        sessionId = 'swc_' + Math.random().toString(36).substr(2, 16) + '_' + Date.now();
-        localStorage.setItem('swc_session_id', sessionId);
-      }
-    }, []);
   const { id } = useParams();
   // Parse query params for comment deep-linking
   const [commentToScroll, setCommentToScroll] = useState(null);
   const [commentsPageFromQuery, setCommentsPageFromQuery] = useState(null);
-  useEffect(() => {
-    const search = window.location.search;
-    const params = new URLSearchParams(search);
-    const commentId = params.get('comment');
-    const commentsPage = params.get('commentsPage');
-    if (commentId) setCommentToScroll(commentId);
-    if (commentsPage) setCommentsPageFromQuery(parseInt(commentsPage));
-  }, [id]);
   const [pages, setPages] = useState([]);
   // Removed unused loadingBook state
   const [pageCount, setPageCount] = useState(0); // Track total pages as they arrive
   const [bookMeta, setBookMeta] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const { theme, user, setUser } = useContext(ThemeContext);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkMsg, setBookmarkMsg] = useState("");
   const [userVote, setUserVote] = useState(null);
@@ -191,6 +174,25 @@ export default function PDFReader() {
   const pdfPageBg = "var(--container-bg)";
   const bookMetaBg = "var(--container-bg)";
   const commentsOuterBg = "var(--container-bg)";
+
+    // Ensure a session ID exists in localStorage
+  useEffect(() => {
+    let sessionId = localStorage.getItem('swc_session_id');
+    if (!sessionId) {
+      // Generate a random session ID
+      sessionId = 'swc_' + Math.random().toString(36).substr(2, 16) + '_' + Date.now();
+      localStorage.setItem('swc_session_id', sessionId);
+    }
+  }, []);
+
+  useEffect(() => {
+    const search = window.location.search;
+    const params = new URLSearchParams(search);
+    const commentId = params.get('comment');
+    const commentsPage = params.get('commentsPage');
+    if (commentId) setCommentToScroll(commentId);
+    if (commentsPage) setCommentsPageFromQuery(parseInt(commentsPage));
+  }, [id]);
 
   // Fetch all pages sequentially and store in localStorage
   const [pdfError, setPdfError] = useState(null);
@@ -319,7 +321,8 @@ export default function PDFReader() {
       .then(res => res.json())
       .then(data => {
         if (data.pdfs && Array.isArray(data.pdfs)) {
-          const found = data.pdfs.find(b => b.id === id);
+          // Try to match by id or drive_id, and coerce to string for safety
+          const found = data.pdfs.find(b => String(b.id) === String(id) || String(b.drive_id) === String(id));
           if (found) setBookMeta(found);
         }
       });

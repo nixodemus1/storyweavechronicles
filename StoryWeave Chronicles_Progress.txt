@@ -12,29 +12,7 @@ Improve mobile carousel, username changes, and infinite loop bugs.
 Continue general QA and bug fixes.
 Your main goals are done; focus now shifts to polishing features, fixing edge cases, and adding enhancements for a smoother user experience and easier site management.
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Here’s a clear, actionable goals list based on your test findings:
 
----
-
-## 🛠️ Immediate Issues & Goals
-
-### 6. **Newsletter Feature**
-- Begin work on newsletter creation and delivery.
-
----
-
-## 📝 Prioritized Action Plan
-
-1. **PDF Cover Caching & Memory Optimization**
-2. **Theme/Color Persistence Fixes**
-3. **Routing/Refresh Error Fix**
-4. **Preferences Saving Fix**
-5. **Comments UI & Submission Fixes**
-6. **Newsletter Feature Implementation**
-
----
-
-Let me know which issue you want to tackle first, and I’ll help you break it down into steps or code fixes!
 --------------------------------------------------------------------------------
 
 Render's free tier for web servers provides users with 256 MB of RAM per service. 
@@ -48,7 +26,7 @@ Here’s your updated checklist with all the new accomplishments checked off:
 
 ---
 
-# StoryWeave Chronicles – Project Status & Roadmap (September 10, 2025)
+# StoryWeave Chronicles – Project Status & Roadmap (September 11, 2025)
 
 ## ✅ Current State & Completed Features
 
@@ -121,6 +99,7 @@ Here’s your updated checklist with all the new accomplishments checked off:
 ✅ Export/import bookmarks.
 ✅ Carousel issues on mobile.
 ❌ Allow username changes after account creation.
+☐ Routing/refresh error fix (production: still broken on Render.com, revisit _redirects and deployment config)
 ☐ Continue fixing any remaining bugs.
 
 ## Deployment Constraints

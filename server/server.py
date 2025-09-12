@@ -33,6 +33,7 @@ import psutil
 import logging
 import gc
 import requests
+import concurrent.futures
 
 load_dotenv()
 
@@ -718,7 +719,6 @@ def pdf_cover(file_id):
         time.sleep(0.05)
     # Now at front of queue, start the timeout timer for actual processing
     wait_start = time.time()
-    # ...existing code...
     # --- Actual cover extraction logic ---
     def send_fallback():
         logging.error(f"[pdf-cover] Fallback image used for file_id={file_id}")
@@ -781,7 +781,9 @@ def pdf_cover(file_id):
             doc.close()
             del doc
             del img_bytes
-            gc.collect()
+            # --- Force more frequent GC ---
+            for _ in range(3):
+                gc.collect()
             def generate():
                 logging.info(f"[pdf-cover] Generator START: session_id={session_id}, file_id={file_id}")
                 start_time = time.time()
@@ -795,6 +797,8 @@ def pdf_cover(file_id):
                         if not chunk:
                             break
                         yield chunk
+                        # --- Force GC every chunk ---
+                        gc.collect()
                     duration = time.time() - start_time
                     logging.info(f"[pdf-cover] Generator FINISH: session_id={session_id}, file_id={file_id}, duration={duration:.2f}s")
                 except Exception as gen_e:
@@ -802,7 +806,8 @@ def pdf_cover(file_id):
                     raise
                 finally:
                     out.close()
-                    gc.collect()
+                    for _ in range(3):
+                        gc.collect()
                     logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
@@ -850,8 +855,9 @@ def pdf_cover(file_id):
                 # Also clear any temp files if needed (handled by context manager above)
             except Exception as cleanup_e:
                 logging.error(f"[pdf-cover] Error during manual cleanup: {cleanup_e}")
-            # Force GC and RAM throttling
-            gc.collect()
+            # --- Force more frequent GC in cleanup ---
+            for _ in range(5):
+                gc.collect()
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
             MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
@@ -861,28 +867,27 @@ def pdf_cover(file_id):
                 wait_start = time.time()
                 max_wait = 10  # seconds
                 while mem > MEMORY_LOW_THRESHOLD_MB and time.time() - wait_start < max_wait:
-                    gc.collect()
+                    for _ in range(2):
+                        gc.collect()
                     time.sleep(0.2)
                     mem = psutil.Process().memory_info().rss / (1024 * 1024)
                 logging.info(f"[pdf-cover] RAM after GC wait: {mem:.2f} MB (waited {time.time() - wait_start:.2f}s)")
         # --- Aggressive GC and RAM wait before next session ---
-        # Clean up and force GC
-        gc.collect()
+        for _ in range(5):
+            gc.collect()
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
-        MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
         # If memory is above HIGH threshold, wait for GC to clear RAM before next session
         if mem > MEMORY_HIGH_THRESHOLD_MB:
             logging.warning(f"[pdf-cover] Waiting for RAM to drop below HIGH threshold after GC. Current: {mem:.2f} MB")
             wait_start = time.time()
             max_wait = 10  # seconds
             while mem > MEMORY_LOW_THRESHOLD_MB and time.time() - wait_start < max_wait:
-                gc.collect()
+                for _ in range(2):
+                    gc.collect()
                 time.sleep(0.2)
                 mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] RAM after GC wait: {mem:.2f} MB (waited {time.time() - wait_start:.2f}s)")
 
-            
 @app.route('/api/pdf-text/<file_id>', methods=['GET'])
 def pdf_text(file_id):
     """
@@ -954,8 +959,6 @@ def pdf_text(file_id):
         # Now at front of queue, start the timeout timer for actual processing
         wait_start = time.time()
         wait_end = None
-        # ...existing code...
-
         # --- Actual text extraction logic (OUTSIDE LOCK) ---
         try:
             service = get_drive_service()
@@ -2341,6 +2344,7 @@ def user_voted_books():
     user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({'success': False, 'message': 'User not found.'}), 404
+    # Get all votes by this user
     votes = Vote.query.filter_by(username=username).all()
     voted_books = []
     for vote in votes:
@@ -2513,6 +2517,45 @@ def cover_exists(file_id):
         return jsonify({'exists': True})
     except Exception:
         return jsonify({'exists': False})
+
+@app.route('/api/simulate-cover-load', methods=['POST'])
+def simulate_cover_load():
+    """
+    Simulate multiple users requesting covers at the same time for stress testing.
+    POST data: {"file_ids": ["id1", "id2", ...], "num_users": 200, "concurrency": 20}
+    """
+    import random
+    import time
+    data = request.get_json(force=True)
+    file_ids = data.get('file_ids', [])
+    num_users = int(data.get('num_users', 200))
+    concurrency = int(data.get('concurrency', 20))
+    if not file_ids:
+        return jsonify({'success': False, 'message': 'file_ids required'}), 400
+    results = []
+    start_time = time.time()
+    def simulate_user(user_idx):
+        session_id = f"simuser-{user_idx}-{uuid.uuid4()}"
+        file_id = random.choice(file_ids)
+        url = f"http://localhost:{os.getenv('PORT', 5000)}/pdf-cover/{file_id}?session_id={session_id}"
+        try:
+            resp = requests.get(url, timeout=30)
+            status = resp.status_code
+            log_msg = f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} status={status}"
+            logging.info(log_msg)
+            return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'status': status}
+        except Exception as e:
+            logging.error(f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} ERROR: {e}")
+            return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'error': str(e)}
+    # Use ThreadPoolExecutor for concurrency
+    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+        futures = [executor.submit(simulate_user, i) for i in range(num_users)]
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
+    duration = time.time() - start_time
+    mem = psutil.Process().memory_info().rss / (1024 * 1024)
+    logging.info(f"[SIM] Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB")
+    return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
 
 if __name__ == '__main__':
     # Register Google Drive webhook on startup
