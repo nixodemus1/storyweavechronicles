@@ -113,10 +113,10 @@ Here’s your updated checklist with all the new accomplishments checked off:
 ## Future Goals
 
 - ☐ Migrate database to Neon for more space and persistent storage.
-- ☐ Reduce image/cover loading time (currently 47.6s).
-- ☐ Further optimize RAM usage (image processing, caching).
+- ✅ Reduce image/cover loading time (currently 47.6s).
+- ✅ Further optimize RAM usage (image processing, caching).
 - ☐ Consider service workers for offline access.
-- ☐ Set up automated alerts for memory, queue length, error rates.
+- ❌ Set up automated alerts for memory, queue length, error rates.
 - ☐ UI polish, admin tools, and performance enhancements.
 
 ---

@@ -731,6 +731,11 @@ def cleanup_locals(locals_dict):
 @app.route('/pdf-cover/<file_id>', methods=['GET'])
 def pdf_cover(file_id):
     global cover_queue_active
+    # --- Profiling: log CPU and RAM usage at entry ---
+    process = psutil.Process()
+    mem = process.memory_info().rss / (1024 * 1024)
+    cpu = process.cpu_percent(interval=0.1)
+    logging.info(f"[pdf-cover] ENTRY: file_id={file_id}, RAM={mem:.2f} MB, CPU={cpu:.2f}%")
     session_id = request.args.get('session_id') or request.headers.get('X-Session-Id')
     if not session_id:
         return jsonify({'success': False, 'error': 'Missing session_id'}), 400
@@ -765,8 +770,9 @@ def pdf_cover(file_id):
         if not os.path.exists(fallback_path):
             logging.error(f"[pdf-cover] Fallback image not found at {fallback_path}")
             cleanup_locals(locals())
-            mem = psutil.Process().memory_info().rss / (1024 * 1024)
-            logging.info(f"[pdf-cover] Memory usage after fallback: {mem:.2f} MB")
+            mem = process.memory_info().rss / (1024 * 1024)
+            cpu = process.cpu_percent(interval=0.1)
+            logging.info(f"[pdf-cover] Fallback: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
             # tracemalloc logging (optional)
             logging.info(tracemalloc.take_snapshot().statistics('filename'))
             return make_response(jsonify({'error': 'No cover available'}), 404)
@@ -784,8 +790,9 @@ def pdf_cover(file_id):
             response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
         response.status_code = 404
         cleanup_locals(locals())
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[pdf-cover] Memory usage after fallback: {mem:.2f} MB")
+        mem = process.memory_info().rss / (1024 * 1024)
+        cpu = process.cpu_percent(interval=0.1)
+        logging.info(f"[pdf-cover] Fallback: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
         # tracemalloc logging (optional)
         if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
             logging.info(tracemalloc.take_snapshot().statistics('filename'))
@@ -807,8 +814,9 @@ def pdf_cover(file_id):
         if not pdf_bytes or not pdf_bytes.startswith(b'%PDF'):
             logging.error(f"[pdf-cover] Invalid PDF content for file_id={file_id}. Header: {pdf_header}")
             cleanup_locals(locals())
-            mem = psutil.Process().memory_info().rss / (1024 * 1024)
-            logging.info(f"[pdf-cover] Memory usage after invalid PDF: {mem:.2f} MB")
+            mem = process.memory_info().rss / (1024 * 1024)
+            cpu = process.cpu_percent(interval=0.1)
+            logging.info(f"[pdf-cover] Invalid PDF: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
             return send_fallback()
         # Always try temp file first, fallback to in-memory if temp file fails
         doc = None
@@ -827,8 +835,9 @@ def pdf_cover(file_id):
             except Exception as mem_e:
                 logging.error(f"[pdf-cover] fitz.open failed from memory for file_id={file_id}: {mem_e}")
                 cleanup_locals(locals())
-                mem = psutil.Process().memory_info().rss / (1024 * 1024)
-                logging.info(f"[pdf-cover] Memory usage after fitz.open error: {mem:.2f} MB")
+                mem = process.memory_info().rss / (1024 * 1024)
+                cpu = process.cpu_percent(interval=0.1)
+                logging.info(f"[pdf-cover] fitz.open error: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
                 return send_fallback()
         try:
             page = doc.load_page(0)
@@ -881,8 +890,9 @@ def pdf_cover(file_id):
                         gc.collect()
                     logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
 
-            mem = psutil.Process().memory_info().rss / (1024 * 1024)
-            logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
+            mem = process.memory_info().rss / (1024 * 1024)
+            cpu = process.cpu_percent(interval=0.1)
+            logging.info(f"[pdf-cover] Success: RAM={mem:.2f} MB, CPU={cpu:.2f}% for file_id={file_id}")
             # tracemalloc logging (optional)
             if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
                 logging.info(tracemalloc.take_snapshot().statistics('filename'))
@@ -907,8 +917,9 @@ def pdf_cover(file_id):
         except Exception as page_e:
             logging.error(f"[pdf-cover] Error processing PDF page for file_id={file_id}: {page_e}")
             cleanup_locals(locals())
-            mem = psutil.Process().memory_info().rss / (1024 * 1024)
-            logging.info(f"[pdf-cover] Memory usage after page error: {mem:.2f} MB")
+            mem = process.memory_info().rss / (1024 * 1024)
+            cpu = process.cpu_percent(interval=0.1)
+            logging.info(f"[pdf-cover] Page error: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
             # tracemalloc logging (optional)
             if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
                 logging.info(tracemalloc.take_snapshot().statistics('filename'))
@@ -918,8 +929,9 @@ def pdf_cover(file_id):
     except Exception as e:
         logging.error(f"[pdf-cover] Error fetching file from Drive for file_id={file_id}: {e}")
         cleanup_locals(locals())
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[pdf-cover] Memory usage after fetch error: {mem:.2f} MB")
+        mem = process.memory_info().rss / (1024 * 1024)
+        cpu = process.cpu_percent(interval=0.1)
+        logging.info(f"[pdf-cover] Fetch error: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
         # tracemalloc logging (optional)
         logging.info(tracemalloc.take_snapshot().statistics('filename'))
         return send_fallback()
@@ -937,20 +949,22 @@ def pdf_cover(file_id):
         # --- Aggressive GC and RAM wait before next session ---
         for _ in range(5):
             gc.collect()
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        mem = process.memory_info().rss / (1024 * 1024)
+        cpu = process.cpu_percent(interval=0.1)
         MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
         MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
         # If memory is above HIGH threshold, wait for GC to clear RAM before next session
         if mem > MEMORY_HIGH_THRESHOLD_MB:
-            logging.warning(f"[pdf-cover] Waiting for RAM to drop below HIGH threshold after GC. Current: {mem:.2f} MB")
+            logging.warning(f"[pdf-cover] Waiting for RAM to drop below HIGH threshold after GC. Current: {mem:.2f} MB, CPU={cpu:.2f}%")
             wait_start = time.time()
             max_wait = 10  # seconds
             while mem > MEMORY_LOW_THRESHOLD_MB and time.time() - wait_start < max_wait:
                 for _ in range(2):
                     gc.collect()
                 time.sleep(0.2)
-                mem = psutil.Process().memory_info().rss / (1024 * 1024)
-            logging.info(f"[pdf-cover] RAM after GC wait: {mem:.2f} MB (waited {time.time() - wait_start:.2f}s)")
+                mem = process.memory_info().rss / (1024 * 1024)
+                cpu = process.cpu_percent(interval=0.1)
+            logging.info(f"[pdf-cover] RAM after GC wait: {mem:.2f} MB, CPU={cpu:.2f}% (waited {time.time() - wait_start:.2f}s)")
 
 @app.route('/api/pdf-text/<file_id>', methods=['GET'])
 def pdf_text(file_id):
@@ -961,6 +975,12 @@ def pdf_text(file_id):
     """
     global text_queue_active
     global text_queue_lock
+    # --- Profiling: log CPU and RAM usage at entry ---
+    process = psutil.Process()
+    mem = process.memory_info().rss / (1024 * 1024)
+    cpu = process.cpu_percent(interval=0.1)
+    logging.info(f"[pdf-text] ENTRY: file_id={file_id}, RAM={mem:.2f} MB, CPU={cpu:.2f}%")
+    # --- Existing code logic ---
     # --- Find book in DB and get total_pages if available ---
     book = Book.query.filter_by(drive_id=file_id).first()
     total_pages = None
