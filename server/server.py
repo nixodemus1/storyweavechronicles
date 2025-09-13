@@ -697,8 +697,12 @@ def cleanup_locals(locals_dict):
         if obj is not None:
             try:
                 if hasattr(obj, 'close'):
-                    obj.close()
-                    logging.info(f"[cleanup_locals] Closed object: {varname}")
+                    # Avoid double-closing file-like objects
+                    if hasattr(obj, 'closed') and obj.closed:
+                        logging.info(f"[cleanup_locals] Object already closed: {varname}")
+                    else:
+                        obj.close()
+                        logging.info(f"[cleanup_locals] Closed object: {varname}")
             except Exception as e:
                 logging.warning(f"[cleanup_locals] Error closing {varname}: {e}")
             try:
@@ -833,7 +837,7 @@ def pdf_cover(file_id):
             # Downscale and compress
             out = downscale_image(img_bytes, size=(200, 300), format="JPEG", quality=85)
             out.seek(0)
-            # Clean up large objects before streaming
+            # Clean up large objects except 'out' before streaming
             page = None
             pix = None
             doc.close()
@@ -842,6 +846,8 @@ def pdf_cover(file_id):
             # --- Force more frequent GC ---
             for _ in range(3):
                 gc.collect()
+            simulation = getattr(request, 'simulation', False)  # Capture early!
+            # DO NOT call cleanup_locals(locals()) here!
             def generate():
                 logging.info(f"[pdf-cover] Generator START: session_id={session_id}, file_id={file_id}")
                 start_time = time.time()
@@ -863,16 +869,14 @@ def pdf_cover(file_id):
                     logging.error(f"[pdf-cover] Generator ERROR: session_id={session_id}, file_id={file_id}, error={gen_e}")
                     raise
                 finally:
-                    # Only close 'out' if not simulating
-                    simulation = getattr(request, 'simulation', False)
                     if not simulation:
                         try:
                             out.close()
                             logging.info(f"[cleanup_locals] Closed object: out")
                         except Exception as e:
                             logging.error(f"[cleanup_locals] Error closing 'out': {e}")
-                    # Always run cleanup_locals
-                    cleanup_locals(locals())
+                    # Always run cleanup_locals after generator is done
+                    cleanup_locals({'out': out})
                     for _ in range(3):
                         gc.collect()
                     logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
@@ -898,15 +902,7 @@ def pdf_cover(file_id):
                 response.headers["Access-Control-Allow-Origin"] = origin
             else:
                 response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
-            # Cleanup after response is returned
-            def cleanup_after_response(response):
-                out.close()
-                cleanup_locals(locals())
-                for _ in range(3):
-                    gc.collect()
-                logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
-                return response
-            response.call_on_close(lambda: cleanup_after_response(response))
+            # Cleanup after response is returned (NO out.close or cleanup_locals here)
             return response
         except Exception as page_e:
             logging.error(f"[pdf-cover] Error processing PDF page for file_id={file_id}: {page_e}")
@@ -938,26 +934,12 @@ def pdf_cover(file_id):
             if cover_queue_active == entry:
                 cover_queue_active = None
             cover_queue_lock.release()
-            # --- Aggressive cleanup of large objects before GC and RAM throttling ---
-            cleanup_locals(locals())
-            mem = psutil.Process().memory_info().rss / (1024 * 1024)
-            MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
-            MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
-            # If memory is above HIGH threshold, wait for GC to clear RAM before next session
-            if mem > MEMORY_HIGH_THRESHOLD_MB:
-                logging.warning(f"[pdf-cover] Waiting for RAM to drop below HIGH threshold after GC. Current: {mem:.2f} MB")
-                wait_start = time.time()
-                max_wait = 10  # seconds
-                while mem > MEMORY_LOW_THRESHOLD_MB and time.time() - wait_start < max_wait:
-                    for _ in range(2):
-                        gc.collect()
-                    time.sleep(0.2)
-                    mem = psutil.Process().memory_info().rss / (1024 * 1024)
-                logging.info(f"[pdf-cover] RAM after GC wait: {mem:.2f} MB (waited {time.time() - wait_start:.2f}s)")
         # --- Aggressive GC and RAM wait before next session ---
         for _ in range(5):
             gc.collect()
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
+        MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
         # If memory is above HIGH threshold, wait for GC to clear RAM before next session
         if mem > MEMORY_HIGH_THRESHOLD_MB:
             logging.warning(f"[pdf-cover] Waiting for RAM to drop below HIGH threshold after GC. Current: {mem:.2f} MB")
