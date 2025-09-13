@@ -862,7 +862,20 @@ def pdf_cover(file_id):
                 except Exception as gen_e:
                     logging.error(f"[pdf-cover] Generator ERROR: session_id={session_id}, file_id={file_id}, error={gen_e}")
                     raise
-                # Do not close 'out' here; cleanup will happen after response
+                finally:
+                    # Only close 'out' if not simulating
+                    simulation = getattr(request, 'simulation', False)
+                    if not simulation:
+                        try:
+                            out.close()
+                            logging.info(f"[cleanup_locals] Closed object: out")
+                        except Exception as e:
+                            logging.error(f"[cleanup_locals] Error closing 'out': {e}")
+                    # Always run cleanup_locals
+                    cleanup_locals(locals())
+                    for _ in range(3):
+                        gc.collect()
+                    logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
 
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] Memory usage: {mem:.2f} MB for file_id={file_id}")
