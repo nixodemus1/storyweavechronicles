@@ -3,18 +3,31 @@
         {
             "pgOptions": {
                 "ssl": {
+                    "rejectUnauthorized": true,
+                    "requestCert": false
+                }
+            },
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "driver": "PostgreSQL",
+            "name": "StoryWeave_Development",
+            "connectString": "postgresql://neondb_owner:npg_0HqsBagp8cFn@ep-round-waterfall-aearqrxh-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+            "group": "StoryWeaveChronicles"
+        },
+        {
+            "pgOptions": {
+                "ssl": {
                     "rejectUnauthorized": true
                 }
             },
+            "ssh": "Disabled",
             "previewLimit": 50,
-            "server": "dpg-d2f474ripnbc739n71gg-a.oregon-postgres.render.com",
-            "port": 5432,
+            "server": "localhost",
             "driver": "PostgreSQL",
-            "name": "storyweave_db",
-            "group": "postgres",
-            "database": "storyweave_db",
-            "username": "storyweave_db_user",
-            "password": "ghvevZJ2pTG64YUyjiSPeUjikdBWNtE8"
+            "name": "StoryWeave_Production",
+            "group": "StoryWeaveChronicles",
+            "connectString": "postgresql://neondb_owner:npg_0HqsBagp8cFn@ep-dark-sun-aeuwokun-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
         }
     ]
 }

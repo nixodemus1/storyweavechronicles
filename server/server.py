@@ -1,44 +1,385 @@
-#server/server.py
+
+# --- Standard Library Imports ---
+import os
+import io
+import gc
+import re
+import uuid
+import time
+import json
+import base64
+import hashlib
+import logging
+import tempfile
+import threading
+import datetime
+from collections import deque
+import traceback
+import concurrent.futures
+import shutil
+
+# --- Third-Party Imports ---
+import fitz  # PyMuPDF
+import psutil
+import requests
+import tracemalloc
+from PIL import Image
+from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
+from flask import (
+    Flask, jsonify, send_file, redirect, send_from_directory,
+    make_response, request, after_this_request
+)
+from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
+from flask_mail import Mail, Message
+from sqlalchemy import desc, func
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from google.auth.transport.requests import Request
+from google.oauth2 import service_account
+import dateutil.parser
+import random
+
+# --- Project Imports ---
 try:
     # For production (when run as a package)
     from .drive_webhook import setup_drive_webhook
 except ImportError:
     # For local testing (when run as a script)
     from drive_webhook import setup_drive_webhook
-import traceback
-from flask import Flask, jsonify, send_file, redirect, send_from_directory, make_response, request
-import threading
-import time
-import uuid
-import tempfile
-from collections import deque
-from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
-from flask_mail import Mail, Message
-import fitz  # PyMuPDF
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from google.auth.transport.requests import Request
-from google.oauth2 import service_account
-import io
-import os
-import base64
-import hashlib
-import datetime
-import json
-from dotenv import load_dotenv
-from PIL import Image
-import psutil
-import logging
-import gc
-import requests
-import concurrent.futures
-import tracemalloc;
 
 load_dotenv()
 
 app = Flask(__name__)
+
+# --- Cover Atlas Management ---
+COVERS_DIR = os.path.join(os.path.dirname(__file__), '..', 'client', 'public', 'covers')
+ATLAS_PATH = os.path.join(COVERS_DIR, 'atlas.json')
+MAX_COVERS = 30
+
+def load_atlas():
+    if not os.path.exists(ATLAS_PATH):
+        return {}
+    for attempt in range(3):
+        try:
+            with open(ATLAS_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('covers', {})
+        except Exception as e:
+            logging.error(f"[Atlas] Failed to load atlas.json (attempt {attempt+1}): {e}")
+            time.sleep(0.05)
+    return {}
+
+def save_atlas(covers_map):
+    try:
+        # Write to a temp file first, then atomically replace atlas.json
+        dir_name = os.path.dirname(ATLAS_PATH)
+        with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=dir_name, delete=False) as tf:
+            json.dump({'covers': covers_map}, tf, indent=2)
+            tempname = tf.name
+        shutil.move(tempname, ATLAS_PATH)
+    except Exception as e:
+        logging.error(f"[Atlas] Failed to save atlas.json: {e}")
+
+cleanup_covers_lock = threading.Lock()  # Add this near your other locks
+
+def cleanup_unused_covers(valid_ids):
+    covers_map = load_atlas()
+    covers_dir_files = os.listdir(COVERS_DIR)
+    # Build set of actual cover IDs on disk
+    disk_cover_ids = set()
+    for fname in covers_dir_files:
+        if fname.endswith('.jpg'):
+            disk_cover_ids.add(fname[:-4])
+    logging.info(f"[Atlas][cleanup_unused_covers] Disk cover IDs: {disk_cover_ids}")
+    if not cleanup_covers_lock.acquire(blocking=False):
+        logging.warning("[Atlas][cleanup_unused_covers] Cleanup already running, skipping duplicate call.")
+        return []
+    try:
+        valid_ids = set(str(i).strip() for i in valid_ids)
+        # Only delete covers not in valid_ids
+        to_remove = disk_cover_ids - valid_ids
+        removed = []
+        for book_id in to_remove:
+            cover_path = os.path.join(COVERS_DIR, f"{book_id}.jpg")
+            try:
+                os.remove(cover_path)
+                removed.append(book_id)
+                logging.info(f"[Atlas][cleanup_unused_covers] Deleted unused cover: {cover_path}")
+            except Exception as e:
+                logging.error(f"[Atlas][cleanup_unused_covers] Failed to delete {cover_path}: {e}")
+        # Update atlas
+        covers_map = {bid: fname for bid, fname in covers_map.items() if bid in valid_ids}
+        save_atlas(covers_map)
+        logging.info(f"[Atlas][cleanup_unused_covers] Final covers_map after deletion: {covers_map}")
+        logging.info(f"[Atlas] Cleaned up unused covers: {removed}")
+        return removed
+    finally:
+        cleanup_covers_lock.release()
+
+# --- First-load cover cache rebuild ---
+atlas_initialized = False
+
+def get_landing_page_book_ids():
+    """
+    Return a list of book IDs for the landing page (carousel + top voted).
+    """
+    # Top 20 newest (by created_at)
+    newest_books = Book.query.order_by(desc(Book.created_at)).limit(20).all()
+    newest_ids = [b.drive_id for b in newest_books if b.drive_id]
+
+    # Top 10 voted (by total votes)
+    voted_books = (
+        Book.query
+        .outerjoin(Vote, Book.drive_id == Vote.book_id)
+        .group_by(
+            Book.id,
+            Book.drive_id,
+            Book.title,
+            Book.external_story_id,
+            Book.version_history,
+            Book.created_at,
+            Book.updated_at
+        )
+        .order_by(func.count(Vote.id).desc())
+        .limit(10)
+        .all()
+    )
+    voted_ids = [b.drive_id for b in voted_books if b.drive_id]
+
+    # Combine and deduplicate, preserve order: newest first, then voted
+    combined_ids = []
+    seen = set()
+    for id_ in newest_ids + voted_ids:
+        if id_ and id_ not in seen:
+            combined_ids.append(id_)
+            seen.add(id_)
+    return combined_ids[:MAX_COVERS]
+
+# --- Cover Extraction Utility ---
+def extract_cover_image_from_pdf(book_id):
+    """
+    Extract cover image for a given book_id from its PDF in Google Drive.
+    Returns PIL Image or None.
+    Ensures image is not closed/deleted before caller saves/maps it.
+    """
+    import gc
+    import psutil
+    import tracemalloc
+
+    process = psutil.Process()
+    MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
+    MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
+
+    for _ in range(3):
+        gc.collect()
+    mem_start = process.memory_info().rss / (1024 * 1024)
+    cpu_start = process.cpu_percent(interval=0.1)
+    logging.info(f"[extract_cover_image_from_pdf] GC BEFORE: book_id={book_id}, RAM={mem_start:.2f} MB, CPU={cpu_start:.2f}%")
+
+    img = None
+    doc = None
+    page = None
+    pix = None
+    try:
+        service = get_drive_service()
+        book = Book.query.filter_by(drive_id=book_id).first()
+        if not book:
+            logging.warning(f"[extract_cover_image_from_pdf] Book not found: {book_id}")
+            mem_none = process.memory_info().rss / (1024 * 1024)
+            cpu_none = process.cpu_percent(interval=0.1)
+            logging.info(f"[extract_cover_image_from_pdf] NO BOOK: book_id={book_id}, RAM={mem_none:.2f} MB, CPU={cpu_none:.2f}%")
+            for _ in range(3):
+                gc.collect()
+            return None
+
+        request_drive = service.files().get_media(fileId=book.drive_id)
+        pdf_bytes = request_drive.execute()
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc.load_page(0)
+
+        # Preferred: render first page as image
+        try:
+            pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))
+            img_bytes = pix.tobytes()
+            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            img.thumbnail((80, 120))
+            mem_page = process.memory_info().rss / (1024 * 1024)
+            cpu_page = process.cpu_percent(interval=0.1)
+            logging.info(f"[extract_cover_image_from_pdf] PAGE IMAGE: book_id={book_id}, RAM={mem_page:.2f} MB, CPU={cpu_page:.2f}%")
+            if mem_page > MEMORY_LOW_THRESHOLD_MB:
+                logging.warning(f"[extract_cover_image_from_pdf] WARNING: RAM {mem_page:.2f} MB exceeds LOW threshold {MEMORY_LOW_THRESHOLD_MB} MB!")
+            if mem_page > MEMORY_HIGH_THRESHOLD_MB:
+                logging.error(f"[extract_cover_image_from_pdf] ERROR: RAM {mem_page:.2f} MB exceeds HIGH threshold {MEMORY_HIGH_THRESHOLD_MB} MB!")
+            logging.info(f"[extract_cover_image_from_pdf] Extraction succeeded for book_id={book_id}")
+            # Do NOT cleanup img here; caller will save and close it!
+            # Clean up other objects
+            if pix is not None and hasattr(pix, 'close'):
+                pix.close()
+            if page is not None and hasattr(page, 'close'):
+                page.close()
+            if doc is not None and hasattr(doc, 'close'):
+                doc.close()
+            for _ in range(3):
+                gc.collect()
+            return img
+        except Exception as e:
+            logging.error(f"[extract_cover_image_from_pdf] Page render failed for {book_id}: {e}")
+
+        # Fallback: try to extract first embedded image
+        images = page.get_images(full=True)
+        if images:
+            xref = images[0][0]
+            try:
+                pix = fitz.Pixmap(doc, xref)
+                img_bytes = pix.tobytes("ppm")
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                img.thumbnail((80, 120))
+                mem_img = process.memory_info().rss / (1024 * 1024)
+                cpu_img = process.cpu_percent(interval=0.1)
+                logging.info(f"[extract_cover_image_from_pdf] FALLBACK EMBEDDED IMAGE: book_id={book_id}, RAM={mem_img:.2f} MB, CPU={cpu_img:.2f}%")
+                if mem_img > MEMORY_LOW_THRESHOLD_MB:
+                    logging.warning(f"[extract_cover_image_from_pdf] WARNING: RAM {mem_img:.2f} MB exceeds LOW threshold {MEMORY_LOW_THRESHOLD_MB} MB!")
+                if mem_img > MEMORY_HIGH_THRESHOLD_MB:
+                    logging.error(f"[extract_cover_image_from_pdf] ERROR: RAM {mem_img:.2f} MB exceeds HIGH threshold {MEMORY_HIGH_THRESHOLD_MB} MB!")
+                logging.info(f"[extract_cover_image_from_pdf] Fallback extraction succeeded for book_id={book_id}")
+                # Do NOT cleanup img here; caller will save and close it!
+                # Clean up other objects
+                if pix is not None and hasattr(pix, 'close'):
+                    pix.close()
+                if page is not None and hasattr(page, 'close'):
+                    page.close()
+                if doc is not None and hasattr(doc, 'close'):
+                    doc.close()
+                for _ in range(3):
+                    gc.collect()
+                return img
+            except Exception as e:
+                logging.error(f"[extract_cover_image_from_pdf] Embedded image extraction failed for {book_id}: {e}")
+
+        logging.info(f"[extract_cover_image_from_pdf] Extraction failed for book_id={book_id}")
+        # Clean up objects
+        if pix is not None and hasattr(pix, 'close'):
+            pix.close()
+        if page is not None and hasattr(page, 'close'):
+            page.close()
+        if doc is not None and hasattr(doc, 'close'):
+            doc.close()
+        for _ in range(3):
+            gc.collect()
+        return None
+
+    except Exception as e:
+        logging.error(f"[extract_cover_image_from_pdf] Failed for {book_id}: {e}")
+        mem_err = process.memory_info().rss / (1024 * 1024)
+        cpu_err = process.cpu_percent(interval=0.1)
+        logging.info(f"[extract_cover_image_from_pdf] ERROR: book_id={book_id}, RAM={mem_err:.2f} MB, CPU={cpu_err:.2f}%")
+        if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
+            logging.info(tracemalloc.take_snapshot().statistics('filename'))
+        else:
+            logging.info("[extract_cover_image_from_pdf] tracemalloc is not tracing; skipping snapshot.")
+        # Clean up objects
+        if pix is not None and hasattr(pix, 'close'):
+            pix.close()
+        if page is not None and hasattr(page, 'close'):
+            page.close()
+        if doc is not None and hasattr(doc, 'close'):
+            doc.close()
+        for _ in range(3):
+            gc.collect()
+        return None
+    finally:
+        for _ in range(3):
+            gc.collect()
+        mem_final = process.memory_info().rss / (1024 * 1024)
+        logging.info(f"[extract_cover_image_from_pdf] FINAL GC: book_id={book_id}, RAM={mem_final:.2f} MB")
+        
+def rebuild_cover_cache(book_ids=None):
+    """
+    Rebuild atlas and cache covers for provided book_ids (landing page), or fallback to DB if not provided.
+    """
+    if book_ids is None:
+        book_ids = get_landing_page_book_ids()
+        logging.info(f"[Atlas][rebuild_cover_cache] Starting rebuild for book_ids: {book_ids}")
+    covers_map_before = load_atlas()
+    logging.info(f"[Atlas][rebuild_cover_cache] covers_map BEFORE cleanup: {covers_map_before}")
+    # Validate covers before cleanup
+    valid_ids = set()
+    for book_id in book_ids:
+        filename = f"{book_id}.jpg"
+        cover_path = os.path.join(COVERS_DIR, filename)
+        cover_valid = False
+        if os.path.exists(cover_path):
+            try:
+                img = Image.open(cover_path)
+                img.verify()
+                cover_valid = True
+            except Exception:
+                cover_valid = False
+        if cover_valid:
+            valid_ids.add(book_id)
+    # Only delete covers not in valid_ids
+    cleanup_unused_covers(valid_ids)
+    covers_map_after_cleanup = load_atlas()
+    logging.info(f"[Atlas][rebuild_cover_cache] covers_map AFTER cleanup: {covers_map_after_cleanup}")
+    # Now process missing/invalid covers
+    for book_id in book_ids:
+        logging.info(f"[Atlas][rebuild_cover_cache] Processing cover for book_id: {book_id}")
+        filename = f"{book_id}.jpg"
+        cover_path = os.path.join(COVERS_DIR, filename)
+        cover_valid = False
+        if os.path.exists(cover_path):
+            try:
+                img = Image.open(cover_path)
+                img.verify()
+                cover_valid = True
+            except Exception:
+                cover_valid = False
+        if not cover_valid:
+            # Only extract if missing/invalid
+            img = extract_cover_image_from_pdf(book_id)
+            if img:
+                img.save(cover_path, format="JPEG")
+                logging.info(f"[Atlas][rebuild_cover_cache] Extracted and saved cover for {book_id}")
+            else:
+                logging.error(f"[Atlas][rebuild_cover_cache] Failed to extract cover for {book_id}")
+        else:
+            logging.info(f"[Atlas][rebuild_cover_cache] Cover for {book_id} is valid and present.")
+    covers_map_final = load_atlas()
+    logging.info(f"[Atlas][rebuild_cover_cache] covers_map FINAL: {covers_map_final}")
+    missing = [bid for bid in book_ids if bid not in covers_map_final or not os.path.exists(os.path.join(COVERS_DIR, f"{bid}.jpg"))]
+    if missing:
+        logging.error(f"[Atlas][rebuild_cover_cache] Missing covers after rebuild: {missing}")
+    logging.info(f"[Atlas][rebuild_cover_cache] Covers in cache after rebuild: {list(covers_map_final.keys())}")
+    logging.info(f"[Atlas][rebuild_cover_cache] Rebuilt cover cache for {len(book_ids)} books.")
+
+    # Enforce cache size limit
+    covers_map = load_atlas()
+    if len(covers_map) > MAX_COVERS:
+        cover_files = [(bid, os.path.join(COVERS_DIR, fname)) for bid, fname in covers_map.items()]
+        cover_files = [(bid, fname, os.path.getmtime(fname)) for bid, fname in cover_files if os.path.exists(fname)]
+        cover_files.sort(key=lambda x: x[2])
+        to_remove = cover_files[:-MAX_COVERS]
+        for bid, fname, _ in to_remove:
+            try:
+                os.remove(fname)
+                logging.info(f"[Atlas][rebuild_cover_cache] Removed cover due to cache limit: {fname}")
+            except Exception as e:
+                logging.error(f"[Atlas][rebuild_cover_cache] Failed to remove {fname}: {e}")
+        # Remove from atlas
+        covers_map = {bid: fname for bid, fname in covers_map.items() if bid not in [x[0] for x in to_remove]}
+        save_atlas(covers_map)
+        
+@app.before_request
+def check_atlas_init():
+    global atlas_initialized
+    if not atlas_initialized and request.path.startswith('/api/'):
+        try:
+            rebuild_cover_cache()
+            atlas_initialized = True
+        except Exception as e:
+            logging.error(f"[Atlas] Error during first-load rebuild: {e}")
 
 # --- Fair Queuing for Cover Requests ---
 cover_request_queue = deque()  # Each entry: {session_id, file_id, timestamp}
@@ -154,7 +495,7 @@ app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
-CORS(app, origins=["http://localhost:5173", "https://storyweavechronicles.onrender.com", "https://swcflaskbackend.onrender.com"])
+CORS(app, origins=["http://localhost:5173", "http://localhost:5000", "https://storyweavechronicles.onrender.com", "https://swcflaskbackend.onrender.com"])
 mail = Mail(app)
 
 service_account_info = {
@@ -170,7 +511,27 @@ service_account_info = {
     "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL"),
 }
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+# --- logging setup ---
+#logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+import logging.handlers
+
+# Log to both console and logs.txt
+LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), 'logs.txt')
+log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_formatter)
+root_logger.addHandler(console_handler)
+
+# File handler
+file_handler = logging.handlers.RotatingFileHandler(LOG_FILE_PATH, maxBytes=5*1024*1024, backupCount=2, encoding='utf-8')
+file_handler.setFormatter(log_formatter)
+root_logger.addHandler(file_handler)
+# --- uncomment logging and delete above variables when done ---
 
 # --- SQLAlchemy Book Model ---
 class Book(db.Model):
@@ -251,7 +612,6 @@ def extract_story_id_from_pdf(file_content):
     Given a PDF file (as bytes or BytesIO), extract the bottom-most line of text from page 1.
     Returns the story ID string, or None if not found.
     """
-    import re
     doc = fitz.open(stream=file_content, filetype="pdf")
     page = doc.load_page(0)
     blocks = page.get_text("blocks")  # (x0, y0, x1, y1, text, block_no, block_type)
@@ -371,7 +731,6 @@ def send_scheduled_emails(subject, body, frequency='daily', batch_size=20, sleep
 # --- Notification Utility ---
 def add_notification(user, type_, title, body, link=None):
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-    import uuid
     history = json.loads(user.notification_history) if user.notification_history else []
     timestamp = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
     notification = {
@@ -480,7 +839,6 @@ def send_emergency_email():
     subject = data.get('subject')
     message = data.get('message')
     recipient = data.get('recipient')  # 'all', username, or email
-    import traceback
     errors = []
     sent_count = 0
     # Log all mail config values for debugging
@@ -543,7 +901,6 @@ def update_external_id():
     Update a book's external_story_id if a new PDF version contains a valid external ID and the current value is missing or blank.
     Body: { "book_id": <drive_id>, "pdf_bytes": <base64-encoded PDF> }
     """
-    import base64
     data = request.get_json()
     book_id = data.get('book_id')
     pdf_bytes_b64 = data.get('pdf_bytes')
@@ -622,6 +979,18 @@ def list_pdfs(folder_id):
         logging.error(f"Error in paginated /list-pdfs/: {e}")
         return jsonify({'error': 'Failed to list PDFs', 'details': str(e)}), 500
 
+@app.route('/api/rebuild-cover-cache', methods=['POST'])
+def api_rebuild_cover_cache():
+    try:
+        # Optionally accept book_ids from frontend, else use default
+        data = request.get_json(silent=True)
+        book_ids = data.get('book_ids') if data and 'book_ids' in data else None
+        rebuild_cover_cache(book_ids)
+        return jsonify({'success': True, 'message': 'Cover cache rebuilt.'})
+    except Exception as e:
+        logging.error(f"[API][rebuild-cover-cache] Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    
 # Optimized book fetch endpoint: returns only requested books by drive_id
 @app.route('/api/books', methods=['GET'])
 def get_books_by_ids():
@@ -690,6 +1059,40 @@ def cover_queue_health():
         'sessions': status['sessions'],
     })
 
+# --- Serve covers from disk with fallback ---
+@app.route('/covers/<cover_id>.jpg')
+def serve_cover(cover_id):
+    """
+    Serve cached cover image from disk. If missing, serve fallback image.
+    If ?status=1 is passed, return JSON status instead of image.
+    """
+    filename = f"{cover_id}.jpg"
+    cover_path = os.path.join(COVERS_DIR, filename)
+    status_query = request.args.get('status')
+    if status_query:
+        # Status check mode
+        if os.path.exists(cover_path):
+            return jsonify({'status': 'exists', 'cover_id': cover_id})
+        # Check if cover is being processed or queued
+        pending = False
+        with cover_queue_lock:
+            # Check active
+            if cover_queue_active and cover_queue_active.get('file_id') == cover_id:
+                pending = True
+            # Check queue
+            elif any(entry.get('file_id') == cover_id for entry in cover_request_queue):
+                pending = True
+        if pending:
+            return jsonify({'status': 'pending', 'cover_id': cover_id})
+        return jsonify({'status': 'missing', 'cover_id': cover_id})
+    # Normal image serving
+    if os.path.exists(cover_path):
+        return send_from_directory(COVERS_DIR, filename)
+    fallback_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'public', 'no-cover.png')
+    if os.path.exists(fallback_path):
+        return send_file(fallback_path, mimetype='image/png')
+    return jsonify({'success': False, 'message': 'Cover not found.'}), 404
+
 def cleanup_locals(locals_dict):
     # Helper to close/delete large objects
     for varname in ['doc', 'img_bytes', 'out', 'pix', 'page']:
@@ -728,212 +1131,174 @@ def cleanup_locals(locals_dict):
         gc.collect()
     logging.info("[cleanup_locals] Finished cleanup and GC.")
 
+@app.route('/api/landing-page-book-ids', methods=['GET'])
+def api_landing_page_book_ids():
+    """
+    Returns the list of book IDs for the landing page (carousel + top voted).
+    """
+    try:
+        book_ids = get_landing_page_book_ids()
+        return jsonify({'success': True, 'book_ids': book_ids})
+    except Exception as e:
+        logging.error(f"[Atlas] Error in /api/landing-page-book-ids: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    
 @app.route('/pdf-cover/<file_id>', methods=['GET'])
 def pdf_cover(file_id):
     global cover_queue_active
-    # --- Profiling: log CPU and RAM usage at entry ---
     process = psutil.Process()
     mem = process.memory_info().rss / (1024 * 1024)
     cpu = process.cpu_percent(interval=0.1)
+    MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
+    MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
     logging.info(f"[pdf-cover] ENTRY: file_id={file_id}, RAM={mem:.2f} MB, CPU={cpu:.2f}%")
     session_id = request.args.get('session_id') or request.headers.get('X-Session-Id')
     if not session_id:
         return jsonify({'success': False, 'error': 'Missing session_id'}), 400
     heartbeat(session_id)
     entry = {'session_id': session_id, 'file_id': file_id, 'timestamp': time.time()}
+    cover_path = os.path.join(COVERS_DIR, f"{file_id}.jpg")
+    covers_map = load_atlas()
+
+    # --- Queue logic: add to queue if not present ---
     acquired = cover_queue_lock.acquire(timeout=5)
     if not acquired:
         logging.error("[pdf-cover] Could not acquire cover_queue_lock after 5 seconds! Possible deadlock.")
         return jsonify({'success': False, 'error': 'Server busy, try again later.'}), 503
     try:
-        cover_request_queue.append(entry)
+        # Deduplicate: only add if not already present
+        if not any(e['session_id'] == entry['session_id'] and e['file_id'] == entry['file_id'] for e in cover_request_queue):
+            cover_request_queue.append(entry)
+            logging.info(f"[pdf-cover] appended to queue: {entry}. Queue length now: {len(cover_request_queue)}")
+        else:
+            logging.info(f"[pdf-cover] duplicate entry detected, not appending: {entry}")
         logging.info(f"[pdf-cover] Queue length after append: {len(cover_request_queue)}")
     finally:
         cover_queue_lock.release()
-    # --- Queue/delay requests BEFORE starting the timeout timer ---
-    # Wait until this request is at the front of the queue and no active request
+
+    # --- Wait until this request is at the front of the queue and no active request ---
     logging.info(f"[pdf-cover] Entering waiting loop: Queue length in wait loop: {len(cover_request_queue)}")
     while True:
-        with cover_queue_lock:
-            cleanup_cover_queue()  # Always called inside locked context
-            if cover_request_queue and cover_request_queue[0]['session_id'] == session_id and cover_request_queue[0]['file_id'] == file_id:
-                if cover_queue_active is None:
-                    cover_queue_active = entry
-                    break
+        acquired = cover_queue_lock.acquire(timeout=5)
+        if not acquired:
+            logging.error("[pdf-cover] Could not acquire cover_queue_lock after 5 seconds! Possible deadlock in queue wait loop.")
+            cleanup_cover_queue()
+            break
+        try:
+            cleanup_cover_queue()
+            if cover_request_queue and cover_request_queue[0] == entry and (cover_queue_active is None or cover_queue_active == entry):
+                cover_queue_active = entry
+                break
+        finally:
+            cover_queue_lock.release()
         time.sleep(0.05)
-    # Now at front of queue, start the timeout timer for actual processing
-    wait_start = time.time()
-    # --- Actual cover extraction logic ---
+
+    # --- Helper for fallback ---
     def send_fallback():
         logging.error(f"[pdf-cover] Fallback image used for file_id={file_id}")
-        fallback_path = os.path.join('..', 'client', 'public', 'no-cover.png')
+        fallback_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'public', 'no-cover.png')
         if not os.path.exists(fallback_path):
             logging.error(f"[pdf-cover] Fallback image not found at {fallback_path}")
-            cleanup_locals(locals())
-            mem = process.memory_info().rss / (1024 * 1024)
-            cpu = process.cpu_percent(interval=0.1)
-            logging.info(f"[pdf-cover] Fallback: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
-            # tracemalloc logging (optional)
-            logging.info(tracemalloc.take_snapshot().statistics('filename'))
+            mem = psutil.Process().memory_info().rss / (1024 * 1024)
+            logging.info(f"[pdf-cover] Memory usage after fallback: {mem:.2f} MB")
+            if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
+                logging.info(tracemalloc.take_snapshot().statistics('filename'))
+            else:
+                logging.info("[pdf-cover] tracemalloc is not tracing; skipping snapshot.")
+            for _ in range(3):
+                gc.collect()
             return make_response(jsonify({'error': 'No cover available'}), 404)
         logging.info(f"[pdf-cover] Serving fallback cover for file_id={file_id}")
         response = make_response(send_file(fallback_path, mimetype='image/png'))
         origin = request.headers.get('Origin')
         allowed = [
             "http://localhost:5173",
+            "http://localhost:5000",
             "https://storyweavechronicles.onrender.com",
             "https://swcflaskbackend.onrender.com"
         ]
-        if origin in allowed:
-            response.headers["Access-Control-Allow-Origin"] = origin
-        else:
-            response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
+        response.headers["Access-Control-Allow-Origin"] = origin if origin in allowed else "https://storyweavechronicles.onrender.com"
         response.status_code = 404
-        cleanup_locals(locals())
-        mem = process.memory_info().rss / (1024 * 1024)
-        cpu = process.cpu_percent(interval=0.1)
-        logging.info(f"[pdf-cover] Fallback: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
-        # tracemalloc logging (optional)
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[pdf-cover] Memory usage after fallback: {mem:.2f} MB")
         if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
             logging.info(tracemalloc.take_snapshot().statistics('filename'))
         else:
             logging.info("[pdf-cover] tracemalloc is not tracing; skipping snapshot.")
+        for _ in range(3):
+            gc.collect()
         return response
 
-    logging.info(f"[pdf-cover] Request for file_id={file_id}")
+    # --- Now at front of queue, process the cover request ---
     try:
-        logging.info(f"[pdf-cover] Queue entry: session_id={session_id}, file_id={file_id}")
-        service = get_drive_service()
-        logging.info(f"[pdf-cover] Got Drive service for file_id={file_id}")
-        request_drive = service.files().get_media(fileId=file_id)
-        pdf_bytes = request_drive.execute()
-        pdf_size = len(pdf_bytes)
-        pdf_header = pdf_bytes[:8]
-        logging.info(f"[pdf-cover] Downloaded PDF size: {pdf_size} bytes, header: {pdf_header}")
-        # Check if PDF header is valid
-        if not pdf_bytes or not pdf_bytes.startswith(b'%PDF'):
-            logging.error(f"[pdf-cover] Invalid PDF content for file_id={file_id}. Header: {pdf_header}")
-            cleanup_locals(locals())
-            mem = process.memory_info().rss / (1024 * 1024)
-            cpu = process.cpu_percent(interval=0.1)
-            logging.info(f"[pdf-cover] Invalid PDF: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
-            return send_fallback()
-        # Always try temp file first, fallback to in-memory if temp file fails
-        doc = None
-        try:
-            with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as tmp_pdf:
-                tmp_pdf.write(pdf_bytes)
-                tmp_pdf.flush()
-                logging.info(f"[pdf-cover] wrote PDF to temp file: {tmp_pdf.name}")
-                doc = fitz.open(tmp_pdf.name)
-                logging.info(f"[pdf-cover] fitz.open succeeded from temp file for file_id={file_id}")
-        except Exception as temp_e:
-            logging.error(f"[pdf-cover] fitz.open from temp file failed for file_id={file_id}: {temp_e}. Falling back to in-memory.")
-            try:
-                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-                logging.info(f"[pdf-cover] fitz.open succeeded from memory for file_id={file_id}")
-            except Exception as mem_e:
-                logging.error(f"[pdf-cover] fitz.open failed from memory for file_id={file_id}: {mem_e}")
-                cleanup_locals(locals())
-                mem = process.memory_info().rss / (1024 * 1024)
-                cpu = process.cpu_percent(interval=0.1)
-                logging.info(f"[pdf-cover] fitz.open error: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
-                return send_fallback()
-        try:
-            page = doc.load_page(0)
-            pix = page.get_pixmap(matrix=fitz.Matrix(2,2))
-            img_bytes = pix.tobytes("jpeg")
-            # Downscale and compress
-            out = downscale_image(img_bytes, size=(200, 300), format="JPEG", quality=85)
-            out.seek(0)
-            # Clean up large objects except 'out' before streaming
-            page = None
-            pix = None
-            doc.close()
-            del doc
-            del img_bytes
-            # --- Force more frequent GC ---
-            for _ in range(3):
-                gc.collect()
-            simulation = getattr(request, 'simulation', False)  # Capture early!
-            # DO NOT call cleanup_locals(locals()) here!
-            def generate():
-                logging.info(f"[pdf-cover] Generator START: session_id={session_id}, file_id={file_id}")
-                start_time = time.time()
-                timeout = 15  # seconds, max allowed for generator
-                try:
-                    while True:
-                        if time.time() - start_time > timeout:
-                            logging.error(f"[pdf-cover] Generator TIMEOUT: session_id={session_id}, file_id={file_id}, duration={time.time() - start_time:.2f}s")
-                            break
-                        chunk = out.read(128 * 1024)  # 128KB chunks for faster streaming and lower memory
-                        if not chunk:
-                            break
-                        yield chunk
-                        # --- Force GC every chunk ---
-                        gc.collect()
-                    duration = time.time() - start_time
-                    logging.info(f"[pdf-cover] Generator FINISH: session_id={session_id}, file_id={file_id}, duration={duration:.2f}s")
-                except Exception as gen_e:
-                    logging.error(f"[pdf-cover] Generator ERROR: session_id={session_id}, file_id={file_id}, error={gen_e}")
-                    raise
-                finally:
-                    if not simulation:
-                        try:
-                            out.close()
-                            logging.info(f"[cleanup_locals] Closed object: out")
-                        except Exception as e:
-                            logging.error(f"[cleanup_locals] Error closing 'out': {e}")
-                    # Always run cleanup_locals after generator is done
-                    cleanup_locals({'out': out})
-                    for _ in range(3):
-                        gc.collect()
-                    logging.info(f"[pdf-cover] Generator CLEANUP: session_id={session_id}, file_id={file_id} (gc.collect called)")
-
-            mem = process.memory_info().rss / (1024 * 1024)
-            cpu = process.cpu_percent(interval=0.1)
-            logging.info(f"[pdf-cover] Success: RAM={mem:.2f} MB, CPU={cpu:.2f}% for file_id={file_id}")
-            # tracemalloc logging (optional)
-            if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
-                logging.info(tracemalloc.take_snapshot().statistics('filename'))
-            else:
-                logging.info("[pdf-cover] tracemalloc is not tracing; skipping snapshot.")
-            MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
-            MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
-            if mem > MEMORY_LOW_THRESHOLD_MB:
-                logging.warning(f"[pdf-cover] WARNING: Memory usage {mem:.2f} MB exceeds LOW threshold of {MEMORY_LOW_THRESHOLD_MB} MB!")
-            if mem > MEMORY_HIGH_THRESHOLD_MB:
-                logging.error(f"[pdf-cover] ERROR: Memory usage {mem:.2f} MB exceeds HIGH threshold of {MEMORY_HIGH_THRESHOLD_MB} MB! Consider spinning down or restarting the server.")
-            response = make_response(generate())
-            response.headers["Content-Type"] = "image/jpeg"
-            origin = request.headers.get('Origin')
-            allowed = ["http://localhost:5173", "https://storyweavechronicles.onrender.com"]
-            if origin in allowed:
-                response.headers["Access-Control-Allow-Origin"] = origin
-            else:
-                response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
-            # Cleanup after response is returned (NO out.close or cleanup_locals here)
-            return response
-        except Exception as page_e:
-            logging.error(f"[pdf-cover] Error processing PDF page for file_id={file_id}: {page_e}")
-            cleanup_locals(locals())
-            mem = process.memory_info().rss / (1024 * 1024)
-            cpu = process.cpu_percent(interval=0.1)
-            logging.info(f"[pdf-cover] Page error: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
-            # tracemalloc logging (optional)
-            if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
-                logging.info(tracemalloc.take_snapshot().statistics('filename'))
-            else:
-                logging.info("[pdf-cover] tracemalloc is not tracing; skipping snapshot.")
-            return send_fallback()
-    except Exception as e:
-        logging.error(f"[pdf-cover] Error fetching file from Drive for file_id={file_id}: {e}")
-        cleanup_locals(locals())
+        # Aggressive GC before processing
+        for _ in range(3):
+            gc.collect()
         mem = process.memory_info().rss / (1024 * 1024)
         cpu = process.cpu_percent(interval=0.1)
-        logging.info(f"[pdf-cover] Fetch error: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
-        # tracemalloc logging (optional)
-        logging.info(tracemalloc.take_snapshot().statistics('filename'))
+        logging.info(f"[pdf-cover] PRE-PROCESS GC: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
+        if mem > MEMORY_LOW_THRESHOLD_MB:
+            logging.warning(f"[pdf-cover] WARNING: Memory usage {mem:.2f} MB exceeds LOW threshold of {MEMORY_LOW_THRESHOLD_MB} MB!")
+        if mem > MEMORY_HIGH_THRESHOLD_MB:
+            logging.error(f"[pdf-cover] ERROR: Memory usage {mem:.2f} MB exceeds HIGH threshold of {MEMORY_HIGH_THRESHOLD_MB} MB! Consider spinning down or restarting the server.")
+
+        # 1. Serve from disk if present
+        if os.path.exists(cover_path):
+            covers_map[file_id] = f"{file_id}.jpg"
+            save_atlas(covers_map)
+            logging.info(f"[pdf-cover] Served cover from disk for {file_id}, mapping updated.")
+            response = make_response(send_file(cover_path, mimetype='image/jpeg'))
+            origin = request.headers.get('Origin')
+            allowed = [
+                "http://localhost:5173",
+                "http://localhost:5000",
+                "https://storyweavechronicles.onrender.com",
+                "https://swcflaskbackend.onrender.com"
+            ]
+            response.headers["Access-Control-Allow-Origin"] = origin if origin in allowed else "https://storyweavechronicles.onrender.com"
+            for _ in range(3):
+                gc.collect()
+            mem = process.memory_info().rss / (1024 * 1024)
+            logging.info(f"[pdf-cover] POST-SERVE GC: RAM={mem:.2f} MB")
+            return response
+
+        # 2. Extract and cache cover (queue-safe)
+        img = extract_cover_image_from_pdf(file_id)
+        if img is not None:
+            img.save(cover_path, format='JPEG', quality=70)
+            covers_map[file_id] = f"{file_id}.jpg"
+            save_atlas(covers_map)
+            logging.info(f"[pdf-cover] Extracted and cached cover for {file_id}, mapping updated.")
+            response = make_response(send_file(cover_path, mimetype='image/jpeg'))
+            origin = request.headers.get('Origin')
+            allowed = [
+                "http://localhost:5173",
+                "http://localhost:5000",
+                "https://storyweavechronicles.onrender.com",
+                "https://swcflaskbackend.onrender.com"
+            ]
+            response.headers["Access-Control-Allow-Origin"] = origin if origin in allowed else "https://storyweavechronicles.onrender.com"
+            if hasattr(img, 'close'):
+                img.close()
+            del img
+            for _ in range(3):
+                gc.collect()
+            mem = process.memory_info().rss / (1024 * 1024)
+            logging.info(f"[pdf-cover] POST-EXTRACT GC: RAM={mem:.2f} MB")
+            return response
+        else:
+            logging.warning(f"[pdf-cover] No cover image extracted for {file_id}")
+            for _ in range(3):
+                gc.collect()
+            mem = process.memory_info().rss / (1024 * 1024)
+            logging.info(f"[pdf-cover] POST-FALLBACK GC: RAM={mem:.2f} MB")
+            return send_fallback()
+    except Exception as e:
+        logging.error(f"[pdf-cover] Error extracting cover for file_id={file_id}: {e}")
+        for _ in range(3):
+            gc.collect()
+        mem = process.memory_info().rss / (1024 * 1024)
+        logging.info(f"[pdf-cover] POST-ERROR GC: RAM={mem:.2f} MB")
         return send_fallback()
     finally:
         acquired = cover_queue_lock.acquire(timeout=5)
@@ -946,16 +1311,13 @@ def pdf_cover(file_id):
             if cover_queue_active == entry:
                 cover_queue_active = None
             cover_queue_lock.release()
-        # --- Aggressive GC and RAM wait before next session ---
         for _ in range(5):
             gc.collect()
         mem = process.memory_info().rss / (1024 * 1024)
-        cpu = process.cpu_percent(interval=0.1)
         MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
         MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
-        # If memory is above HIGH threshold, wait for GC to clear RAM before next session
         if mem > MEMORY_HIGH_THRESHOLD_MB:
-            logging.warning(f"[pdf-cover] Waiting for RAM to drop below HIGH threshold after GC. Current: {mem:.2f} MB, CPU={cpu:.2f}%")
+            logging.warning(f"[pdf-cover] Waiting for RAM to drop below HIGH threshold after GC. Current: {mem:.2f} MB")
             wait_start = time.time()
             max_wait = 10  # seconds
             while mem > MEMORY_LOW_THRESHOLD_MB and time.time() - wait_start < max_wait:
@@ -963,8 +1325,8 @@ def pdf_cover(file_id):
                     gc.collect()
                 time.sleep(0.2)
                 mem = process.memory_info().rss / (1024 * 1024)
-                cpu = process.cpu_percent(interval=0.1)
-            logging.info(f"[pdf-cover] RAM after GC wait: {mem:.2f} MB, CPU={cpu:.2f}% (waited {time.time() - wait_start:.2f}s)")
+            logging.info(f"[pdf-cover] RAM after GC wait: {mem:.2f} MB (waited {time.time() - wait_start:.2f}s)")
+        logging.info(f"[pdf-cover] Finished processing for {file_id}")
 
 @app.route('/api/pdf-text/<file_id>', methods=['GET'])
 def pdf_text(file_id):
@@ -2043,7 +2405,6 @@ def book_votes():
 
 @app.route('/api/top-voted-books', methods=['GET'])
 def top_voted_books():
-    from sqlalchemy import func
     vote_counts = db.session.query(
         Vote.book_id,
         func.avg(Vote.value).label('avg_vote'),
@@ -2221,7 +2582,6 @@ def has_new_comments():
     # If latest_timestamp provided, check for any comments newer than that
     elif latest_timestamp:
         try:
-            import dateutil.parser
             ts = dateutil.parser.isoparse(latest_timestamp)
         except Exception:
             return jsonify({'success': False, 'message': 'Invalid timestamp.'}), 400
@@ -2386,37 +2746,36 @@ def serve_react(path):
 @app.route('/api/all-books', methods=['GET'])
 def all_books():
     try:
+        # Get all books for frontend
         books = Book.query.all()
         result = []
         for book in books:
-            created_time = None
-            modified_time = None
-            try:
-                history = json.loads(book.version_history) if book.version_history else []
-                if history and isinstance(history, list):
-                    created_time = history[0].get('created')
-            except Exception:
-                pass
-            if not created_time:
-                created_time = book.created_at.isoformat() if book.created_at else None
-            if book.updated_at:
-                modified_time = book.updated_at.isoformat()
-            else:
-                modified_time = created_time
             result.append({
-                'id': book.drive_id,
+                'id': book.id,
+                'drive_id': book.drive_id,
                 'title': book.title,
                 'external_story_id': book.external_story_id,
-                'createdTime': created_time,
-                'modifiedTime': modified_time,
-                'created_at': book.created_at.isoformat(),
+                'created_at': book.created_at.isoformat() if book.created_at else None,
                 'updated_at': book.updated_at.isoformat() if book.updated_at else None
             })
         response = jsonify(success=True, books=result)
+
+        # For cover cache management, get top 20 newest and top 10 voted book IDs
+        newest_books = Book.query.order_by(desc(Book.updated_at)).limit(20).with_entities(Book.drive_id).all()
+        voted_books = (
+            Book.query
+            .join(Vote, Book.drive_id == Vote.book_id)
+            .group_by(Book.id)
+            .order_by(func.count(Vote.id).desc())
+            .limit(10)
+            .with_entities(Book.drive_id)
+            .all()
+        )
+        cover_ids = set([b.drive_id for b in newest_books] + [b.drive_id for b in voted_books])
+        # Trigger async cover cache update (non-blocking)
         return response
     except Exception as e:
         response = jsonify(success=False, error=str(e))
-
         return response, 500
 
 @app.route('/api/user-voted-books', methods=['GET'])
@@ -2509,64 +2868,72 @@ def seed_drive_books():
         errors = []
         new_books = []
         updated_books = []
-        for f in files:
-            drive_id = f['id']
-            title = f['name']
+        logging.info(f"[Seed] Total files returned from Drive: {len(files)}")
+        for idx, f in enumerate(files):
+            drive_id = f.get('id')
+            title = f.get('name')
             created_time = f.get('createdTime')
             modified_time = f.get('modifiedTime')
-            book = Book.query.filter_by(drive_id=drive_id).first()
-            if not book:
-                # New book: extract external_story_id
-                external_story_id = None
-                try:
-                    file_request = service.files().get_media(fileId=drive_id)
-                    file_content = file_request.execute()
-                    external_story_id = extract_story_id_from_pdf(file_content)
-                except Exception:
+            logging.info(f"[Seed] Processing file {idx+1}/{len(files)}: drive_id={drive_id}, title={title}, created_time={created_time}, modified_time={modified_time}")
+            try:
+                book = Book.query.filter_by(drive_id=drive_id).first()
+                if not book:
+                    # New book: extract external_story_id
                     external_story_id = None
-                book = Book(
-                    drive_id=drive_id,
-                    title=title,
-                    external_story_id=external_story_id,
-                    version_history=None,
-                    created_at=datetime.datetime.fromisoformat(created_time.replace('Z', '+00:00')) if created_time else datetime.datetime.now(datetime.UTC),
-                    updated_at=datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00')) if modified_time else None
-                )
-                db.session.add(book)
-                added_count += 1
-                new_books.append({'id': drive_id, 'title': title})
-            else:
-                # Existing book: update metadata if changed
-                updated = False
-                # Update title if changed
-                if book.title != title:
-                    book.title = title
-                    updated = True
-                # Update modified time if changed
-                if modified_time:
-                    new_updated_at = datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
-                    if new_updated_at.tzinfo is None:
-                        new_updated_at = new_updated_at.replace(tzinfo=datetime.timezone.utc)
-                    if book.updated_at and book.updated_at.tzinfo is None:
-                        book.updated_at = book.updated_at.replace(tzinfo=datetime.timezone.utc)
-                    if not book.updated_at or book.updated_at < new_updated_at:
-                        book.updated_at = new_updated_at
-                        updated = True
-                # Update external_story_id if missing/null
-                if not book.external_story_id or not str(book.external_story_id).strip():
                     try:
                         file_request = service.files().get_media(fileId=drive_id)
                         file_content = file_request.execute()
                         external_story_id = extract_story_id_from_pdf(file_content)
-                        if external_story_id:
-                            book.external_story_id = external_story_id
-                            external_id_updates += 1
-                            updated = True
                     except Exception as e:
-                        errors.append(f"Error extracting story ID for {title}: {e}")
-                if updated:
-                    updated_count += 1
-                    updated_books.append({'id': drive_id, 'title': title})
+                        logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
+                        external_story_id = None
+                    book = Book(
+                        drive_id=drive_id,
+                        title=title,
+                        external_story_id=external_story_id,
+                        version_history=None,
+                        created_at=datetime.datetime.fromisoformat(created_time.replace('Z', '+00:00')) if created_time else datetime.datetime.now(datetime.UTC),
+                        updated_at=datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00')) if modified_time else None
+                    )
+                    db.session.add(book)
+                    added_count += 1
+                    new_books.append({'id': drive_id, 'title': title})
+                    logging.info(f"[Seed] Added new book: drive_id={drive_id}, title={title}")
+                else:
+                    # Existing book: update metadata if changed
+                    updated = False
+                    if book.title != title:
+                        book.title = title
+                        updated = True
+                    if modified_time:
+                        new_updated_at = datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
+                        if new_updated_at.tzinfo is None:
+                            new_updated_at = new_updated_at.replace(tzinfo=datetime.timezone.utc)
+                        if book.updated_at and book.updated_at.tzinfo is None:
+                            book.updated_at = book.updated_at.replace(tzinfo=datetime.timezone.utc)
+                        if not book.updated_at or book.updated_at < new_updated_at:
+                            book.updated_at = new_updated_at
+                            updated = True
+                    if not book.external_story_id or not str(book.external_story_id).strip():
+                        try:
+                            file_request = service.files().get_media(fileId=drive_id)
+                            file_content = file_request.execute()
+                            external_story_id = extract_story_id_from_pdf(file_content)
+                            if external_story_id:
+                                book.external_story_id = external_story_id
+                                external_id_updates += 1
+                                updated = True
+                        except Exception as e:
+                            logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
+                            errors.append(f"Error extracting story ID for {title}: {e}")
+                    if updated:
+                        updated_count += 1
+                        updated_books.append({'id': drive_id, 'title': title})
+                        logging.info(f"[Seed] Updated book: drive_id={drive_id}, title={title}")
+            except Exception as e:
+                skipped_count += 1
+                errors.append(f"Error processing file {title} ({drive_id}): {e}")
+                logging.error(f"[Seed] Skipped file due to error: drive_id={drive_id}, title={title}, error={e}")
         db.session.commit()
         # Use notification utility endpoints for new and updated books
         for book_info in new_books:
@@ -2579,6 +2946,66 @@ def seed_drive_books():
                 notify_book_update(book_info['id'], book_info['title'])
             except Exception as e:
                 errors.append(f"Error notifying book update {book_info['title']}: {e}")
+
+        # --- Cache covers for newest 20 and top voted books only ---
+        # Get newest 20 books with their updated_at
+        newest_books_full = Book.query.order_by(desc(Book.updated_at)).limit(20).all()
+        logging.info("[Atlas] Newest books for cover cache:")
+        for b in newest_books_full:
+            logging.info(f"  drive_id={b.drive_id}, title={b.title}, updated_at={b.updated_at}")
+        newest_books = [b.drive_id for b in newest_books_full]
+
+        # Get voted books (top 10)
+        voted_books_full = Book.query.join(Vote, Book.drive_id == Vote.book_id).group_by(Book.id).order_by(func.count(Vote.id).desc()).limit(10).all()
+        logging.info("[Atlas] Top voted books for cover cache:")
+        for b in voted_books_full:
+            logging.info(f"  drive_id={b.drive_id}, title={b.title}, updated_at={b.updated_at}")
+        voted_books = [b.drive_id for b in voted_books_full]
+
+        cover_ids = set(newest_books + voted_books)
+        logging.info(f"[Atlas] Final cover_ids for cache: {list(cover_ids)} (total: {len(cover_ids)})")
+                # Rebuild cover cache for correct set
+        logging.info(f"[Atlas][seed_drive_books] Starting batch cover cache for {len(cover_ids)} books.")
+        try:
+            cleanup_unused_covers(cover_ids)
+            for book_id in cover_ids:
+                logging.info(f"[Atlas][seed_drive_books] Processing cover for book_id={book_id}")
+                filename = f"{book_id}.jpg"
+                cover_path = os.path.join(COVERS_DIR, filename)
+                cover_valid = False
+                if os.path.exists(cover_path):
+                    try:
+                        with Image.open(cover_path) as img:
+                            img.verify()
+                        cover_valid = True
+                        covers_map = load_atlas()
+                        if book_id not in covers_map:
+                            covers_map[book_id] = filename
+                            save_atlas(covers_map)
+                            logging.info(f"[Atlas][seed_drive_books] Added missing atlas mapping for {book_id}")
+                        logging.info(f"[Atlas][seed_drive_books] Verified disk cover for {book_id} is valid JPEG.")
+                    except Exception as e:
+                        logging.warning(f"[Atlas][seed_drive_books] Disk cover for {book_id} exists but is invalid: {e}. Will re-extract.")
+                        cover_valid = False
+                if not cover_valid:
+                    img = extract_cover_image_from_pdf(book_id)
+                    if img is not None:
+                        img.save(cover_path, format='JPEG', quality=70)
+                        covers_map = load_atlas()
+                        covers_map[book_id] = filename
+                        save_atlas(covers_map)
+                        logging.info(f"[Atlas][seed_drive_books] Extracted and cached cover for {book_id}")
+                    else:
+                        logging.warning(f"[Atlas][seed_drive_books] Failed to extract cover for {book_id}")
+                else:
+                    covers_map = load_atlas()
+                    covers_map[book_id] = filename
+                    save_atlas(covers_map)
+                    logging.info(f"[Atlas][seed_drive_books] Mapping updated for {book_id}")
+            logging.info(f"[Atlas][seed_drive_books] Finished batch cover cache for {len(cover_ids)} books.")
+        except Exception as e:
+            errors.append(f"Error rebuilding cover cache: {e}")
+
         return jsonify({
             'success': True,
             'added_count': added_count,
@@ -2593,13 +3020,9 @@ def seed_drive_books():
 
 @app.route('/api/cover-exists/<file_id>', methods=['GET'])
 def cover_exists(file_id):
-    try:
-        service = get_drive_service()
-        # Only check if the file exists in Drive, not if a cover is generated
-        file_metadata = service.files().get(fileId=file_id, fields='id').execute()
-        return jsonify({'exists': True})
-    except Exception:
-        return jsonify({'exists': False})
+    cover_path = os.path.join(COVERS_DIR, f"{file_id}.jpg")
+    exists = os.path.exists(cover_path)
+    return jsonify({'exists': exists})
 
 @app.route('/api/simulate-cover-load', methods=['POST'])
 def simulate_cover_load():
@@ -2607,9 +3030,6 @@ def simulate_cover_load():
     Simulate multiple users requesting covers at the same time for stress testing.
     POST data: {"file_ids": ["id1", "id2", ...], "num_users": 200, "concurrency": 20}
     """
-    import random
-    import time
-    import json
     data = request.get_json(force=True)
     file_ids = data.get('file_ids', [])
     num_users = int(data.get('num_users', 200))
@@ -2665,6 +3085,8 @@ if __name__ == '__main__':
         webhook_url = 'https://swcflaskbackend.onrender.com/api/drive-webhook'
         setup_drive_webhook(folder_id, webhook_url)
         logging.info("Google Drive webhook registered on startup.")
+        tracemalloc.start()
+        logging.info("Tracemalloc started for memory tracking.")
     except Exception as e:
 
         logging.error(f"Failed to register Google Drive webhook: {e}")

@@ -16,6 +16,58 @@ import { ContainerDepthProvider } from "./components/ContainerDepthContext.jsx";
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 export default function App() {
+  // --- Ensure session_id is always present in localStorage ---
+  useEffect(() => {
+    let sessionId = localStorage.getItem('session_id');
+    if (!sessionId || typeof sessionId !== 'string' || sessionId.length < 8) {
+      // Use crypto.randomUUID if available, else fallback to Math.random
+      if (window.crypto && window.crypto.randomUUID) {
+        sessionId = window.crypto.randomUUID();
+      } else {
+        sessionId = 'swc_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      }
+      localStorage.setItem('session_id', sessionId);
+      console.log('[App] Generated new session_id:', sessionId);
+    }
+  }, []);
+    // --- Aggressive cover preloading for landing page books ---
+    useEffect(() => {
+      // Only run once on mount
+      let isMounted = true;
+      async function preloadLandingPageCovers() {
+        try {
+          // Fetch landing page book IDs from backend
+          const res = await fetch(`${API_BASE_URL}/api/landing-page-book-ids`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (!Array.isArray(data.bookIds)) return;
+          // Preload disk cover images for each book
+          data.bookIds.forEach(bookId => {
+            const coverUrl = `/covers/${bookId}.webp`;
+            const img = new window.Image();
+            img.src = coverUrl;
+            img.onload = () => {
+              if (isMounted) {
+                // Optionally, store loaded covers in a cache (window.coverCache)
+                if (!window.coverCache) window.coverCache = new Map();
+                window.coverCache.set(bookId, coverUrl);
+              }
+            };
+            img.onerror = () => {
+              // Optionally, mark as failed
+              if (isMounted) {
+                if (!window.coverCache) window.coverCache = new Map();
+                window.coverCache.set(bookId, null);
+              }
+            };
+          });
+        } catch (err) {
+          console.log("Error preloading landing page covers:", err);
+        }
+      }
+      preloadLandingPageCovers();
+      return () => { isMounted = false; };
+    }, []);
   // Login button component (must be inside Router context)
   function LoginButton() {
     const navigate = useNavigate();

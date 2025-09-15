@@ -15,10 +15,12 @@ function getCoverFromCache(bookId) {
     const cacheRaw = localStorage.getItem('swc_cover_cache');
     const cache = JSON.parse(cacheRaw || '{}');
     const entry = cache[bookId];
-    if (!entry) return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
+    // Default: use disk-based cover URL
+    const diskUrl = `/covers/${bookId}.jpg`;
+    if (!entry) return { url: diskUrl, expired: false };
     if (typeof entry === 'string') {
       // Legacy: treat as url, no timestamp
-      if (entry.startsWith('blob:')) return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
+      if (entry.startsWith('blob:')) return { url: diskUrl, expired: false };
       return { url: entry, expired: false };
     }
     // entry: { url, ts }
@@ -29,13 +31,13 @@ function getCoverFromCache(bookId) {
     }
     if (entry.url && entry.url.startsWith('blob:')) {
       // Blob URLs cannot be cached, treat as cache miss
-      return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
+      return { url: diskUrl, expired: false };
     }
     return { url: entry.url, expired: false };
   } catch (e) {
     console.warn('Cover cache corrupted, clearing:', e);
     localStorage.removeItem('swc_cover_cache');
-    return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
+    return { url: `/covers/${bookId}.jpg`, expired: false };
   }
 }
 function setCoverInCache(bookId, url) {
@@ -60,68 +62,92 @@ function setCoverInCache(bookId, url) {
     console.warn('Failed to set cover in cache:', e);
   }
 }
+
 function useCachedCovers(pdfs) {
   const [covers, setCovers] = React.useState({});
   const [loadingCovers, setLoadingCovers] = React.useState({});
   const { user } = React.useContext(ThemeContext);
+
   React.useEffect(() => {
     let isMounted = true;
     const newCovers = {};
     const newLoading = {};
+
     pdfs.forEach(pdf => {
       const bookId = pdf.drive_id || pdf.id;
       if (!bookId) return;
       const { url, expired } = getCoverFromCache(bookId);
-      // Never use blob URLs from cache
-      if (url && url.startsWith('blob:')) {
-        newCovers[bookId] = undefined;
-      } else {
-        newCovers[bookId] = url;
+
+      // Always start in loading state
+      newLoading[bookId] = true;
+
+      const statusUrl = `/covers/${bookId}.jpg?status=1`;
+
+      // If cached cover is '/no-cover.png' and expired, attempt refetch
+      if (url === '/no-cover.png' && expired) {
+        // Remove from cache so next fetch will retry
+        setCoverInCache(bookId, undefined);
       }
-      // Track loading state
-      if (!url || expired || (url.startsWith('blob:')) || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
-        newLoading[bookId] = true;
-        let sessionId = (user && user.sessionId) || localStorage.getItem('swc_session_id');
-        let coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
-        if (sessionId) coverUrl += `?session_id=${encodeURIComponent(sessionId)}`;
-        const img = new window.Image();
-        img.onload = () => {
-          setCoverInCache(bookId, coverUrl);
-          setTimeout(() => {
-            if (isMounted) setCovers(c => {
-              const updated = { ...c, [bookId]: coverUrl };
-              // --- LOG ALL COVERS FETCHED ---
-              console.log('[LandingPage] Cover loaded:', bookId, coverUrl);
-              // Log all covers after every update
-              console.log('[LandingPage] All covers:', updated);
-              return updated;
-            });
-            if (isMounted) setLoadingCovers(l => ({ ...l, [bookId]: false }));
-          }, 0);
-        };
-        img.onerror = () => {
-          setCoverInCache(bookId, '/no-cover.png');
-          setTimeout(() => {
-            if (isMounted) setCovers(c => {
-              const updated = { ...c, [bookId]: '/no-cover.png' };
-              console.log('[LandingPage] Cover failed:', bookId);
-              console.log('[LandingPage] All covers:', updated);
-              return updated;
-            });
-            if (isMounted) setLoadingCovers(l => ({ ...l, [bookId]: false }));
-          }, 0);
-        };
-        img.src = coverUrl;
-      } else {
-        newLoading[bookId] = false;
-      }
+
+      fetch(statusUrl)
+        .then(res => res.json())
+        .then(status => {
+          if (!isMounted) return;
+          if (status.status === 'exists') {
+            setCoverInCache(bookId, `/covers/${bookId}.jpg`);
+            setCovers(c => ({ ...c, [bookId]: `/covers/${bookId}.jpg` }));
+            setLoadingCovers(l => ({ ...l, [bookId]: false }));
+          } else if (status.status === 'pending') {
+            setCovers(c => ({ ...c, [bookId]: undefined }));
+            setLoadingCovers(l => ({ ...l, [bookId]: true }));
+            // Poll again after short delay
+            setTimeout(() => {
+              if (isMounted) {
+                fetch(statusUrl)
+                  .then(res2 => res2.json())
+                  .then(status2 => {
+                    if (!isMounted) return;
+                    if (status2.status === 'exists') {
+                      setCoverInCache(bookId, `/covers/${bookId}.jpg`);
+                      setCovers(c => ({ ...c, [bookId]: `/covers/${bookId}.jpg` }));
+                      setLoadingCovers(l => ({ ...l, [bookId]: false }));
+                    } else {
+                      setCovers(c => ({ ...c, [bookId]: '/no-cover.png' }));
+                      setLoadingCovers(l => ({ ...l, [bookId]: false }));
+                    }
+                  });
+              }
+            }, 500);
+          } else {
+            // Missing: fallback to backend or show no cover
+            const sessionId = user?.session_id || localStorage.getItem('session_id');
+            const fallbackUrl = `${API_BASE_URL}/pdf-cover/${bookId}?session_id=${encodeURIComponent(sessionId || '')}`;
+            const img = new window.Image();
+            img.onload = () => {
+              setCoverInCache(bookId, fallbackUrl);
+              setCovers(c => ({ ...c, [bookId]: fallbackUrl }));
+              setLoadingCovers(l => ({ ...l, [bookId]: false }));
+            };
+            img.onerror = () => {
+              setCoverInCache(bookId, '/no-cover.png');
+              setCovers(c => ({ ...c, [bookId]: '/no-cover.png' }));
+              setLoadingCovers(l => ({ ...l, [bookId]: false }));
+            };
+            img.src = fallbackUrl;
+          }
+        })
+        .catch(() => {
+          setCovers(c => ({ ...c, [bookId]: url || '/no-cover.png' }));
+          setLoadingCovers(l => ({ ...l, [bookId]: false }));
+        });
     });
+
     if (isMounted) setCovers(newCovers);
     if (isMounted) setLoadingCovers(newLoading);
-    // --- LOG ALL COVERS INITIALLY ---
-    console.log('[LandingPage] Initial covers:', newCovers);
+
     return () => { isMounted = false; };
   }, [pdfs, user]);
+
   return { covers, loadingCovers };
 }
 
@@ -507,24 +533,45 @@ export default function LandingPage() {
   };
 
   // Fetch top 20 newest book IDs from /api/all-books
+  const hasPostedLandingPageIds = React.useRef(false);
   useEffect(() => {
     setLoadingPdfs(true);
     fetch(`${API_BASE_URL}/api/all-books`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data.books)) {
-          const newestIds = data.books.slice(0, 20).map(b => b.id);
-          if (newestIds.length > 0) {
+          const newestIds = data.books.slice(0, 20).map(b => b.drive_id);
+          // --- POST landing page book IDs to backend for cover/atlas sync ---
+          if (newestIds.length > 0 && !hasPostedLandingPageIds.current) {
+            hasPostedLandingPageIds.current = true;
+            fetch(`${API_BASE_URL}/api/rebuild-cover-cache`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ book_ids: newestIds })
+            })
+              .then(res => res.json())
+              .then(data => {
+                console.log('[LandingPage] Posted landing page book IDs to backend:', newestIds, data);
+                localStorage.removeItem('swc_cover_cache');
+                setTimeout(() => {
+                  setPdfs(pdfs => [...pdfs]);
+                  setTopNewest(topNewest => [...topNewest]);
+                }, 200);
+              })
+              .catch(err => {
+                console.error('[LandingPage] Error posting book IDs to backend:', err);
+              });
             fetch(`${API_BASE_URL}/api/books?ids=${newestIds.join(',')}`)
               .then(res2 => res2.json())
               .then (data2 => {
                 if (Array.isArray(data2.books)) {
                   // Patch: ensure every book has drive_id
-                  const patchedBooks = data2.books.map(b => ({ ...b, drive_id: b.drive_id || b.id }));
+                  const patchedBooks = data2.books.map(b => ({ ...b, drive_id: b.drive_id || b.id}));
                   setPdfs(patchedBooks);
                   setTopNewest(patchedBooks.slice(0, 10));
                 }
                 setLoadingPdfs(false);
+                console.log("[LandingPage] Fetched all landing page books:", data2.books);
               })
               .catch(err => {
                 console.error("Error fetching books by ids:", err);
@@ -556,7 +603,8 @@ export default function LandingPage() {
               .then(data2 => {
                 if (Array.isArray(data2.books)) {
                   // Patch: ensure every book has drive_id
-                  const patchedBooks = data2.books.map(b => ({ ...b, drive_id: b.drive_id || b.id }));
+                  // Only use drive_id, never fallback to id
+                  const patchedBooks = data2.books.map(b => ({ ...b, drive_id: b.drive_id }));
                   setTopVoted(patchedBooks.slice(0, 10));
                 }
               })

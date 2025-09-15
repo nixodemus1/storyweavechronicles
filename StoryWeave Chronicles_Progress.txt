@@ -1,32 +1,4 @@
-StoryWeave Chronicles – Progress & Next Steps
-
-You’ve successfully completed all major goals for release: robust user profiles, bookmarks, voting, comments, notifications, security features, and PostgreSQL migration. The site now features a stable backend, efficient resource usage, and a responsive frontend. Bandwidth and RAM usage have been dramatically reduced, and scalability is much improved.
-
-Post-release priorities:
-
-Fix notification dropdown and improve update logic.
-Refine color theme switching and accessibility.
-Add admin feedback and advanced admin tools.
-Address newsletter, performance, and data export/import.
-Improve mobile carousel, username changes, and infinite loop bugs.
-Continue general QA and bug fixes.
-Your main goals are done; focus now shifts to polishing features, fixing edge cases, and adding enhancements for a smoother user experience and easier site management.
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------
-
-Render's free tier for web servers provides users with 256 MB of RAM per service. 
-This allocation is per instance, meaning each free service deployed gets its own 256MB of RAM. The free tier also includes a 0.1 CPU allocation and a connection limit of 100 connections. 
-It's important to remember that:
-Free web services spin down after 15 minutes of inactivity.
-Render offers 750 hours of free instance time per month for your workspace across all free web services, after which they are suspended until the next month.
-Free Render Postgres databases have a 1GB limit and expire after 30 days. 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Here’s your updated checklist with all the new accomplishments checked off:
-
----
-
-# StoryWeave Chronicles – Project Status & Roadmap (September 11, 2025)
+# StoryWeave Chronicles – Project Status & Roadmap (September 13, 2025)
 
 ## ✅ Current State & Completed Features
 
@@ -123,8 +95,108 @@ Here’s your updated checklist with all the new accomplishments checked off:
 
 **Summary:**  
 All core features and recent improvements are checked off. You’ve resolved color theme edge cases, context refactoring, and build/deploy issues. Next priorities: Neon migration and mobile carousel fixes.
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Here’s a concise action plan and summary for your cover caching optimization, suitable for onboarding or resuming work in a new session:
 
-Let me know if you want to reprioritize, expand, or break down any item!
+---
+
+## StoryWeave Chronicles: Cover Caching Optimization Plan
+
+### **Background**
+- **Problem:** High RAM/CPU usage and slow load times due to repeated Google Drive downloads and PDF processing for book covers.
+- **Constraints:** Render.com free tier (256 MB RAM, 0.1 CPU, ephemeral disk, 100 connections).
+- **Goal:** Cache landing page book covers on disk, serve them directly, and minimize resource usage.
+
+---
+
+### **Checklist / Goals**
+
+1. **Cover Storage Directory**
+   - Save all processed cover images to `public/covers/cover_id.jpg`.
+   - Use Flask’s static file serving or `send_from_directory` for access.
+
+2. **Atlas JSON**
+   - Maintain `public/covers/atlas.json` mapping book IDs to cover filenames.
+   - On landing page update, compare new book list to atlas, delete unused covers, and download/process new ones.
+
+3. **First-Load Rebuild**
+   - On first request after server restart, rebuild atlas and download/process covers for current landing page books.
+   - Save covers and update atlas.
+
+4. **Serving Covers**
+   - Serve covers from disk for all requests.
+   - If a cover is missing, serve frontend-generated loading or no-cover images (keep these as fallback).
+
+5. **Fallback Handling**
+   - Always use frontend-generated loading and no-cover covers for missing/processing images.
+
+6. **Resource Management**
+   - Limit disk cache to 20–30 covers (carousel + top voted).
+   - Handle ephemeral disk: covers/atlas are rebuilt after instance restart.
+
+7. **Performance Monitoring**
+   - Continue logging RAM/CPU usage for diagnostics.
+   - Monitor for timeouts and optimize as needed.
+
+---
+
+### **Summary for New Sessions**
+
+- The backend caches book covers for the landing page in `public/covers/`.
+- An atlas JSON tracks which covers are present.
+- Covers are rebuilt on first load after restart.
+- Frontend loading/no-cover images are always used as fallback.
+- The goal is to minimize RAM/CPU usage and speed up load times, within Render’s free tier limits.
+
+---
+
+**Ready to help with any step—just reference this checklist to get me up to speed!**
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Your idea is **viable and actually a good architectural simplification**. Here’s a breakdown:
+
+---
+
+## **Why Two Functions?**
+- `process_and_cache_cover(book_id)` is used for **batch processing** (rebuilding the cache for many books at once, e.g. landing page).
+- `/pdf-cover/<file_id>` is a **per-request endpoint** for streaming a cover image to the frontend, using the queue for safety.
+
+## **Can We Merge Them?**
+- Yes! You can refactor `/pdf-cover/<file_id>` to:
+  1. **Check if the cover exists on disk** (`covers/{file_id}.jpg`). If yes, serve it.
+  2. If not, **extract the cover using the queue system**, save it to disk, update atlas.json, and stream it to the frontend.
+  3. If extraction fails, serve `no-cover.png`.
+
+This way, you:
+- **Always use the queue for extraction** (safe for RAM).
+- **Always write to disk and update atlas** (so future requests are fast).
+- **Serve the same image to both the frontend and cache.**
+
+## **Benefits**
+- **Single source of truth** for cover extraction.
+- **No duplicate logic** for extraction and caching.
+- **Safe, queued, and atomic** cover generation.
+- **Simpler codebase** and easier debugging.
+
+## **How to Implement**
+- Refactor `/pdf-cover/<file_id>` to use the disk cache logic from `process_and_cache_cover`.
+- Remove direct calls to `extract_cover_image_from_pdf` outside the queue.
+- Optionally, have batch endpoints (like cache rebuild) call `/pdf-cover/<file_id>` internally for each book, or refactor the queue to accept batch jobs.
+
+---
+
+## **Summary**
+- **Yes, you can merge the logic.**
+- Use `/pdf-cover/<file_id>` as the single, queued, disk-caching endpoint for cover extraction.
+- This will make your system safer, simpler, and more maintainable.
+
+---
+
+**Let me know if you want a code patch to refactor `/pdf-cover/<file_id>` to do disk caching and atlas updating, or if you want to keep batch cache rebuilds as a separate queue job!**
+
+cleanup_unused_covers function (lines 87-155)
+extract_cover_image function (lines 180-236)
+process_and_chace_cover function (lines 238-281)
+pdf-cover endpoint (lines: 1127-1251)
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Here’s a detailed before/after analysis of your optimizations, with actionable insights for future improvements:
 

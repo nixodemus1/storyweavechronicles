@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Ignore covers folder except atlas.json
+public/covers/*
+!public/covers/atlas.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
