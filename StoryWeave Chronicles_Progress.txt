@@ -84,7 +84,7 @@
 
 ## Future Goals
 
-- ☐ Migrate database to Neon for more space and persistent storage.
+- ✅ Migrate database to Neon for more space and persistent storage.
 - ✅ Reduce image/cover loading time (currently 47.6s).
 - ✅ Further optimize RAM usage (image processing, caching).
 - ☐ Consider service workers for offline access.
@@ -152,146 +152,32 @@ Here’s a concise action plan and summary for your cover caching optimization, 
 
 **Ready to help with any step—just reference this checklist to get me up to speed!**
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Your idea is **viable and actually a good architectural simplification**. Here’s a breakdown:
 
----
+for definition so that we are on the same page: i am defining churn as = if the site deletes needed covers and then redownloads them wasting resources and time.
+so with my react site, i have an atlas and a folder full of covers. the image name is the <cover id>.jpg. for some reason, it will do a comparison on the landing page list
+remove covers that are in the folder believing it doesn't need them, realizes it DOES need those covers, and will redownload them. that is a churn to me.
+if it were to delete, redownload, delete, redownload, that is 2 churns.
 
-## **Why Two Functions?**
-- `process_and_cache_cover(book_id)` is used for **batch processing** (rebuilding the cache for many books at once, e.g. landing page).
-- `/pdf-cover/<file_id>` is a **per-request endpoint** for streaming a cover image to the frontend, using the queue for safety.
+with definitions out of the way, i have had a churn problem every time i refresh the landing page. i can get all covers up and running perfectly. if i refresh to test,
+the site for some reason deletes 10 covers saying they are not valid cause they dont exist. it then redownloads new versions. this is using up resources i can be putting
+towards something else. remember i am deployed on render.com free tier. that doesn't give me a lot of resources to work with. so i need to make things as efficient and 
+optimized as possible. which is why i want this churn gone!
 
-## **Can We Merge Them?**
-- Yes! You can refactor `/pdf-cover/<file_id>` to:
-  1. **Check if the cover exists on disk** (`covers/{file_id}.jpg`). If yes, serve it.
-  2. If not, **extract the cover using the queue system**, save it to disk, update atlas.json, and stream it to the frontend.
-  3. If extraction fails, serve `no-cover.png`.
+(for memories sake:
+- **Render Free Tier:**  
+  - 256 MB RAM, 0.1 CPU, 100 connections per instance.
+  - 750 free instance hours/month.
+  - Services spin down after 15 minutes inactivity.
+  - PostgreSQL: 1GB, expires every 30 days.)
 
-This way, you:
-- **Always use the queue for extraction** (safe for RAM).
-- **Always write to disk and update atlas** (so future requests are fast).
-- **Serve the same image to both the frontend and cache.**
-
-## **Benefits**
-- **Single source of truth** for cover extraction.
-- **No duplicate logic** for extraction and caching.
-- **Safe, queued, and atomic** cover generation.
-- **Simpler codebase** and easier debugging.
-
-## **How to Implement**
-- Refactor `/pdf-cover/<file_id>` to use the disk cache logic from `process_and_cache_cover`.
-- Remove direct calls to `extract_cover_image_from_pdf` outside the queue.
-- Optionally, have batch endpoints (like cache rebuild) call `/pdf-cover/<file_id>` internally for each book, or refactor the queue to accept batch jobs.
-
----
-
-## **Summary**
-- **Yes, you can merge the logic.**
-- Use `/pdf-cover/<file_id>` as the single, queued, disk-caching endpoint for cover extraction.
-- This will make your system safer, simpler, and more maintainable.
-
----
-
-**Let me know if you want a code patch to refactor `/pdf-cover/<file_id>` to do disk caching and atlas updating, or if you want to keep batch cache rebuilds as a separate queue job!**
-
-cleanup_unused_covers function (lines 87-155)
-extract_cover_image function (lines 180-236)
-process_and_chace_cover function (lines 238-281)
-pdf-cover endpoint (lines: 1127-1251)
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Here’s a detailed before/after analysis of your optimizations, with actionable insights for future improvements:
+my second question was about flaskmail. so render is going to make a change next week that makes it so you cant send mail through the usual mail ports in free tier. which, is obviously bad considering that we use mail for emergencies, notifications, the newletter, ect. so mail is a big part of our system. im wondering if we have a workaround, or if i need to move to a new backend hosting provider. here is the email in full:
 
----
+Starting next week, all free Render web services will block outbound network traffic to SMTP (email) ports 25, 465, and 587.
 
-## Quantitative Comparison: Old vs. New
+This change will be rolled out across all regions by Friday, September 26th.
 
-| Metric                | Old Best (200x300, 85) | New (Aug 2025)      | % Improvement      |
-|-----------------------|------------------------|---------------------|--------------------|
-| Requests              | 65                     | 25                  | 62% fewer requests |
-| Data Transferred      | 224 kB                 | 105 kB              | 53% less data      |
-| Resource Usage        | 2.9 MB                 | 567 kB              | 80% less RAM       |
-| Finish Time           | ~14.1 s                | 47.6 s              | (see below)        |
-| DOMContentLoaded      | —                      | 0.89 s              | —                  |
-| Load                  | —                      | 0.98 s              | —                  |
+One of your free web services has sent traffic to these ports in the past 30 days. To continue doing so, upgrade your service to any paid instance type. Alternatively, you can integrate with a managed email provider, such as SendGrid or Mailgun.
 
-**Key Points:**
-- You’ve cut requests and bandwidth by more than half.
-- RAM usage is down by 80%.
-- The number of requests is much lower, likely due to batching, caching, or more efficient frontend logic.
-- The finish time is higher, but DOMContentLoaded and Load times are very fast, suggesting the site is interactive much sooner and the longer finish time may be due to background tasks or deferred loading.
-
----
-
-## Backend & Log Analysis
-
-- **Memory Usage:** Each cover request now uses ~170–215 MB RAM, well below your threshold (250/350 MB). No high memory warnings/errors in logs.
-- **Queue Management:** The queue is stable, with each request processed and cleaned up. No deadlocks or lock errors.
-- **PDF Processing:** All covers are processed successfully, with fallback logic in place but not triggered.
-- **Gunicorn/Server:** No errors or restarts; service is stable.
-
----
-
-## Where You’ve Improved (and by How Much)
-
-1. **Bandwidth & Resource Efficiency**
-   - 53% less data transferred per landing page load.
-   - 80% less RAM used per request.
-   - Fewer requests, less server load.
-
-2. **Frontend Responsiveness**
-   - DOMContentLoaded and Load times are under 1 second, meaning users see and interact with the site almost instantly.
-
-3. **Backend Stability**
-   - No deadlocks, memory warnings, or crashes.
-   - Queue and lock management is robust.
-
-4. **Scalability**
-   - With 105 kB per load, you can serve ~999,596 loads/month on a 100 GB/month free tier (104,857,600 kB / 105 kB).
-   - For 200 users, that’s ~4,998 loads/user/month—over 4x the previous best.
-
----
-
-## Where You Can Still Improve (and How)
-
-1. **Finish Time**
-   - The total finish time (47.6 s) is higher than before. If this is due to background cover/image loading, consider:
-     - Further parallelizing requests (if safe).
-     - Caching covers server-side or on CDN.
-     - Pre-generating covers for popular books.
-
-2. **RAM Usage per Request**
-   - While well below the threshold, each request still uses ~170–215 MB. If you expect spikes in traffic, consider:
-     - Reusing PDF objects if possible.
-     - Offloading image processing to a worker queue (Celery, RQ).
-     - Caching processed covers.
-
-3. **Frontend Optimization**
-   - If not already done, use lazy loading for images and cache covers in the browser.
-   - Consider service workers for offline access and further bandwidth savings.
-
-4. **Monitoring & Alerts**
-   - Set up automated alerts for memory, queue length, and error rates to catch issues before they affect users.
-
-5. **API Efficiency**
-   - For very large datasets, use pagination and async APIs.
-
-6. **User Experience**
-   - If covers are slow to load, show placeholders or progress indicators.
-
----
-
-## Future Goals
-
-- **Implement server-side or CDN caching for covers.**
-- **Add background workers for heavy PDF/image tasks.**
-- **Optimize frontend for lazy loading and caching.**
-- **Set up monitoring and automated alerts.**
-- **Prepare for scaling: database indexing, async APIs.**
-- **Continue balancing image quality and bandwidth as user base grows.**
-
----
-
-## Final Summary
-
-You’ve made dramatic improvements in bandwidth, RAM usage, and user experience. The site is now highly scalable and stable. The only remaining bottleneck is the finish time for all covers, which can be improved with caching and parallelization. You’re well positioned for future growth and heavier traffic.
-
-If you want more granular breakdowns (e.g., per-request timings, deeper RAM analysis, or frontend audit), let me know!
+what are my options?
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------

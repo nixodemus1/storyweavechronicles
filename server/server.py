@@ -1,4 +1,3 @@
-
 # --- Standard Library Imports ---
 import os
 import io
@@ -79,14 +78,16 @@ def save_atlas(covers_map):
             json.dump({'covers': covers_map}, tf, indent=2)
             tempname = tf.name
         shutil.move(tempname, ATLAS_PATH)
+        logging.info(f"[Atlas][save] Atlas saved with {len(covers_map)} entries: {list(covers_map.keys())}")
     except Exception as e:
         logging.error(f"[Atlas] Failed to save atlas.json: {e}")
 
 cleanup_covers_lock = threading.Lock()  # Add this near your other locks
 
-def cleanup_unused_covers(valid_ids):
+def cleanup_unused_covers(valid_ids, needed_ids):
     covers_map = load_atlas()
     covers_dir_files = os.listdir(COVERS_DIR)
+    logging.info(f"[DIAGNOSTIC][COVERS] [cleanup_unused_covers] Covers folder BEFORE: {covers_dir_files}")
     # Build set of actual cover IDs on disk
     disk_cover_ids = set()
     for fname in covers_dir_files:
@@ -97,24 +98,33 @@ def cleanup_unused_covers(valid_ids):
         logging.warning("[Atlas][cleanup_unused_covers] Cleanup already running, skipping duplicate call.")
         return []
     try:
-        valid_ids = set(str(i).strip() for i in valid_ids)
-        # Only delete covers not in valid_ids
-        to_remove = disk_cover_ids - valid_ids
         removed = []
+        valid_ids = set(str(i).strip() for i in valid_ids) if valid_ids else set()
+        needed_ids = set(str(i).strip() for i in needed_ids) if needed_ids else set()
+        logging.info(f"[Atlas][cleanup_unused_covers] Incoming valid_ids: {valid_ids}")
+        logging.info(f"[Atlas][cleanup_unused_covers] Incoming needed_ids: {needed_ids}")
+        # Only remove covers that are not needed
+        to_remove = disk_cover_ids - needed_ids
+        logging.info(f"[Atlas][cleanup_unused_covers] Covers to remove (not needed): {to_remove}")
         for book_id in to_remove:
             cover_path = os.path.join(COVERS_DIR, f"{book_id}.jpg")
             try:
-                os.remove(cover_path)
-                removed.append(book_id)
-                logging.info(f"[Atlas][cleanup_unused_covers] Deleted unused cover: {cover_path}")
+                logging.info(f"[DIAGNOSTIC][DELETE] Attempting to delete cover file: {cover_path} (book_id={book_id})")
+                if os.path.exists(cover_path):
+                    os.remove(cover_path)
+                    removed.append(book_id)
+                    logging.info(f"[DIAGNOSTIC][DELETE] Deleted unused cover: {cover_path}")
+                else:
+                    logging.warning(f"[DIAGNOSTIC][DELETE] Tried to delete missing cover file: {cover_path}")
             except Exception as e:
-                logging.error(f"[Atlas][cleanup_unused_covers] Failed to delete {cover_path}: {e}")
-        # Update atlas
-        covers_map = {bid: fname for bid, fname in covers_map.items() if bid in valid_ids}
+                logging.error(f"[DIAGNOSTIC][DELETE] Error deleting cover file {cover_path}: {e}")
+        # Update atlas: keep only valid and needed covers
+        covers_map = {bid: fname for bid, fname in covers_map.items() if bid in valid_ids and bid in needed_ids}
         save_atlas(covers_map)
+        covers_dir_files_after = os.listdir(COVERS_DIR)
+        logging.info(f"[DIAGNOSTIC][COVERS] [cleanup_unused_covers] Covers folder AFTER: {covers_dir_files_after}")
         logging.info(f"[Atlas][cleanup_unused_covers] Final covers_map after deletion: {covers_map}")
         logging.info(f"[Atlas] Cleaned up unused covers: {removed}")
-        return removed
     finally:
         cleanup_covers_lock.release()
 
@@ -303,54 +313,72 @@ def rebuild_cover_cache(book_ids=None):
         book_ids = get_landing_page_book_ids()
         logging.info(f"[Atlas][rebuild_cover_cache] Starting rebuild for book_ids: {book_ids}")
     covers_map_before = load_atlas()
+    covers_dir_files_before = os.listdir(COVERS_DIR)
+    logging.info(f"[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder BEFORE: {covers_dir_files_before}")
     logging.info(f"[Atlas][rebuild_cover_cache] covers_map BEFORE cleanup: {covers_map_before}")
     # Validate covers before cleanup
     valid_ids = set()
     for book_id in book_ids:
         filename = f"{book_id}.jpg"
         cover_path = os.path.join(COVERS_DIR, filename)
-        cover_valid = False
+        logging.info(f"[Atlas][validate] Checking cover for {book_id}: {filename} (path: {cover_path})")
         if os.path.exists(cover_path):
             try:
-                img = Image.open(cover_path)
-                img.verify()
-                cover_valid = True
-            except Exception:
-                cover_valid = False
-        if cover_valid:
+                with Image.open(cover_path) as img:
+                    img.verify()
+                logging.info(f"[Atlas][validate] PIL verify succeeded for {book_id}: {filename} (path: {cover_path})")
+            except Exception as e:
+                logging.warning(f"[Atlas][validate] PIL verify failed for {book_id}: {filename} (path: {cover_path}) ({e})")
+                logging.info(f"[Atlas][validate] {book_id}: File exists, but PIL verify failed. Still marking as valid.")
             valid_ids.add(book_id)
-    # Only delete covers not in valid_ids
-    cleanup_unused_covers(valid_ids)
+            logging.info(f"[Atlas][validate][final] {book_id}: Marked as valid (file exists at {cover_path})")
+        else:
+            logging.warning(f"[Atlas][validate] Cover missing for {book_id}: {filename} (path: {cover_path})")
+            logging.error(f"[Atlas][validate][reason] {book_id}: File does not exist at path {cover_path}")
+            logging.info(f"[Atlas][validate][final] {book_id}: Marked as invalid or missing.")
+    # Safety: Only delete covers not in needed book_ids, and only if enough valid covers
+    needed_ids = set(str(i).strip() for i in book_ids)
+    valid_needed = valid_ids & needed_ids
+    valid_ratio = len(valid_needed) / max(1, len(needed_ids))
+    logging.info(f"[Atlas][rebuild_cover_cache] valid_needed={valid_needed}, valid_ratio={valid_ratio:.2f}")
+    # Minimum book_ids check: skip deletion if too few
+    if len(book_ids) < 20:
+        logging.warning(f"[Atlas][rebuild_cover_cache] Skipping deletion: received only {len(book_ids)} book_ids (minimum required: 20). Possible partial/empty POST. Waiting for next request.")
+    else:
+        cleanup_unused_covers(valid_needed, needed_ids)
     covers_map_after_cleanup = load_atlas()
+    covers_dir_files_after_cleanup = os.listdir(COVERS_DIR)
+    logging.info(f"[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder AFTER cleanup: {covers_dir_files_after_cleanup}")
     logging.info(f"[Atlas][rebuild_cover_cache] covers_map AFTER cleanup: {covers_map_after_cleanup}")
     # Now process missing/invalid covers
+    missing = []
     for book_id in book_ids:
         logging.info(f"[Atlas][rebuild_cover_cache] Processing cover for book_id: {book_id}")
         filename = f"{book_id}.jpg"
         cover_path = os.path.join(COVERS_DIR, filename)
-        cover_valid = False
+        logging.info(f"[Atlas][validate] Checking cover for {book_id}: {filename} (path: {cover_path})")
         if os.path.exists(cover_path):
+            # Always mark as valid if file exists, regardless of PIL verification errors
             try:
-                img = Image.open(cover_path)
-                img.verify()
-                cover_valid = True
-            except Exception:
-                cover_valid = False
-        if not cover_valid:
-            # Only extract if missing/invalid
-            img = extract_cover_image_from_pdf(book_id)
-            if img:
-                img.save(cover_path, format="JPEG")
-                logging.info(f"[Atlas][rebuild_cover_cache] Extracted and saved cover for {book_id}")
-            else:
-                logging.error(f"[Atlas][rebuild_cover_cache] Failed to extract cover for {book_id}")
+                with Image.open(cover_path) as img:
+                    img.verify()
+                logging.info(f"[Atlas][validate] PIL verify succeeded for {book_id}: {filename} (path: {cover_path})")
+            except Exception as e:
+                logging.warning(f"[Atlas][validate] PIL verify failed for {book_id}: {filename} (path: {cover_path}) ({e})")
+                logging.info(f"[Atlas][validate] {book_id}: File exists, but PIL verify failed. Still marking as valid.")
+            logging.info(f"[Atlas][rebuild_cover_cache] Cover for {book_id} is valid and present (file exists at {cover_path}).")
+            logging.info(f"[Atlas][validate][final] {book_id}: Marked as valid.")
         else:
-            logging.info(f"[Atlas][rebuild_cover_cache] Cover for {book_id} is valid and present.")
+            # Do NOT extract cover here; leave for frontend to request /pdf-cover
+            logging.info(f"[Atlas][rebuild_cover_cache] Cover for {book_id} missing or invalid; skipping extraction (frontend will request /pdf-cover)")
+            missing.append(book_id)
+            logging.warning(f"[Atlas][validate] Cover missing for {book_id}: {filename} (path: {cover_path})")
+            logging.error(f"[Atlas][validate][reason] {book_id}: File does not exist at path {cover_path}")
+            logging.info(f"[Atlas][validate][final] {book_id}: Marked as invalid or missing.")
     covers_map_final = load_atlas()
+    covers_dir_files_final = os.listdir(COVERS_DIR)
+    logging.info(f"[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder FINAL: {covers_dir_files_final}")
     logging.info(f"[Atlas][rebuild_cover_cache] covers_map FINAL: {covers_map_final}")
-    missing = [bid for bid in book_ids if bid not in covers_map_final or not os.path.exists(os.path.join(COVERS_DIR, f"{bid}.jpg"))]
-    if missing:
-        logging.error(f"[Atlas][rebuild_cover_cache] Missing covers after rebuild: {missing}")
     logging.info(f"[Atlas][rebuild_cover_cache] Covers in cache after rebuild: {list(covers_map_final.keys())}")
     logging.info(f"[Atlas][rebuild_cover_cache] Rebuilt cover cache for {len(book_ids)} books.")
 
@@ -363,19 +391,57 @@ def rebuild_cover_cache(book_ids=None):
         to_remove = cover_files[:-MAX_COVERS]
         for bid, fname, _ in to_remove:
             try:
-                os.remove(fname)
-                logging.info(f"[Atlas][rebuild_cover_cache] Removed cover due to cache limit: {fname}")
+                logging.info(f"[DIAGNOSTIC][DELETE] Attempting to delete cover file (cache limit): {fname} (book_id={bid})")
+                if os.path.exists(fname):
+                    os.remove(fname)
+                    logging.info(f"[DIAGNOSTIC][DELETE] Deleted cover file (cache size limit): {fname}")
+                else:
+                    logging.warning(f"[DIAGNOSTIC][DELETE] Tried to delete missing cover file (cache size limit): {fname}")
             except Exception as e:
-                logging.error(f"[Atlas][rebuild_cover_cache] Failed to remove {fname}: {e}")
+                logging.error(f"[DIAGNOSTIC][DELETE] Error deleting cover file (cache size limit) {fname}: {e}")
         # Remove from atlas
         covers_map = {bid: fname for bid, fname in covers_map.items() if bid not in [x[0] for x in to_remove]}
         save_atlas(covers_map)
-        
+        covers_dir_files_after_limit = os.listdir(COVERS_DIR)
+        logging.info(f"[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder AFTER cache size limit: {covers_dir_files_after_limit}")
+
+    # Return tuple: (success, missing_ids)
+    if missing:
+        logging.error(f"[Atlas][rebuild_cover_cache] Missing covers after rebuild: {missing}")
+        return False, missing
+    return True, []
+
+# --- Atlas Sync Utility ---
+def sync_atlas_with_covers():
+    """
+    Scan the covers folder and rebuild atlas.json to match the actual .jpg files on disk.
+    """
+    covers_dir_files = os.listdir(COVERS_DIR)
+    logging.info(f"[DIAGNOSTIC][COVERS] [sync_atlas_with_covers] Covers folder BEFORE: {covers_dir_files}")
+    disk_covers = {fname.replace('.jpg', ''): fname for fname in covers_dir_files if fname.endswith('.jpg')}
+    atlas = load_atlas()
+    # Merge: keep atlas entries only for covers present on disk, add new disk covers
+    merged = {}
+    # Add/keep covers present on disk
+    for book_id, fname in disk_covers.items():
+        merged[book_id] = fname
+    # Optionally, preserve extra atlas metadata (if any) for covers still present
+    # Remove atlas entries for covers missing from disk
+    save_atlas(merged)
+    covers_dir_files_after = os.listdir(COVERS_DIR)
+    logging.info(f"[DIAGNOSTIC][COVERS] [sync_atlas_with_covers] Covers folder AFTER: {covers_dir_files_after}")
+    logging.info(f"[Atlas][sync] Additive sync: merged atlas.json with {len(merged)} covers from disk.")
+    logging.info(f"[Atlas][sync] Disk covers: {list(disk_covers.keys())}")
+    logging.info(f"[Atlas][sync] Atlas covers: {list(atlas.keys())}")
+    logging.info(f"[Atlas][sync] Merged atlas: {list(merged.keys())}")
+    return merged
+
 @app.before_request
 def check_atlas_init():
     global atlas_initialized
     if not atlas_initialized and request.path.startswith('/api/'):
         try:
+            sync_atlas_with_covers()
             rebuild_cover_cache()
             atlas_initialized = True
         except Exception as e:
@@ -766,6 +832,44 @@ def call_seed_drive_books():
     except Exception as e:
         logging.error(f"Error calling seed-drive-books endpoint: {e}")
 
+def cleanup_locals(locals_dict):
+    # Helper to close/delete large objects
+    for varname in ['doc', 'img_bytes', 'out', 'pix', 'page']:
+        obj = locals_dict.get(varname)
+        if obj is not None:
+            try:
+                if hasattr(obj, 'close'):
+                    # Avoid double-closing file-like objects
+                    if hasattr(obj, 'closed') and obj.closed:
+                        logging.info(f"[cleanup_locals] Object already closed: {varname}")
+                    else:
+                        obj.close()
+                        logging.info(f"[cleanup_locals] Closed object: {varname}")
+            except Exception as e:
+                logging.warning(f"[cleanup_locals] Error closing {varname}: {e}")
+            try:
+                del obj
+                logging.info(f"[cleanup_locals] Deleted object: {varname}")
+            except Exception as e:
+                logging.warning(f"[cleanup_locals] Error deleting {varname}: {e}")
+    # PIL image cleanup (if any)
+    img = locals_dict.get('img')
+    if img is not None:
+        try:
+            img.close()
+            logging.info("[cleanup_locals] Closed PIL image: img")
+        except Exception as e:
+            logging.warning(f"[cleanup_locals] Error closing img: {e}")
+        try:
+            del img
+            logging.info("[cleanup_locals] Deleted PIL image: img")
+        except Exception as e:
+            logging.warning(f"[cleanup_locals] Error deleting img: {e}")
+    # Aggressive GC
+    for _ in range(3):
+        gc.collect()
+    logging.info("[cleanup_locals] Finished cleanup and GC.")
+
 # Endpoint to check for new notifications for polling
 @app.route('/api/has-new-notifications', methods=['POST'])
 def has_new_notifications():
@@ -780,7 +884,11 @@ def has_new_notifications():
             has_new = any(not n.get('read', False) and not n.get('dismissed', False) for n in history if isinstance(n, dict))
         except Exception:
             has_new = False
-    return jsonify({'hasNew': has_new})
+    response = jsonify({'hasNew': has_new})
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
+    return response
 
 # --- Admin Utility ---
 def is_admin(username):
@@ -985,11 +1093,16 @@ def api_rebuild_cover_cache():
         # Optionally accept book_ids from frontend, else use default
         data = request.get_json(silent=True)
         book_ids = data.get('book_ids') if data and 'book_ids' in data else None
-        rebuild_cover_cache(book_ids)
-        return jsonify({'success': True, 'message': 'Cover cache rebuilt.'})
+        if not book_ids or len(book_ids) < 20:
+            logging.warning(f"[API][rebuild-cover-cache] Skipping deletion: received only {len(book_ids) if book_ids else 0} book_ids (minimum required: 20). Possible partial/empty POST. Waiting for next request.")
+        success, missing = rebuild_cover_cache(book_ids)
+        if success:
+            return jsonify({'success': True, 'message': 'Cover cache rebuilt.', 'missing_ids': []}), 200
+        else:
+            return jsonify({'success': False, 'error': 'Missing covers', 'missing_ids': missing}), 200
     except Exception as e:
         logging.error(f"[API][rebuild-cover-cache] Error: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e), 'missing_ids': []}), 500
     
 # Optimized book fetch endpoint: returns only requested books by drive_id
 @app.route('/api/books', methods=['GET'])
@@ -1069,80 +1182,193 @@ def serve_cover(cover_id):
     filename = f"{cover_id}.jpg"
     cover_path = os.path.join(COVERS_DIR, filename)
     status_query = request.args.get('status')
+    logging.info(f"[ServeCover] Incoming request: cover_id={cover_id}, status_query={status_query}, exists={os.path.exists(cover_path)}")
+    logging.info(f"[ServeCover] All request args: {dict(request.args)}")
+    # Ultra-detailed diagnostics
+    try:
+        stat_info = os.stat(cover_path)
+        logging.info(f"[ServeCover][DIAG] stat for {cover_path}: {stat_info}")
+    except Exception as e:
+        logging.warning(f"[ServeCover][DIAG] Could not stat {cover_path}: {e}")
+    try:
+        perms = oct(os.stat(cover_path).st_mode) if os.path.exists(cover_path) else None
+        logging.info(f"[ServeCover][DIAG] Permissions for {cover_path}: {perms}")
+    except Exception as e:
+        logging.warning(f"[ServeCover][DIAG] Could not get permissions for {cover_path}: {e}")
+    try:
+        with open(cover_path, 'rb') as f:
+            f.read(10)
+        logging.info(f"[ServeCover][DIAG] Read test succeeded for {cover_path}")
+    except Exception as e:
+        logging.warning(f"[ServeCover][DIAG] Read test failed for {cover_path}: {e}")
+    covers_dir_files = os.listdir(COVERS_DIR)
+    logging.info(f"[ServeCover][DIAG] Covers folder: {covers_dir_files}")
+    atlas = load_atlas()
+    logging.info(f"[ServeCover][DIAG] Atlas keys: {list(atlas.keys())}")
+    logging.info(f"[ServeCover][DIAG] Atlas entry for {cover_id}: {atlas.get(cover_id)}")
+
     if status_query:
-        # Status check mode
-        if os.path.exists(cover_path):
-            return jsonify({'status': 'exists', 'cover_id': cover_id})
-        # Check if cover is being processed or queued
-        pending = False
-        with cover_queue_lock:
-            # Check active
-            if cover_queue_active and cover_queue_active.get('file_id') == cover_id:
-                pending = True
-            # Check queue
-            elif any(entry.get('file_id') == cover_id for entry in cover_request_queue):
-                pending = True
-        if pending:
-            return jsonify({'status': 'pending', 'cover_id': cover_id})
-        return jsonify({'status': 'missing', 'cover_id': cover_id})
+        logging.info(f"[ServeCover] Status mode triggered for cover_id={cover_id}")
+        # Always return JSON for status requests, never image data
+        try:
+            exists = os.path.exists(cover_path)
+            valid = False
+            error = None
+            # Extra diagnostics for status mode
+            try:
+                stat_info = os.stat(cover_path)
+                logging.info(f"[ServeCover][Status][DIAG] stat for {cover_path}: {stat_info}")
+            except Exception as e:
+                logging.warning(f"[ServeCover][Status][DIAG] Could not stat {cover_path}: {e}")
+            try:
+                perms = oct(os.stat(cover_path).st_mode) if os.path.exists(cover_path) else None
+                logging.info(f"[ServeCover][Status][DIAG] Permissions for {cover_path}: {perms}")
+            except Exception as e:
+                logging.warning(f"[ServeCover][Status][DIAG] Could not get permissions for {cover_path}: {e}")
+            try:
+                with open(cover_path, 'rb') as f:
+                    f.read(10)
+                logging.info(f"[ServeCover][Status][DIAG] Read test succeeded for {cover_path}")
+            except Exception as e:
+                logging.warning(f"[ServeCover][Status][DIAG] Read test failed for {cover_path}: {e}")
+            covers_dir_files = os.listdir(COVERS_DIR)
+            logging.info(f"[ServeCover][Status][DIAG] Covers folder: {covers_dir_files}")
+            atlas = load_atlas()
+            logging.info(f"[ServeCover][Status][DIAG] Atlas keys: {list(atlas.keys())}")
+            logging.info(f"[ServeCover][Status][DIAG] Atlas entry for {cover_id}: {atlas.get(cover_id)}")
+            if exists:
+                try:
+                    with Image.open(cover_path) as img:
+                        img.verify()
+                    valid = True
+                    logging.info(f"[ServeCover] Cover validation PASSED for {cover_id}: exists={exists}, valid={valid}")
+                except Exception as e:
+                    error = str(e)
+                    logging.warning(f"[ServeCover] Cover validation FAILED for {cover_id}: exists={exists}, error={error}")
+            else:
+                logging.info(f"[ServeCover] Cover file does not exist for {cover_id}")
+
+            # If the image exists and is valid, always set status to 'valid' and valid to True
+            if exists and valid:
+                status = 'valid'
+                valid = True
+                logging.info(f"[ServeCover] Returning status=valid for {cover_id}")
+            else:
+                logging.info(f"[ServeCover][Status] PIL verify succeeded for {cover_id}")
+                # Check if cover is being processed or queued
+                pending = False
+                with cover_queue_lock:
+                    logging.info(f"[ServeCover][Status] PIL verify failed for {cover_id}: {error}")
+                    # Check active
+                    if cover_queue_active and cover_queue_active.get('file_id') == cover_id:
+                        pending = True
+                    # Check queue
+                    elif any(entry.get('file_id') == cover_id for entry in cover_request_queue):
+                        pending = True
+                status = 'exists' if exists else ('pending' if pending else 'missing')
+                logging.info(f"[ServeCover] Returning status={status} for {cover_id}, pending={pending}")
+            resp = {
+                'status': status,
+                'cover_id': cover_id,
+                'exists': exists,
+                'valid': valid,
+                'pending': pending if not (exists and valid) else False
+            }
+            if error:
+                resp['error'] = error
+            logging.info(f"[ServeCover] JSON response for {cover_id}: {resp}")
+            return jsonify(resp)
+        except Exception as e:
+            logging.info(f"[ServeCover][Status] Final status for {cover_id}: exists={exists}, valid={valid}")
+            # Fallback: always return JSON error
+            logging.error(f"[ServeCover] Exception in status mode for {cover_id}: {e}")
+            return jsonify({'status': 'error', 'cover_id': cover_id, 'error': str(e)}), 200
+
     # Normal image serving
+    logging.info(f"[ServeCover] Normal image mode for {cover_id}, exists={os.path.exists(cover_path)}")
+    # Extra diagnostics for normal image mode
+    try:
+        stat_info = os.stat(cover_path)
+        logging.info(f"[ServeCover][Normal][DIAG] stat for {cover_path}: {stat_info}")
+    except Exception as e:
+        logging.warning(f"[ServeCover][Normal][DIAG] Could not stat {cover_path}: {e}")
+    try:
+        perms = oct(os.stat(cover_path).st_mode) if os.path.exists(cover_path) else None
+        logging.info(f"[ServeCover][Normal][DIAG] Permissions for {cover_path}: {perms}")
+    except Exception as e:
+        logging.warning(f"[ServeCover][Normal][DIAG] Could not get permissions for {cover_path}: {e}")
+    try:
+        with open(cover_path, 'rb') as f:
+            f.read(10)
+        logging.info(f"[ServeCover][Normal][DIAG] Read test succeeded for {cover_path}")
+    except Exception as e:
+        logging.warning(f"[ServeCover][Normal][DIAG] Read test failed for {cover_path}: {e}")
+    covers_dir_files = os.listdir(COVERS_DIR)
+    logging.info(f"[ServeCover][Normal][DIAG] Covers folder: {covers_dir_files}")
+    atlas = load_atlas()
+    logging.info(f"[ServeCover][Normal][DIAG] Atlas keys: {list(atlas.keys())}")
+    logging.info(f"[ServeCover][Normal][DIAG] Atlas entry for {cover_id}: {atlas.get(cover_id)}")
     if os.path.exists(cover_path):
+        logging.info(f"[ServeCover] Sending image for {cover_id}")
         return send_from_directory(COVERS_DIR, filename)
     fallback_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'public', 'no-cover.png')
+    try:
+        stat_info = os.stat(fallback_path)
+        logging.info(f"[ServeCover][Fallback][DIAG] stat for {fallback_path}: {stat_info}")
+    except Exception as e:
+        logging.warning(f"[ServeCover][Fallback][DIAG] Could not stat {fallback_path}: {e}")
+    try:
+        perms = oct(os.stat(fallback_path).st_mode) if os.path.exists(fallback_path) else None
+        logging.info(f"[ServeCover][Fallback][DIAG] Permissions for {fallback_path}: {perms}")
+    except Exception as e:
+        logging.warning(f"[ServeCover][Fallback][DIAG] Could not get permissions for {fallback_path}: {e}")
+    try:
+        with open(fallback_path, 'rb') as f:
+            f.read(10)
+        logging.info(f"[ServeCover][Fallback][DIAG] Read test succeeded for {fallback_path}")
+    except Exception as e:
+        logging.warning(f"[ServeCover][Fallback][DIAG] Read test failed for {fallback_path}: {e}")
+    covers_dir_files = os.listdir(COVERS_DIR)
+    logging.info(f"[ServeCover][Fallback][DIAG] Covers folder: {covers_dir_files}")
+    atlas = load_atlas()
+    logging.info(f"[ServeCover][Fallback][DIAG] Atlas keys: {list(atlas.keys())}")
+    logging.info(f"[ServeCover][Fallback][DIAG] Atlas entry for {cover_id}: {atlas.get(cover_id)}")
     if os.path.exists(fallback_path):
+        logging.info(f"[ServeCover] Sending fallback image for {cover_id}")
         return send_file(fallback_path, mimetype='image/png')
+    logging.error(f"[ServeCover] No cover or fallback found for {cover_id}")
     return jsonify({'success': False, 'message': 'Cover not found.'}), 404
-
-def cleanup_locals(locals_dict):
-    # Helper to close/delete large objects
-    for varname in ['doc', 'img_bytes', 'out', 'pix', 'page']:
-        obj = locals_dict.get(varname)
-        if obj is not None:
-            try:
-                if hasattr(obj, 'close'):
-                    # Avoid double-closing file-like objects
-                    if hasattr(obj, 'closed') and obj.closed:
-                        logging.info(f"[cleanup_locals] Object already closed: {varname}")
-                    else:
-                        obj.close()
-                        logging.info(f"[cleanup_locals] Closed object: {varname}")
-            except Exception as e:
-                logging.warning(f"[cleanup_locals] Error closing {varname}: {e}")
-            try:
-                del obj
-                logging.info(f"[cleanup_locals] Deleted object: {varname}")
-            except Exception as e:
-                logging.warning(f"[cleanup_locals] Error deleting {varname}: {e}")
-    # PIL image cleanup (if any)
-    img = locals_dict.get('img')
-    if img is not None:
-        try:
-            img.close()
-            logging.info("[cleanup_locals] Closed PIL image: img")
-        except Exception as e:
-            logging.warning(f"[cleanup_locals] Error closing img: {e}")
-        try:
-            del img
-            logging.info("[cleanup_locals] Deleted PIL image: img")
-        except Exception as e:
-            logging.warning(f"[cleanup_locals] Error deleting img: {e}")
-    # Aggressive GC
-    for _ in range(3):
-        gc.collect()
-    logging.info("[cleanup_locals] Finished cleanup and GC.")
 
 @app.route('/api/landing-page-book-ids', methods=['GET'])
 def api_landing_page_book_ids():
     """
     Returns the list of book IDs for the landing page (carousel + top voted).
     """
+    logging.info(f"[DIAGNOSTIC][ServeCover] Covers folder (image serve): {os.listdir(COVERS_DIR)}")
     try:
         book_ids = get_landing_page_book_ids()
+        logging.info(f"[DIAGNOSTIC][ServeCover] Covers folder (fallback serve): {os.listdir(COVERS_DIR)}")
         return jsonify({'success': True, 'book_ids': book_ids})
     except Exception as e:
         logging.error(f"[Atlas] Error in /api/landing-page-book-ids: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
     
+@app.route('/api/cover-diagnostics', methods=['GET'])
+def cover_diagnostics():
+    covers_dir_files = os.listdir(COVERS_DIR)
+    disk_covers = [fname for fname in covers_dir_files if fname.endswith('.jpg')]
+    atlas = load_atlas()
+    atlas_ids = list(atlas.keys())
+    missing_on_disk = [bid for bid in atlas_ids if f"{bid}.jpg" not in disk_covers]
+    extra_on_disk = [fname for fname in disk_covers if fname.replace('.jpg', '') not in atlas_ids]
+    return jsonify({
+        'covers_on_disk': disk_covers,
+        'atlas_ids': atlas_ids,
+        'missing_on_disk': missing_on_disk,
+        'extra_on_disk': extra_on_disk,
+        'atlas': atlas,
+    })
+
 @app.route('/pdf-cover/<file_id>', methods=['GET'])
 def pdf_cover(file_id):
     global cover_queue_active
@@ -1167,11 +1393,14 @@ def pdf_cover(file_id):
         return jsonify({'success': False, 'error': 'Server busy, try again later.'}), 503
     try:
         # Deduplicate: only add if not already present
-        if not any(e['session_id'] == entry['session_id'] and e['file_id'] == entry['file_id'] for e in cover_request_queue):
+        already_in_queue = any(e['session_id'] == entry['session_id'] and e['file_id'] == entry['file_id'] for e in cover_request_queue)
+        if already_in_queue:
+            logging.info(f"[pdf-cover] duplicate entry detected, not appending: {entry}")
+            # Return a JSON response to indicate duplicate
+            return jsonify({'success': False, 'error': 'Duplicate cover request in queue', 'file_id': file_id}), 429
+        else:
             cover_request_queue.append(entry)
             logging.info(f"[pdf-cover] appended to queue: {entry}. Queue length now: {len(cover_request_queue)}")
-        else:
-            logging.info(f"[pdf-cover] duplicate entry detected, not appending: {entry}")
         logging.info(f"[pdf-cover] Queue length after append: {len(cover_request_queue)}")
     finally:
         cover_queue_lock.release()
@@ -1196,29 +1425,6 @@ def pdf_cover(file_id):
     # --- Helper for fallback ---
     def send_fallback():
         logging.error(f"[pdf-cover] Fallback image used for file_id={file_id}")
-        fallback_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'public', 'no-cover.png')
-        if not os.path.exists(fallback_path):
-            logging.error(f"[pdf-cover] Fallback image not found at {fallback_path}")
-            mem = psutil.Process().memory_info().rss / (1024 * 1024)
-            logging.info(f"[pdf-cover] Memory usage after fallback: {mem:.2f} MB")
-            if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
-                logging.info(tracemalloc.take_snapshot().statistics('filename'))
-            else:
-                logging.info("[pdf-cover] tracemalloc is not tracing; skipping snapshot.")
-            for _ in range(3):
-                gc.collect()
-            return make_response(jsonify({'error': 'No cover available'}), 404)
-        logging.info(f"[pdf-cover] Serving fallback cover for file_id={file_id}")
-        response = make_response(send_file(fallback_path, mimetype='image/png'))
-        origin = request.headers.get('Origin')
-        allowed = [
-            "http://localhost:5173",
-            "http://localhost:5000",
-            "https://storyweavechronicles.onrender.com",
-            "https://swcflaskbackend.onrender.com"
-        ]
-        response.headers["Access-Control-Allow-Origin"] = origin if origin in allowed else "https://storyweavechronicles.onrender.com"
-        response.status_code = 404
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
         logging.info(f"[pdf-cover] Memory usage after fallback: {mem:.2f} MB")
         if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
@@ -1227,6 +1433,15 @@ def pdf_cover(file_id):
             logging.info("[pdf-cover] tracemalloc is not tracing; skipping snapshot.")
         for _ in range(3):
             gc.collect()
+        response = make_response(jsonify({'error': 'No cover available', 'file_id': file_id}), 404)
+        origin = request.headers.get('Origin')
+        allowed = [
+            "http://localhost:5173",
+            "http://localhost:5000",
+            "https://storyweavechronicles.onrender.com",
+            "https://swcflaskbackend.onrender.com"
+        ]
+        response.headers["Access-Control-Allow-Origin"] = origin if origin in allowed else "https://storyweavechronicles.onrender.com"
         return response
 
     # --- Now at front of queue, process the cover request ---
@@ -1287,14 +1502,16 @@ def pdf_cover(file_id):
             logging.info(f"[pdf-cover] POST-EXTRACT GC: RAM={mem:.2f} MB")
             return response
         else:
-            logging.warning(f"[pdf-cover] No cover image extracted for {file_id}")
+            logging.error(f"[pdf-cover] FAILURE: extract_cover_image_from_pdf returned None for file_id={file_id}")
+            logging.error(f"[pdf-cover] FAILURE: Could not extract cover for file_id={file_id}. Will send fallback.")
             for _ in range(3):
                 gc.collect()
             mem = process.memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] POST-FALLBACK GC: RAM={mem:.2f} MB")
             return send_fallback()
     except Exception as e:
-        logging.error(f"[pdf-cover] Error extracting cover for file_id={file_id}: {e}")
+        logging.error(f"[pdf-cover] EXCEPTION: Error extracting cover for file_id={file_id}: {e}")
+        logging.error(f"[pdf-cover] EXCEPTION TRACEBACK: {traceback.format_exc()}")
         for _ in range(3):
             gc.collect()
         mem = process.memory_info().rss / (1024 * 1024)
@@ -2707,7 +2924,6 @@ def github_webhook():
             )
     return jsonify({'success': True, 'message': 'App update notifications sent.'})
     # Add more moderation actions as needed
-    return jsonify({'success': False, 'message': 'Unknown action.'}), 400
 
 @app.route('/api/get-user-meta', methods=['GET'])
 def get_user_meta():
@@ -2727,21 +2943,6 @@ def get_user_meta():
         'text_color': user.text_color or '#fff'
     })
 
-@app.route("/", defaults={"path": ""})
-@app.route("/<path:path>")
-def serve_react(path):
-    # If the request is for an API route, return JSON 404
-    if path.startswith("api/"):
-        return jsonify({"success": False, "message": "API endpoint not found."}), 404
-
-    # Serve favicon.ico from client/public (or vite.svg if that's your favicon)
-    if path == "favicon.ico":
-        return send_from_directory("../client/public", "vite.svg")
-
-    # Serve other static files if needed (add more conditions here)
-
-    # Serve index.html for all other non-API routes
-    return send_from_directory("../client/public", "index.html")
 # --- GLOBAL BOOK METADATA ENDPOINT ---
 @app.route('/api/all-books', methods=['GET'])
 def all_books():
@@ -3077,6 +3278,22 @@ def simulate_cover_load():
     with open(log_path, 'a', encoding='utf-8') as f:
         f.write(f"Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB\n")
     return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_react(path):
+    # If the request is for an API route, return JSON 404
+    if path.startswith("api/"):
+        return jsonify({"success": False, "message": "API endpoint not found."}), 404
+
+    # Serve favicon.ico from client/public (or vite.svg if that's your favicon)
+    if path == "favicon.ico":
+        return send_from_directory("../client/public", "vite.svg")
+
+    # Serve other static files if needed (add more conditions here)
+
+    # Serve index.html for all other non-API routes
+    return send_from_directory("../client/public", "index.html")
 
 if __name__ == '__main__':
     # Register Google Drive webhook on startup

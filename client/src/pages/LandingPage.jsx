@@ -15,51 +15,62 @@ function getCoverFromCache(bookId) {
     const cacheRaw = localStorage.getItem('swc_cover_cache');
     const cache = JSON.parse(cacheRaw || '{}');
     const entry = cache[bookId];
-    // Default: use disk-based cover URL
-    const diskUrl = `/covers/${bookId}.jpg`;
-    if (!entry) return { url: diskUrl, expired: false };
+    const diskUrl = `${API_BASE_URL}/covers/${bookId}.jpg`;
+    if (!entry) {
+      console.log(`[getCoverFromCache] MISS for ${bookId}: no entry, using diskUrl`, diskUrl);
+      return { url: diskUrl, expired: false };
+    }
     if (typeof entry === 'string') {
-      // Legacy: treat as url, no timestamp
-      if (entry.startsWith('blob:')) return { url: diskUrl, expired: false };
+      if (entry.startsWith('blob:')) {
+        console.log(`[getCoverFromCache] MISS for ${bookId}: legacy blob, using diskUrl`, diskUrl);
+        return { url: diskUrl, expired: false };
+      }
+      console.log(`[getCoverFromCache] HIT for ${bookId}: legacy url`, entry);
       return { url: entry, expired: false };
     }
-    // entry: { url, ts }
     if (entry.url === '/no-cover.png') {
       const now = Date.now();
-      const expired = !entry.ts || (now - entry.ts > 3600 * 1000); // 1 hour expiry
+      const expired = !entry.ts || (now - entry.ts > 3600 * 1000);
+      console.log(`[getCoverFromCache] HIT for ${bookId}: no-cover.png, expired=${expired}`);
       return { url: '/no-cover.png', expired };
     }
     if (entry.url && entry.url.startsWith('blob:')) {
-      // Blob URLs cannot be cached, treat as cache miss
+      console.log(`[getCoverFromCache] MISS for ${bookId}: blob url, using diskUrl`, diskUrl);
       return { url: diskUrl, expired: false };
     }
+    console.log(`[getCoverFromCache] HIT for ${bookId}: url`, entry.url);
     return { url: entry.url, expired: false };
   } catch (e) {
-    console.warn('Cover cache corrupted, clearing:', e);
+    console.warn('[getCoverFromCache] Cover cache corrupted, clearing:', e);
     localStorage.removeItem('swc_cover_cache');
-    return { url: `/covers/${bookId}.jpg`, expired: false };
+    return { url: `${API_BASE_URL}/covers/${bookId}.jpg`, expired: false };
   }
 }
 function setCoverInCache(bookId, url) {
   try {
-    if (url && url.startsWith('blob:')) return; // Never cache blob URLs
+    if (url && url.startsWith('blob:')) {
+      console.log(`[setCoverInCache] SKIP for ${bookId}: not caching blob url`, url);
+      return;
+    }
     const cacheRaw = localStorage.getItem('swc_cover_cache');
     let cache = {};
     try {
       cache = JSON.parse(cacheRaw || '{}');
     } catch (e) {
-      console.warn('Cover cache corrupted, clearing:', e);
+      console.warn('[setCoverInCache] Cover cache corrupted, clearing:', e);
       localStorage.removeItem('swc_cover_cache');
       cache = {};
     }
     if (url === '/no-cover.png') {
       cache[bookId] = { url, ts: Date.now() };
+      console.log(`[setCoverInCache] SET for ${bookId}: no-cover.png`);
     } else {
       cache[bookId] = { url };
+      console.log(`[setCoverInCache] SET for ${bookId}: url`, url);
     }
     localStorage.setItem('swc_cover_cache', JSON.stringify(cache));
   } catch (e) {
-    console.warn('Failed to set cover in cache:', e);
+    console.warn('[setCoverInCache] Failed to set cover in cache:', e);
   }
 }
 
@@ -73,80 +84,175 @@ function useCachedCovers(pdfs) {
     const newCovers = {};
     const newLoading = {};
 
-    pdfs.forEach(pdf => {
-      const bookId = pdf.drive_id || pdf.id;
-      if (!bookId) return;
-      const { url, expired } = getCoverFromCache(bookId);
+    async function processCovers(missingIdsFromParent) {
+      const bookIds = pdfs.map(pdf => pdf.drive_id || pdf.id).filter(Boolean);
+      bookIds.forEach(bookId => { newLoading[bookId] = true; });
+      console.log('[LandingPage] Requested bookIds:', bookIds);
 
-      // Always start in loading state
-      newLoading[bookId] = true;
-
-      const statusUrl = `/covers/${bookId}.jpg?status=1`;
-
-      // If cached cover is '/no-cover.png' and expired, attempt refetch
-      if (url === '/no-cover.png' && expired) {
-        // Remove from cache so next fetch will retry
-        setCoverInCache(bookId, undefined);
-      }
-
-      fetch(statusUrl)
-        .then(res => res.json())
-        .then(status => {
-          if (!isMounted) return;
-          if (status.status === 'exists') {
-            setCoverInCache(bookId, `/covers/${bookId}.jpg`);
-            setCovers(c => ({ ...c, [bookId]: `/covers/${bookId}.jpg` }));
-            setLoadingCovers(l => ({ ...l, [bookId]: false }));
-          } else if (status.status === 'pending') {
-            setCovers(c => ({ ...c, [bookId]: undefined }));
-            setLoadingCovers(l => ({ ...l, [bookId]: true }));
-            // Poll again after short delay
-            setTimeout(() => {
-              if (isMounted) {
-                fetch(statusUrl)
-                  .then(res2 => res2.json())
-                  .then(status2 => {
-                    if (!isMounted) return;
-                    if (status2.status === 'exists') {
-                      setCoverInCache(bookId, `/covers/${bookId}.jpg`);
-                      setCovers(c => ({ ...c, [bookId]: `/covers/${bookId}.jpg` }));
-                      setLoadingCovers(l => ({ ...l, [bookId]: false }));
-                    } else {
-                      setCovers(c => ({ ...c, [bookId]: '/no-cover.png' }));
-                      setLoadingCovers(l => ({ ...l, [bookId]: false }));
-                    }
-                  });
-              }
-            }, 500);
+      // Check status for all covers
+      const statusResults = await Promise.all(bookIds.map(async bookId => {
+        const { url, expired } = getCoverFromCache(bookId);
+        console.log(`[LandingPage] getCoverFromCache(${bookId}):`, { url, expired });
+        // If we already have /no-cover.png and it's not expired, do NOT retry automatically
+        if (url === '/no-cover.png' && !expired) {
+          newCovers[bookId] = '/no-cover.png';
+          newLoading[bookId] = false;
+          return { bookId, status: { status: 'error' }, url };
+        }
+        // If expired, allow one retry
+        if (url === '/no-cover.png' && expired) {
+          console.log(`[LandingPage] Evicting expired no-cover for ${bookId}`);
+          setCoverInCache(bookId, undefined);
+        }
+        let status = { status: 'error' };
+        let coverImageUrl = null;
+        try {
+          const res = await fetch(`${API_BASE_URL}/covers/${bookId}.jpg?status=1`);
+          const contentType = res.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            status = await res.json();
+            console.log(`[LandingPage] /covers/${bookId}.jpg?status=1 response:`, status);
+            if (status.status === 'error') {
+              console.warn(`[LandingPage] Disk fetch failed for ${bookId}, will call /pdf-cover next.`);
+            }
+          } else if (contentType && contentType.startsWith('image/')) {
+            const blob = await res.blob();
+            coverImageUrl = URL.createObjectURL(blob);
+            setCoverInCache(bookId, coverImageUrl);
+            newCovers[bookId] = coverImageUrl;
+            newLoading[bookId] = false;
+            status = { status: 'valid' };
+            console.log(`[LandingPage] Used streamed image for ${bookId} as cover:`, coverImageUrl);
           } else {
-            // Missing: fallback to backend or show no cover
-            const sessionId = user?.session_id || localStorage.getItem('session_id');
-            const fallbackUrl = `${API_BASE_URL}/pdf-cover/${bookId}?session_id=${encodeURIComponent(sessionId || '')}`;
-            const img = new window.Image();
-            img.onload = () => {
-              setCoverInCache(bookId, fallbackUrl);
-              setCovers(c => ({ ...c, [bookId]: fallbackUrl }));
-              setLoadingCovers(l => ({ ...l, [bookId]: false }));
-            };
-            img.onerror = () => {
-              setCoverInCache(bookId, '/no-cover.png');
-              setCovers(c => ({ ...c, [bookId]: '/no-cover.png' }));
-              setLoadingCovers(l => ({ ...l, [bookId]: false }));
-            };
-            img.src = fallbackUrl;
+            console.warn(`[LandingPage] Non-JSON/non-image response for status of ${bookId}:`, contentType);
+            status = { status: 'error' };
+            console.warn(`[LandingPage] Disk fetch failed for ${bookId} (unexpected content-type), will call /pdf-cover next.`);
           }
-        })
-        .catch(() => {
-          setCovers(c => ({ ...c, [bookId]: url || '/no-cover.png' }));
-          setLoadingCovers(l => ({ ...l, [bookId]: false }));
-        });
-    });
+        } catch (err) {
+          console.warn(`[LandingPage] Error fetching status for ${bookId}:`, err);
+          status = { status: 'error' };
+          console.warn(`[LandingPage] Disk fetch failed for ${bookId} (exception), will call /pdf-cover next.`);
+        }
+        return { bookId, status, url };
+      }));
 
-    if (isMounted) setCovers(newCovers);
-    if (isMounted) setLoadingCovers(newLoading);
+      const idsToFetch = Array.isArray(missingIdsFromParent) ? missingIdsFromParent : [];
+      console.log('[LandingPage] idsToFetch (missing from parent):', idsToFetch);
 
+      if (idsToFetch.length > 0) {
+        for (let i = 0; i < idsToFetch.length; i++) {
+          const bookId = idsToFetch[i];
+          const sessionId = user?.session_id || localStorage.getItem('session_id');
+          const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}?session_id=${encodeURIComponent(sessionId || '')}`;
+          console.log(`[LandingPage] About to call /pdf-cover for ${bookId}:`, coverUrl);
+          try {
+            const resp = await fetch(coverUrl);
+            console.log(`[LandingPage] /pdf-cover/${bookId} response status:`, resp.status);
+            if (resp.status === 429) {
+              console.warn(`[LandingPage] /pdf-cover returned 429 Too Many Requests for ${bookId}`);
+              setCoverInCache(bookId, '/no-cover.png');
+              newCovers[bookId] = '/no-cover.png';
+              newLoading[bookId] = false;
+            } else {
+              const contentType = resp.headers.get('content-type');
+              if (contentType && contentType.startsWith('image/')) {
+                const blob = await resp.blob();
+                const objectUrl = URL.createObjectURL(blob);
+                newCovers[bookId] = objectUrl;
+                newLoading[bookId] = false;
+                console.log(`[LandingPage] Cover loaded for ${bookId}:`, objectUrl);
+                const diskUrl = `${API_BASE_URL}/covers/${bookId}.jpg`;
+                setCoverInCache(bookId, diskUrl);
+              } else {
+                setCoverInCache(bookId, '/no-cover.png');
+                newCovers[bookId] = '/no-cover.png';
+                newLoading[bookId] = false;
+                console.warn(`[LandingPage] /pdf-cover returned unexpected content-type for ${bookId}:`, contentType);
+              }
+            }
+          } catch (err) {
+            setCoverInCache(bookId, '/no-cover.png');
+            newCovers[bookId] = '/no-cover.png';
+            newLoading[bookId] = false;
+            console.error(`[LandingPage] Error calling /pdf-cover for ${bookId}:`, err);
+          }
+          if (isMounted) {
+            console.log(`[LandingPage] Fallback setCovers for ${bookId}:`, newCovers[bookId]);
+            setCovers({ ...newCovers });
+          }
+          if (isMounted) {
+            setLoadingCovers({ ...newLoading });
+          }
+        }
+      }
+      // For covers not missing, use disk or cache
+      statusResults.forEach(({ bookId, status, url }) => {
+        if (!idsToFetch.includes(bookId)) {
+          if (status.valid === true) {
+            const coverUrl = `${API_BASE_URL}/covers/${bookId}.jpg`;
+            setCoverInCache(bookId, coverUrl);
+            newCovers[bookId] = coverUrl;
+            newLoading[bookId] = false;
+            console.log(`[LandingPage] Valid cover for ${bookId}:`, coverUrl);
+          } else if (url && url.startsWith('blob:')) {
+            newCovers[bookId] = url;
+            newLoading[bookId] = false;
+            console.log(`[LandingPage] Using blob fallback for ${bookId}:`, url);
+          } else {
+            setCoverInCache(bookId, '/no-cover.png');
+            newCovers[bookId] = '/no-cover.png';
+            newLoading[bookId] = false;
+            console.log(`[LandingPage] No cover for ${bookId}`);
+          }
+        }
+      });
+
+      if (isMounted) {
+        console.log('[LandingPage] Final covers:', newCovers);
+        setCovers(newCovers);
+      }
+      if (isMounted) {
+        console.log('[LandingPage] Final loadingCovers:', newLoading);
+        setLoadingCovers(newLoading);
+      }
+    }
+
+    // Wait for missingIdsFromParent from props
+    if (typeof window !== 'undefined' && window._landingPageMissingCoverIds) {
+      console.log('[LandingPage] Using window._landingPageMissingCoverIds:', window._landingPageMissingCoverIds);
+      processCovers(window._landingPageMissingCoverIds);
+    } else {
+      processCovers([]);
+    }
     return () => { isMounted = false; };
   }, [pdfs, user]);
+
+  // --- Top-level effect: call /api/rebuild-cover-cache once on mount ---
+  useEffect(() => {
+    async function fetchMissingCoverIds() {
+      const allBookIds = pdfs.map(pdf => pdf.drive_id || pdf.id).filter(Boolean);
+      if (allBookIds.length === 0) return;
+      try {
+        const resp = await fetch(`${API_BASE_URL}/api/rebuild-cover-cache`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ book_ids: allBookIds })
+        });
+        let data = {};
+        try {
+          data = await resp.json();
+        } catch (e) {
+          console.error('Error parsing /api/rebuild-cover-cache response:', e);
+        }
+        // Store missing IDs globally for useCachedCovers
+        window._landingPageMissingCoverIds = Array.isArray(data.missing_ids) ? data.missing_ids : [];
+      } catch (err) {
+        window._landingPageMissingCoverIds = [];
+        console.error('Error rebuilding cover cache:', err);
+      }
+    }
+    fetchMissingCoverIds();
+  }, [pdfs]);
 
   return { covers, loadingCovers };
 }
@@ -330,8 +436,10 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1 }) {
                                 }
                               }}
                               onClick={e => {
+                                // Only allow manual retry if cover is missing
                                 const { url } = getCoverFromCache(bookId);
                                 if (url === '/no-cover.png') {
+                                  // Manual retry: fetch cover again
                                   const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
                                   const img = new window.Image();
                                   img.onload = () => setCoverInCache(bookId, coverUrl);
@@ -399,8 +507,10 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1 }) {
                           }
                         }}
                         onClick={e => {
+                          // Only allow manual retry if cover is missing
                           const { url } = getCoverFromCache(bookId);
                           if (url === '/no-cover.png') {
+                            // Manual retry: fetch cover again
                             const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
                             const img = new window.Image();
                             img.onload = () => setCoverInCache(bookId, coverUrl);
@@ -533,7 +643,6 @@ export default function LandingPage() {
   };
 
   // Fetch top 20 newest book IDs from /api/all-books
-  const hasPostedLandingPageIds = React.useRef(false);
   useEffect(() => {
     setLoadingPdfs(true);
     fetch(`${API_BASE_URL}/api/all-books`)
@@ -541,26 +650,7 @@ export default function LandingPage() {
       .then(data => {
         if (Array.isArray(data.books)) {
           const newestIds = data.books.slice(0, 20).map(b => b.drive_id);
-          // --- POST landing page book IDs to backend for cover/atlas sync ---
-          if (newestIds.length > 0 && !hasPostedLandingPageIds.current) {
-            hasPostedLandingPageIds.current = true;
-            fetch(`${API_BASE_URL}/api/rebuild-cover-cache`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ book_ids: newestIds })
-            })
-              .then(res => res.json())
-              .then(data => {
-                console.log('[LandingPage] Posted landing page book IDs to backend:', newestIds, data);
-                localStorage.removeItem('swc_cover_cache');
-                setTimeout(() => {
-                  setPdfs(pdfs => [...pdfs]);
-                  setTopNewest(topNewest => [...topNewest]);
-                }, 200);
-              })
-              .catch(err => {
-                console.error('[LandingPage] Error posting book IDs to backend:', err);
-              });
+          if (newestIds.length > 0) {
             fetch(`${API_BASE_URL}/api/books?ids=${newestIds.join(',')}`)
               .then(res2 => res2.json())
               .then (data2 => {
@@ -569,6 +659,19 @@ export default function LandingPage() {
                   const patchedBooks = data2.books.map(b => ({ ...b, drive_id: b.drive_id || b.id}));
                   setPdfs(patchedBooks);
                   setTopNewest(patchedBooks.slice(0, 10));
+                  // --- POST ALL 20 book IDs to backend for cover/atlas sync ---
+                  fetch(`${API_BASE_URL}/api/rebuild-cover-cache`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ book_ids: newestIds })
+                  })
+                    .then(res => res.json())
+                    .then(data => {
+                      console.log('[LandingPage] Posted ALL 20 book IDs to backend:', newestIds, data);
+                    })
+                    .catch(err => {
+                      console.error('[LandingPage] Error posting ALL book IDs to backend:', err);
+                    });
                 }
                 setLoadingPdfs(false);
                 console.log("[LandingPage] Fetched all landing page books:", data2.books);
@@ -589,6 +692,8 @@ export default function LandingPage() {
         setLoadingPdfs(false);
       });
   }, []);
+
+  // --- Remove duplicate POST effect, now handled above for all 20 books ---
 
   // Fetch top voted book IDs and then fetch their details
   useEffect(() => {

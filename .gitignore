@@ -5,3 +5,6 @@ storyweave_db.session.sql
 storyweavechronicles.onrender.com.har
 server/storyweave.db
 alter_table.sql
+server/browser_console.txt
+server/backend_logs.txt
+StoryWeave Chronicles_Progress.txt
