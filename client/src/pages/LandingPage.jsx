@@ -132,8 +132,30 @@ function useCachedCovers(pdfs) {
     });
 
     // Start polling for covers that are still loading or failed
-    if (pollingRef.current) clearInterval(pollingRef.current);
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
     pollingRef.current = setInterval(() => {
+      // Stop polling if all covers are loaded or failed (robust check)
+      const allDone = bookIds.length > 0 && bookIds.every(bookId => {
+        const { url } = getCoverFromCache(bookId);
+        // Consider loaded if loaded[bookId] is true and url is not /no-cover.png, or url is /no-cover.png
+        return ((loaded[bookId] && url && url !== '/no-cover.png') || (url === '/no-cover.png'));
+      });
+      // Extra fallback: if all covers have a non-null url and all loaded[bookId] are true or url is /no-cover.png
+      const allLoadedOrNoCover = bookIds.length > 0 && bookIds.every(bookId => {
+        const { url } = getCoverFromCache(bookId);
+        return (url && ((loaded[bookId] && url !== '/no-cover.png') || url === '/no-cover.png'));
+      });
+      if (allDone || allLoadedOrNoCover) {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          console.log('[useCachedCovers] Polling stopped: all covers loaded or failed.');
+        }
+        return;
+      }
       setCovers(prevCovers => {
         const updatedCovers = { ...prevCovers };
         let changed = false;
@@ -183,11 +205,12 @@ function useCachedCovers(pdfs) {
           img.src = url;
         }
       });
-    }, 1200); // Poll every 1.2 seconds
+    }, 200); // Poll every 0.2 seconds for ultra-smooth progress
 
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfs]);
 
   // Handler for when a cover image loads (for <img> tag events)
