@@ -74,19 +74,47 @@ function setCoverInCache(bookId, url) {
   }
 }
 
-// Refactored useCachedCovers: only reads from cache, does NOT fetch covers
+// useCachedCovers: reads from cache and tracks per-cover loading
 function useCachedCovers(pdfs) {
   const [covers, setCovers] = React.useState({});
+  const [loaded, setLoaded] = React.useState({});
+
   React.useEffect(() => {
     const bookIds = pdfs.map(pdf => pdf.drive_id || pdf.id).filter(Boolean);
     const newCovers = {};
+    const newLoaded = {};
     bookIds.forEach(bookId => {
       const { url } = getCoverFromCache(bookId);
       newCovers[bookId] = url;
+      newLoaded[bookId] = false;
     });
     setCovers(newCovers);
+    setLoaded(newLoaded);
+
+    // Actively load each cover image
+    bookIds.forEach(bookId => {
+      const url = newCovers[bookId];
+      if (!url || url === '/no-cover.png') {
+        setLoaded(prev => ({ ...prev, [bookId]: true }));
+        return;
+      }
+      const img = new window.Image();
+      img.onload = () => {
+        setLoaded(prev => ({ ...prev, [bookId]: true }));
+      };
+      img.onerror = () => {
+        setLoaded(prev => ({ ...prev, [bookId]: true }));
+      };
+      img.src = url;
+    });
   }, [pdfs]);
-  return { covers };
+
+  // Handler for when a cover image loads (for <img> tag events)
+  const handleCoverLoad = (bookId) => {
+    setLoaded(prev => ({ ...prev, [bookId]: true }));
+  };
+
+  return { covers, loaded, handleCoverLoad };
 }
 
 function SearchBar({ pdfs, navigate }) {
@@ -218,30 +246,28 @@ function SearchBar({ pdfs, navigate }) {
   );
 }
 
-function CarouselSection({ pdfs, navigate, settings, depth = 1, coversReady }) {
+function CarouselSection({ pdfs, navigate, settings, depth = 1}) {
   const pdfs20 = React.useMemo(() => pdfs.slice(0, 20), [pdfs]);
-  const { covers } = useCachedCovers(pdfs20);
+  const { covers, loaded, handleCoverLoad } = useCachedCovers(pdfs20);
 
   // Hybrid fix: Set width inline on .carousel-item for mobile, let Slick measure
   const isMobile = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 700px)').matches;
-  // Restore: set width inline to 64px for mobile, matching .book-cover
-  // Desktop: set width, minWidth, maxWidth to 110px to match .book-cover
   const itemStyle = isMobile
     ? { cursor: 'pointer', borderRadius: 8, width: 64, minWidth: 64, maxWidth: 64 }
     : { cursor: 'pointer', borderRadius: 8, width: 110, minWidth: 110, maxWidth: 110 };
   const titleStyle = { fontSize: '0.95rem', marginTop: '0.3rem', padding: '0.15em 0.3em', borderRadius: 4 };
 
-  // Only render carousel if coversReady
-  if (!coversReady) {
-    return (
-      <SteppedContainer depth={depth} style={{ marginBottom: 32 }}>
-        <div style={{ textAlign: 'center', color: '#888', margin: 24 }}>Preparing covers...</div>
-      </SteppedContainer>
-    );
-  }
+  // Always render carousel with live progress, even while covers are downloading
+
+  // Progress indicator: X/Y covers loaded
+  const totalCovers = pdfs20.length;
+  const loadedCount = Object.values(loaded).filter(Boolean).length;
 
   return (
     <SteppedContainer depth={depth} style={{ marginBottom: 32 }}>
+      <div style={{ textAlign: 'center', color: '#888', marginBottom: 8, fontSize: 15 }}>
+        {`Covers loaded: ${loadedCount} / ${totalCovers}`}
+      </div>
       <div className="carousel-container">
         <Slider {...settings}
           beforeChange={() => { window._carouselDragged = false; }}
@@ -252,24 +278,28 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1, coversReady }) {
             .map((pdf) => {
               const bookId = pdf.drive_id;
               const coverUrl = covers[bookId];
+              const isLoaded = loaded[bookId];
               return (
                 <SteppedContainer depth={depth + 1} key={bookId || Math.random()} className="carousel-item" style={itemStyle}>
                   {bookId ? (
                     pdf.missing
                       ? <div className="book-cover book-missing">Missing Book</div>
-                      : coverUrl === '/no-cover.png'
-                        ? <div className="book-cover book-nocover">No Cover</div>
-                        : <img
-                            src={coverUrl}
-                            alt={pdf.title}
-                            className="book-cover"
-                            onError={e => {
-                              if (e.target.src !== '/no-cover.png') {
+                      : !isLoaded
+                        ? <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }} />
+                        : coverUrl === '/no-cover.png'
+                          ? <img className="book-cover book-nocover" src="/no-cover.svg" alt="No Cover" style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }} />
+                          : <img
+                              src={coverUrl}
+                              alt={pdf.title}
+                              className="book-cover"
+                              onLoad={() => handleCoverLoad(bookId)}
+                              onError={e => {
+                                console.error(`[LandingPage] Error loading cover image for book ${bookId}:`, e);
                                 setCoverInCache(bookId, '/no-cover.png');
-                                e.target.src = '/no-cover.png';
-                              }
-                            }}
-                          />
+                                handleCoverLoad(bookId);
+                                e.target.src = '/no-cover.svg';
+                              }}
+                            />
                   ) : (
                     <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
                   )}
@@ -294,21 +324,24 @@ function CarouselSection({ pdfs, navigate, settings, depth = 1, coversReady }) {
   );
 }
 
-function TopListsSection({ topNewest, topVoted, navigate, depth = 1, coversReady }) {
-  const { covers: coversNewest } = useCachedCovers(topNewest);
-  const { covers: coversVoted } = useCachedCovers(topVoted);
+function TopListsSection({ topNewest, topVoted, navigate, depth = 1}) {
+  const { covers: coversNewest, loaded: loadedNewest, handleCoverLoad: handleLoadNewest } = useCachedCovers(topNewest);
+  const { covers: coversVoted, loaded: loadedVoted, handleCoverLoad: handleLoadVoted } = useCachedCovers(topVoted);
 
-  if (!coversReady) {
-    return (
-      <SteppedContainer depth={depth} className="landing-description" style={{ marginBottom: 32 }}>
-        <div style={{ textAlign: 'center', color: '#888', margin: 24 }}>Preparing covers...</div>
-      </SteppedContainer>
-    );
-  }
+  // Always render top lists with live progress, even while covers are downloading
+
+  // Progress indicator for newest and voted
+  const totalNewest = topNewest.length;
+  const loadedCountNewest = Object.values(loadedNewest).filter(Boolean).length;
+  const totalVoted = topVoted.length;
+  const loadedCountVoted = Object.values(loadedVoted).filter(Boolean).length;
 
   return (
     <SteppedContainer depth={depth} className="landing-description" style={{ marginBottom: 32 }}>
       <p>Explore our collection of books and start reading today!</p>
+      <div style={{ textAlign: 'center', color: '#888', marginBottom: 8, fontSize: 15 }}>
+        {`Newest covers loaded: ${loadedCountNewest} / ${totalNewest} | Voted covers loaded: ${loadedCountVoted} / ${totalVoted}`}
+      </div>
       <div className="top-lists-container">
         <SteppedContainer depth={depth + 1} className="top-list" style={{ marginBottom: 16 }}>
           <h3>Top 10 Newest</h3>
@@ -316,23 +349,25 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1, coversReady
             {topNewest.map((pdf) => {
               const bookId = pdf.drive_id;
               const coverUrl = coversNewest[bookId];
+              const isLoaded = loadedNewest[bookId];
               return (
                 <li key={bookId || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   {bookId ? (
-                    coverUrl === '/no-cover.png' ? (
-                      <div className="book-cover book-nocover">No Cover</div>
-                    ) : (
-                      <img src={coverUrl}
-                        alt={pdf.title}
-                        className="book-cover"
-                        onError={e => {
-                          if (e.target.src !== '/no-cover.png') {
-                            setCoverInCache(bookId, '/no-cover.png');
-                            e.target.src = '/no-cover.png';
-                          }
-                        }}
-                      />
-                    )
+                    !isLoaded
+                      ? <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }} />
+                      : coverUrl === '/no-cover.png'
+                        ? <img className="book-cover book-nocover" src="/no-cover.svg" alt="No Cover" style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }} />
+                        : <img src={coverUrl}
+                            alt={pdf.title}
+                            className="book-cover"
+                            onLoad={() => handleLoadNewest(bookId)}
+                            onError={e => {
+                              console.error(`[LandingPage] Error loading cover image for book ${bookId}:`, e);
+                              setCoverInCache(bookId, '/no-cover.png');
+                              handleLoadNewest(bookId);
+                              e.target.src = '/no-cover.svg';
+                            }}
+                          />
                   ) : (
                     <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
                   )}
@@ -356,23 +391,25 @@ function TopListsSection({ topNewest, topVoted, navigate, depth = 1, coversReady
             {topVoted.map((pdf) => {
               const bookId = pdf.drive_id;
               const coverUrl = coversVoted[bookId];
+              const isLoaded = loadedVoted[bookId];
               return (
                 <li key={bookId || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   {bookId ? (
-                    coverUrl === '/no-cover.png' ? (
-                      <div className="book-cover book-nocover">No Cover</div>
-                    ) : (
-                      <img src={coverUrl}
-                        alt={pdf.title}
-                        className="book-cover"
-                        onError={e => {
-                          if (e.target.src !== '/no-cover.png') {
-                            setCoverInCache(bookId, '/no-cover.png');
-                            e.target.src = '/no-cover.png';
-                          }
-                        }}
-                      />
-                    )
+                    !isLoaded
+                      ? <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }} />
+                      : coverUrl === '/no-cover.png'
+                        ? <img className="book-cover book-nocover" src="/no-cover.svg" alt="No Cover" style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }} />
+                        : <img src={coverUrl}
+                            alt={pdf.title}
+                            className="book-cover"
+                            onLoad={() => handleLoadVoted(bookId)}
+                            onError={e => {
+                              console.error(`[LandingPage] Error loading cover image for book ${bookId}:`, e);
+                              setCoverInCache(bookId, '/no-cover.png');
+                              handleLoadVoted(bookId);
+                              e.target.src = '/no-cover.svg';
+                            }}
+                          />
                   ) : (
                     <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
                   )}
@@ -441,27 +478,37 @@ export default function LandingPage() {
 
   // --- Centralized cover sync effect ---
   useEffect(() => {
+    let isMounted = true;
     async function syncAllCovers() {
       setCoversReady(false);
-      // Gather all book IDs (newest + voted)
+      // Gather all book IDs (newest + voted) and set book lists immediately for live progress
       let allBookIds = [];
+      let newestBooks = [];
+      let votedBooks = [];
       try {
         // Fetch all books (top 20 newest)
         const resAll = await fetch(`${API_BASE_URL}/api/all-books`);
         const dataAll = await resAll.json();
         if (Array.isArray(dataAll.books)) {
-          const newestIds = dataAll.books.slice(0, 20).map(b => b.drive_id);
-          allBookIds = [...newestIds];
+          newestBooks = dataAll.books.slice(0, 20).map(b => ({ ...b, drive_id: b.drive_id || b.id }));
+          allBookIds = newestBooks.map(b => b.drive_id);
         }
         // Fetch top voted books
         const resVoted = await fetch(`${API_BASE_URL}/api/top-voted-books`);
         const dataVoted = await resVoted.json();
         if (dataVoted.success && Array.isArray(dataVoted.books)) {
-          const votedIds = dataVoted.books.map(b => b.id || b.book_id).filter(Boolean);
+          votedBooks = dataVoted.books.map(b => ({ ...b, drive_id: b.drive_id || b.id })).filter(b => b.drive_id);
+          const votedIds = votedBooks.map(b => b.drive_id);
           allBookIds = Array.from(new Set([...allBookIds, ...votedIds]));
         }
       } catch (err) {
         console.error('[LandingPage] Error gathering all book IDs:', err);
+      }
+      // Set book lists immediately for live progress
+      if (isMounted) {
+        setPdfs(newestBooks);
+        setTopNewest(newestBooks.slice(0, 10));
+        setTopVoted(votedBooks.slice(0, 10));
       }
       if (allBookIds.length === 0) {
         setCoversReady(true);
@@ -507,87 +554,10 @@ export default function LandingPage() {
       setCoversReady(true);
     }
     syncAllCovers();
+    return () => { isMounted = false; };
   }, [user]);
 
-  // Fetch top 20 newest book IDs from /api/all-books
-  useEffect(() => {
-    setLoadingPdfs(true);
-    fetch(`${API_BASE_URL}/api/all-books`)
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data.books)) {
-          const newestIds = data.books.slice(0, 20).map(b => b.drive_id);
-          if (newestIds.length > 0) {
-            fetch(`${API_BASE_URL}/api/books?ids=${newestIds.join(',')}`)
-              .then(res2 => res2.json())
-              .then (data2 => {
-                if (Array.isArray(data2.books)) {
-                  // Patch: ensure every book has drive_id
-                  const patchedBooks = data2.books.map(b => ({ ...b, drive_id: b.drive_id || b.id}));
-                  setPdfs(patchedBooks);
-                  setTopNewest(patchedBooks.slice(0, 10));
-                  // --- POST ALL 20 book IDs to backend for cover/atlas sync ---
-                  fetch(`${API_BASE_URL}/api/rebuild-cover-cache`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ book_ids: newestIds })
-                  })
-                    .then(res => res.json())
-                    .then(data => {
-                      console.log('[LandingPage] Posted ALL 20 book IDs to backend:', newestIds, data);
-                    })
-                    .catch(err => {
-                      console.error('[LandingPage] Error posting ALL book IDs to backend:', err);
-                    });
-                }
-                setLoadingPdfs(false);
-                console.log("[LandingPage] Fetched all landing page books:", data2.books);
-              })
-              .catch(err => {
-                console.error("Error fetching books by ids:", err);
-                setLoadingPdfs(false);
-              });
-          } else {
-            setLoadingPdfs(false);
-          }
-        } else {
-          setLoadingPdfs(false);
-        }
-      })
-      .catch(err => {
-        console.error("Error fetching all books:", err);
-        setLoadingPdfs(false);
-      });
-  }, []);
-
-  // Fetch top voted book IDs and then fetch their details
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/api/top-voted-books`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && Array.isArray(data.books)) {
-          const votedIds = data.books.map(b => b.id || b.book_id).filter(Boolean);
-          if (votedIds.length > 0) {
-            fetch(`${API_BASE_URL}/api/books?ids=${votedIds.join(',')}`)
-              .then(res2 => res2.json())
-              .then(data2 => {
-                if (Array.isArray(data2.books)) {
-                  // Patch: ensure every book has drive_id
-                  // Only use drive_id, never fallback to id
-                  const patchedBooks = data2.books.map(b => ({ ...b, drive_id: b.drive_id }));
-                  setTopVoted(patchedBooks.slice(0, 10));
-                }
-              })
-              .catch(err => {
-                console.error("Error fetching voted books by ids:", err);
-              });
-          }
-        }
-      })
-      .catch(err => {
-        console.error("Error fetching top voted books:", err);
-      });
-  }, []);
+  // Remove duplicate book list population effects (handled in cover sync effect above)
 
   // Helper to clear all cover cache and trigger re-fetch
   function retryAllCovers() {

@@ -207,7 +207,6 @@ export default function SearchResults() {
   // Use stepColor for container background and CSS variable for text
   const containerBg = stepColor(backgroundColor, theme, 1);
   const listItemBg = stepColor(backgroundColor, theme, 2);
-  const noCoverBg = stepColor(backgroundColor, theme, 3);
   const containerText = "var(--text-color)";
 
   return (
@@ -250,21 +249,19 @@ export default function SearchResults() {
                   <div style={{ width: 60, height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {isLoading
                       ? (
-                        <div style={{
-                          width: 60, height: 90,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: 'var(--success-bg, #e0ffe0)', color: 'var(--success-text, #080)', borderRadius: 6,
-                          fontSize: 14, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-                        }}>Loading Cover...</div>
+                        <img
+                          src="/loading-cover.svg"
+                          alt="Loading Cover"
+                          style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
+                        />
                       )
                       : coverUrl === '/no-cover.png'
                         ? (
-                          <div style={{
-                            width: 60, height: 90,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: noCoverBg, color: 'var(--secondary-text-color)', borderRadius: 6,
-                            fontSize: 14, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-                          }}>No Cover</div>
+                          <img
+                            src="/no-cover.svg"
+                            alt="No Cover"
+                            style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
+                          />
                         )
                         : (
                           <img
@@ -272,9 +269,9 @@ export default function SearchResults() {
                             alt={pdf.title}
                             style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                             onError={e => {
-                              if (e.target.src !== '/no-cover.png') {
+                              if (e.target.src !== '/no-cover.svg') {
                                 setCoverInCache(bookId, '/no-cover.png');
-                                e.target.src = '/no-cover.png';
+                                e.target.src = '/no-cover.svg';
                               }
                             }}
                           />

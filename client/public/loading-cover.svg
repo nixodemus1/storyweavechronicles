@@ -1,0 +1,6 @@
+<svg width="110" height="160" viewBox="0 0 110 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="110" height="160" rx="6" fill="#e0ffe0"/>
+  <text x="55" y="85" text-anchor="middle" fill="#080" font-size="20" font-family="Arial, sans-serif" font-style="italic" font-weight="bold">Loading...</text>
+  <circle cx="55" cy="120" r="12" stroke="#080" stroke-width="3" fill="none" opacity="0.3"/>
+  <path d="M55 108 a12 12 0 0 1 0 24" stroke="#080" stroke-width="3" fill="none"/>
+</svg>

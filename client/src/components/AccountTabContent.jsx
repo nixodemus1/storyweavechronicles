@@ -186,20 +186,19 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
                     <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
                       {book.id ? (
                         coverUrl === '/no-cover.png'
-                          ? <div style={{
-                              width: 38, height: 54,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              background: 'var(--cover-bg, #eee)', color: 'var(--cover-text, #888)', borderRadius: 4,
-                              fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-                            }}>No Cover</div>
+                          ? <img
+                              src="/no-cover.svg"
+                              alt="No Cover"
+                              style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
+                            />
                           : <img
                               src={coverUrl}
                               alt={book.name}
                               style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                               onError={e => {
-                                if (e.target.src !== '/no-cover.png') {
+                                if (e.target.src !== '/no-cover.svg') {
                                   setCoverInCache(book.id, '/no-cover.png');
-                                  e.target.src = '/no-cover.png';
+                                  e.target.src = '/no-cover.svg';
                                 }
                               }}
                             />
