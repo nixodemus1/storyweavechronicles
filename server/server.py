@@ -16,6 +16,7 @@ from collections import deque
 import traceback
 import concurrent.futures
 import shutil
+import random
 
 # --- Third-Party Imports ---
 import fitz  # PyMuPDF
@@ -38,7 +39,6 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 import dateutil.parser
-import random
 
 # --- Project Imports ---
 try:
