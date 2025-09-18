@@ -3493,6 +3493,19 @@ def api_almanac():
 
 @app.route("/<path:path>")
 def serve_react(path):
+    # --- Environment detection ---
+    is_production = os.getenv("RENDER") == "true" or os.getenv("FLASK_ENV") == "production" or os.getenv("PRODUCTION") == "true"
+    # Use client/dist for production, client/public for development
+    frontend_static_dir = os.getenv("FRONTEND_STATIC_DIR")
+    if not frontend_static_dir:
+        if is_production:
+            frontend_static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "client", "dist"))
+        else:
+            frontend_static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "client", "public"))
+
+    # Covers directory: always relative to static dir
+    covers_dir = os.path.join(frontend_static_dir, "covers")
+
     # 1. API route fallback: JSON 404
     if path.startswith("api/"):
         return jsonify({"success": False, "message": "API endpoint not found.", "hint": "See / for API Almanac."}), 404
@@ -3500,8 +3513,6 @@ def serve_react(path):
     # 2. Serve cover images from disk if requested
     if path.startswith("covers/") and path.endswith(".jpg"):
         cover_id = path.split("/")[-1].replace(".jpg", "")
-        # Use FRONTEND_STATIC_DIR for covers if set, else fallback to COVERS_DIR
-        covers_dir = os.path.join(os.getenv("FRONTEND_STATIC_DIR") or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "client", "public")), "covers")
         cover_path = os.path.join(covers_dir, f"{cover_id}.jpg")
         if os.path.exists(cover_path):
             return send_from_directory(covers_dir, f"{cover_id}.jpg")
@@ -3509,7 +3520,6 @@ def serve_react(path):
             return jsonify({"success": False, "message": f"Cover {cover_id}.jpg not found."}), 404
 
     # 3. Serve favicon.ico from frontend static dir (or vite.svg)
-    frontend_static_dir = os.getenv("FRONTEND_STATIC_DIR") or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "client", "public"))
     if path == "favicon.ico":
         vite_svg_path = os.path.join(frontend_static_dir, "vite.svg")
         if os.path.exists(vite_svg_path):
