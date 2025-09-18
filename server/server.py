@@ -72,7 +72,12 @@ app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
-CORS(app, origins=["http://localhost:5173", "http://localhost:5000", "https://storyweavechronicles.onrender.com", "https://swcflaskbackend.onrender.com"])
+CORS(app, origins=[
+    "http://localhost:5173",
+    "http://localhost:5000",
+    "https://storyweavechronicles.onrender.com",
+    "https://swcflaskbackend.onrender.com"
+], supports_credentials=True, allow_headers="*", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 mail = Mail(app)
 
 service_account_info = {
