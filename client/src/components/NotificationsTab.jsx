@@ -2,6 +2,7 @@ import React, { useContext, useState } from "react";
 import { ThemeContext } from "../themeContext";
 import { stepColor } from "../utils/colorUtils";
 import { getLuminance } from "../utils/colorUtils";
+import { waitForServerHealth } from "../utils/serviceHealth";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
@@ -29,18 +30,21 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
     if (sessionId) {
       prefsUrl += `?session_id=${encodeURIComponent(sessionId)}`;
     }
-    fetch(prefsUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.prefs) {
-          setPrefs(data.prefs);
-        }
+    (async () => {
+      await waitForServerHealth();
+      fetch(prefsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username })
       })
-      .finally(() => setLoading(false));
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.prefs) {
+            setPrefs(data.prefs);
+          }
+        })
+        .finally(() => setLoading(false));
+    })();
   }, [user, user?.username, user?.email, user?.secondaryEmails]);
 
   function handleChange(e) {
@@ -58,47 +62,53 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
         }
         // Immediately save with the updated state
         setSaving(true);
-        fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: user.username, prefs: { ...prev, emailChannels: updated } })
-        })
-          .then(res => res.json())
-          .then(data => {
-            if (data.success) {
-              setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, emailChannels: updated } } : u);
-            } else {
-              // Optionally show error to user
+        (async () => {
+          await waitForServerHealth();
+          fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user.username, prefs: { ...prev, emailChannels: updated } })
+          })
+            .then(res => res.json())
+            .then(data => {
+              if (data.success) {
+                setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, emailChannels: updated } } : u);
+              } else {
+                // Optionally show error to user
+                alert('Failed to save notification preferences.');
+              }
+            })
+            .catch(() => {
               alert('Failed to save notification preferences.');
-            }
-          })
-          .catch(() => {
-            alert('Failed to save notification preferences.');
-          })
-          .finally(() => setSaving(false));
+            })
+            .finally(() => setSaving(false));
+        })();
         return { ...prev, emailChannels: updated };
       });
     } else {
       setPrefs(prev => {
         const updatedPrefs = { ...prev, [name]: checked };
         setSaving(true);
-        fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: user.username, prefs: updatedPrefs })
-        })
-          .then(res => res.json())
-          .then(data => {
-            if (data.success) {
-              setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, [name]: checked } } : u);
-            } else {
+        (async () => {
+          await waitForServerHealth();
+          fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user.username, prefs: updatedPrefs })
+          })
+            .then(res => res.json())
+            .then(data => {
+              if (data.success) {
+                setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, [name]: checked } } : u);
+              } else {
+                alert('Failed to save notification preferences.');
+              }
+            })
+            .catch(() => {
               alert('Failed to save notification preferences.');
-            }
-          })
-          .catch(() => {
-            alert('Failed to save notification preferences.');
-          })
-          .finally(() => setSaving(false));
+            })
+            .finally(() => setSaving(false));
+        })();
         return updatedPrefs;
       });
     }
@@ -121,18 +131,21 @@ const NotificationsTabContent = React.memo(function NotificationsTabContent({ us
                 const value = e.target.value;
                 setPrefs(prev => ({ ...prev, emailFrequency: value }));
                 setSaving(true);
-                fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ username: user.username, prefs: { ...prefs, emailFrequency: value } })
-                })
-                  .then(res => res.json())
-                  .then(data => {
-                    if (data.success) {
-                      setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, emailFrequency: value } } : u);
-                    }
+                (async () => {
+                  await waitForServerHealth();
+                  fetch(`${API_BASE_URL}/api/update-notification-prefs`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: user.username, prefs: { ...prefs, emailFrequency: value } })
                   })
-                  .finally(() => setSaving(false));
+                    .then(res => res.json())
+                    .then(data => {
+                      if (data.success) {
+                        setUser(u => u ? { ...u, notificationPrefs: { ...u.notificationPrefs, emailFrequency: value } } : u);
+                      }
+                    })
+                    .finally(() => setSaving(false));
+                })();
               }}
               style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc', fontSize: 15 }}
             >
@@ -252,18 +265,21 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   const fetchNotifications = React.useCallback(() => {
     if (!user?.username) return;
     setLoading(true);
-    fetch(`${API_BASE_URL}/api/get-notification-history`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username, page, page_size: pageSize })
-    })
-      .then(res => res.json())
-      .then(data => {
-        setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
-        setTotalPages(data.total_pages || 1);
-        setLoading(false);
+    (async () => {
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/get-notification-history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, page, page_size: pageSize })
       })
-      .catch(() => setLoading(false));
+        .then(res => res.json())
+        .then(data => {
+          setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+          setTotalPages(data.total_pages || 1);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    })();
   }, [user?.username, page, pageSize]);
 
   React.useEffect(() => {
@@ -279,6 +295,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   async function handleDismiss(id) {
     setDeleting(id);
     try {
+      await waitForServerHealth();
       const res = await fetch(`${API_BASE_URL}/api/delete-notification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -295,49 +312,58 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   }
 
   function handleMarkRead(id, read) {
-    fetch(`${API_BASE_URL}/api/mark-notification-read`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username, notificationId: id, read })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setRefreshFlag(f => f + 1); // trigger re-fetch
-        }
-      });
+    (async () => {
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/mark-notification-read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username, notificationId: id, read })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setRefreshFlag(f => f + 1); // trigger re-fetch
+          }
+        });
+    })();
   }
 
   function handleBulkDelete() {
     setBulkLoading(true);
-    fetch(`${API_BASE_URL}/api/delete-all-notification-history`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setRefreshFlag(f => f + 1); // trigger re-fetch
-        }
+    (async () => {
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/delete-all-notification-history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username })
       })
-      .finally(() => setBulkLoading(false));
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setRefreshFlag(f => f + 1); // trigger re-fetch
+          }
+        })
+        .finally(() => setBulkLoading(false));
+    })();
   }
 
   function handleBulkMarkRead() {
     setBulkLoading(true);
-    fetch(`${API_BASE_URL}/api/mark-all-notifications-read`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setRefreshFlag(f => f + 1); // trigger re-fetch
-        }
+    (async () => {
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/mark-all-notifications-read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username })
       })
-      .finally(() => setBulkLoading(false));
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setRefreshFlag(f => f + 1); // trigger re-fetch
+          }
+        })
+        .finally(() => setBulkLoading(false));
+    })();
   }
 
   // Filtering logic
@@ -430,6 +456,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
                         onClick={async e => {
                           e.preventDefault();
                           // Mark as read if not already
+                          await waitForServerHealth();
                           if (!n.read) {
                             await fetch(`${API_BASE_URL}/api/mark-notification-read`, {
                               method: 'POST',

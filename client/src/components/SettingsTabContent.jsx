@@ -2,9 +2,9 @@ import React, { useContext, useState, useImperativeHandle, forwardRef } from "re
 import { stepTextColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
 import { PreviewColorContext } from "../context/PreviewColorContext.js";
+import { waitForServerHealth } from "../utils/serviceHealth";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
-
 
 const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
   // Always get context first so values are available for state initializers
@@ -15,6 +15,7 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
   const savePendingProfile = async () => {
     if (!props.user?.username) return;
     try {
+      await waitForServerHealth();
       // Save font and timezone
       const profileRes = await fetch(`${API_BASE_URL}/api/update-profile-settings`, {
         method: 'POST',

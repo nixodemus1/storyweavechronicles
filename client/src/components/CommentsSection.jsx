@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useContext } from "react";
-import { useCommentsContext } from "./commentsContext";
+import { useCommentsContext } from "./commentsContextUtils";
 import { stepColor } from "../utils/colorUtils";
 import { ThemeContext } from "../themeContext";
+import { waitForServerHealth } from "../utils/serviceHealth";
 
 export default function CommentsSection({ commentToScroll, commentsPageFromQuery, bookId }) {
   const {
@@ -51,11 +52,12 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
     }
     if (!newComment.trim()) return;
     // Use bookId from props, fallback to user.bookId if needed
-  const actualBookId = bookId || (user && user.bookId);
+    const actualBookId = bookId || (user && user.bookId);
     if (!actualBookId) {
       setMsg("Book ID missing. Cannot add comment.");
       return;
     }
+    await waitForServerHealth();
     const res = await fetch(`${import.meta.env.VITE_HOST_URL}/api/add-comment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -80,6 +82,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
   // Edit comment
   const handleEditComment = async (commentId) => {
     if (!editText.trim()) return;
+    await waitForServerHealth();
     const res = await fetch(`${import.meta.env.VITE_HOST_URL}/api/edit-comment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -101,6 +104,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
 
   // Delete comment
   const handleDeleteComment = async (commentId) => {
+    await waitForServerHealth();
     const res = await fetch(`${import.meta.env.VITE_HOST_URL}/api/delete-comment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -119,6 +123,7 @@ export default function CommentsSection({ commentToScroll, commentsPageFromQuery
 
   // Vote comment
   const handleVoteComment = async (commentId, value) => {
+    await waitForServerHealth();
     await fetch(`${import.meta.env.VITE_HOST_URL}/api/vote-comment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

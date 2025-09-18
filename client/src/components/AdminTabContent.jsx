@@ -1,6 +1,7 @@
 import React, { useContext, useState } from "react";
 import { ThemeContext } from "../themeContext";
 import { stepColor } from "../utils/colorUtils";
+import { waitForServerHealth } from "../utils/serviceHealth";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
@@ -38,6 +39,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
     setSeedLoading(true);
     setSeedStatus("");
     try {
+      await waitForServerHealth();
       const res = await fetch(`${API_BASE_URL}/api/seed-drive-books`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -50,7 +52,7 @@ const AdminTabContent = React.memo(function AdminTabContent({ user }) {
         setSeedStatus(data.message || "Failed to seed books.");
       }
     } catch (e) {
-      setSeedStatus("Error calling seed-drive-books endpoint: ", e);
+      setSeedStatus("Error calling seed-drive-books endpoint: " + e);
     }
     setSeedLoading(false);
   }
@@ -61,6 +63,7 @@ async function handleSendNewsletter(e) {
   setNewsletterSending(true);
   setNewsletterStatus("");
   try {
+    await waitForServerHealth();
     const res = await fetch(`${API_BASE_URL}/api/admin/send-newsletter`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -93,18 +96,21 @@ async function handleSendNewsletter(e) {
     if (recipientType === "username" || recipientType === "email") {
       recipient = recipientValue.trim();
     }
-    fetch(`${API_BASE_URL}/api/admin/send-emergency-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adminUsername: user.username, subject: "Emergency Message", message: emailMsg, recipient })
-    })
-      .then(res => res.json())
-      .then(data => {
-        setEmailStatus(data.success ? "Email sent successfully." : data.message || "Failed to send email.");
-        setRecipientValue("");
-        setEmailMsg("");
+    (async () => {
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/admin/send-emergency-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminUsername: user.username, subject: "Emergency Message", message: emailMsg, recipient })
       })
-      .finally(() => setSaving(false));
+        .then(res => res.json())
+        .then(data => {
+          setEmailStatus(data.success ? "Email sent successfully." : data.message || "Failed to send email.");
+          setRecipientValue("");
+          setEmailMsg("");
+        })
+        .finally(() => setSaving(false));
+    })();
   }
 
   function handleAdminAction(e) {
@@ -114,17 +120,20 @@ async function handleSendNewsletter(e) {
     const endpoint = adminAction === "give"
       ? `${API_BASE_URL}/api/admin/make-admin`
       : `${API_BASE_URL}/api/admin/remove-admin`;
-    fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adminUsername: user.username, targetUsername: adminUser })
-    })
-      .then(res => res.json())
-      .then(data => {
-        setAdminStatus(data.success ? `Admin rights ${adminAction === "give" ? "granted" : "revoked"} for ${adminUser}.` : data.error || "Failed to update admin rights.");
-        setAdminUser("");
+    (async () => {
+      await waitForServerHealth();
+      fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminUsername: user.username, targetUsername: adminUser })
       })
-      .finally(() => setSaving(false));
+        .then(res => res.json())
+        .then(data => {
+          setAdminStatus(data.success ? `Admin rights ${adminAction === "give" ? "granted" : "revoked"} for ${adminUser}.` : data.error || "Failed to update admin rights.");
+          setAdminUser("");
+        })
+        .finally(() => setSaving(false));
+    })();
   }
 
   return (
@@ -275,6 +284,7 @@ async function handleSendNewsletter(e) {
         setSaving(true);
         setUnbanStatus("");
         try {
+          await waitForServerHealth();
           const res = await fetch(`${API_BASE_URL}/api/admin/unban-user`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -321,6 +331,7 @@ async function handleSendNewsletter(e) {
                 setBanStatus("");
                 setBanConfirm(false);
                 try {
+                  await waitForServerHealth();
                   const res = await fetch(`${API_BASE_URL}/api/admin/ban-user`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },

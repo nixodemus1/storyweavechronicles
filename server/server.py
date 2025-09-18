@@ -33,7 +33,7 @@ from flask import (
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_mail import Mail, Message
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, text
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
@@ -1132,35 +1132,8 @@ def get_books_by_ids():
         })
     return jsonify({'books': result})
 
-@app.route('/download-pdf/<file_id>')
-def download_pdf(file_id):
-    try:
-        service = get_drive_service()
-        file_metadata = service.files().get(fileId=file_id, fields='name').execute()
-        filename = file_metadata.get('name', 'downloaded.pdf')
-        request = service.files().get_media(fileId=file_id)
-        def generate():
-            downloader = request
-            chunk_size = 1024 * 64  # 64KB
-            data = downloader.execute()
-            buf = memoryview(data)
-            offset = 0
-            while offset < len(buf):
-                yield buf[offset:offset+chunk_size]
-                offset += chunk_size
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[download-pdf] Memory usage: {mem:.2f} MB for file_id={file_id}, filename={filename}")
-        response = make_response(generate())
-        response.headers['Content-Type'] = 'application/pdf'
-        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
-        response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
-        return response
-    except Exception as e:
-        response = make_response(jsonify(error=str(e)), 500)
-        response.headers["Access-Control-Allow-Origin"] = "https://storyweavechronicles.onrender.com"
-        return response
 
-# --- Health Check for Cover Queue ---
+# --- Health Checks ---
 @app.route('/api/cover-queue-health', methods=['GET'])
 def cover_queue_health():
     status = get_queue_status()
@@ -1171,6 +1144,32 @@ def cover_queue_health():
         'queue': status['queue'],
         'sessions': status['sessions'],
     })
+
+@app.route('/api/server-health', methods=['GET'])
+def server_health():
+    """
+    Health check endpoint: verifies DB connectivity. Returns success: true if DB responds, else false.
+    """
+    try:
+        # Simple DB query to test connection
+        db.session.execute(text('SELECT 1'))
+        return jsonify({'success': True})
+    except Exception as e:
+        logging.error(f"[server_health] DB health check failed: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """
+    Health check endpoint for Render.com. Returns 200 OK and JSON status.
+    Only log if status is not 200.
+    """
+    response = jsonify({'status': 'ok', 'message': 'Service is healthy.'})
+    status_code = 200
+    # Only log if status is not 200
+    if status_code != 200:
+        logging.info(f"[HEALTH CHECK] Status: {status_code} Response: {response.get_json()}")
+    return response, status_code
 
 # --- Serve covers from disk with fallback ---
 @app.route('/covers/<cover_id>.jpg')
@@ -2523,19 +2522,6 @@ def remove_bookmark():
         return jsonify({'success': False, 'message': 'Bookmark not found.', 'bookmarks': bookmarks})
     return jsonify({'success': True, 'message': 'Bookmark removed.', 'bookmarks': bookmarks})
 
-@app.route('/api/set-primary-email', methods=['POST'])
-def set_primary_email():
-    data = request.get_json()
-    username = data.get('username')
-    email = data.get('email')
-    user = User.query.filter_by(username=username).first()
-    if not user or not email:
-        return jsonify({'success': False, 'message': 'User or email missing.'}), 400
-    if User.query.filter(User.username != username, User.email == email).first():
-        return jsonify({'success': False, 'message': 'Email already registered to another account.'}), 400
-    user.email = email
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Primary email updated.', 'email': email})
 
 @app.route('/api/update-bookmark-meta', methods=['POST'])
 def update_bookmark_meta():
@@ -2879,19 +2865,6 @@ def moderate_comment():
                 link=f'/read/{comment.book_id}?comment={comment_id}'
             )
         return jsonify({'success': True, 'message': 'Comment deleted.'})
-    
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """
-    Health check endpoint for Render.com. Returns 200 OK and JSON status.
-    Only log if status is not 200.
-    """
-    response = jsonify({'status': 'ok', 'message': 'Service is healthy.'})
-    status_code = 200
-    # Only log if status is not 200
-    if status_code != 200:
-        logging.info(f"[HEALTH CHECK] Status: {status_code} Response: {response.get_json()}")
-    return response, status_code
     
 # --- GitHub Webhook for App Update Notifications ---
 @app.route('/api/github-webhook', methods=['POST'])

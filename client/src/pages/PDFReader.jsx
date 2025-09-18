@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { useParams } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
 import { SteppedContainer } from "../components/ContainerDepthContext.jsx";
+import { waitForServerHealth } from "../utils/serviceHealth";
 // Removed CommentsProvider import; using memoized CommentsSection only
 import { CommentsProvider } from "../components/commentsContext.jsx";
 import CommentsSection from "../components/CommentsSection";
@@ -110,10 +111,11 @@ export default function PDFReader() {
     const prevPathRef = useRef(location.pathname);
     useEffect(() => {
       prevPathRef.current = location.pathname;
-      return () => {
+      return async () => {
         if (prevPathRef.current !== location.pathname) {
           const sessionId = (user && user.sessionId) || localStorage.getItem('swc_session_id');
           if (sessionId) {
+            await waitForServerHealth();
             fetch(`${API_BASE_URL}/api/cancel-session`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -239,6 +241,7 @@ export default function PDFReader() {
           if (sessionId) params.set('session_id', sessionId);
           try {
             if (stopped) break;
+            await waitForServerHealth();
             const res = await fetch(`${API_BASE_URL}/api/pdf-text/${id}?${params.toString()}`);
             if (stopped) break;
             const data = await res.json();
@@ -330,64 +333,81 @@ export default function PDFReader() {
 
   // Check if this book is bookmarked by the user
   useEffect(() => {
-    if (user && user.username) {
-      fetch(`${API_BASE_URL}/api/get-bookmarks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && Array.isArray(data.bookmarks)) {
-            const bm = data.bookmarks.find(b => b.id === id);
-            setIsBookmarked(!!bm);
-          } else {
-            setIsBookmarked(false);
-          }
+    async function fetchBookmarks() {
+      if (user && user.username) {
+        await waitForServerHealth();
+        fetch(`${API_BASE_URL}/api/get-bookmarks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user.username })
         })
-        .catch(() => setIsBookmarked(false));
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && Array.isArray(data.bookmarks)) {
+              const bm = data.bookmarks.find(b => b.id === id);
+              setIsBookmarked(!!bm);
+            } else {
+              setIsBookmarked(false);
+            }
+          })
+          .catch(() => setIsBookmarked(false));
+      }
     }
+    fetchBookmarks();
   }, [user, id]);
 
   // Track last page update only if book is bookmarked
   useEffect(() => {
-    if (user && user.username && id && currentPage && isBookmarked) {
-      fetch(`${API_BASE_URL}/api/update-bookmark-meta`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, book_id: id, last_page: currentPage })
-      });
+    async function updateBookmarkMeta() {
+      if (user && user.username && id && currentPage && isBookmarked) {
+        await waitForServerHealth();
+        fetch(`${API_BASE_URL}/api/update-bookmark-meta`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user.username, book_id: id, last_page: currentPage })
+        });
+      }
     }
+    updateBookmarkMeta();
   }, [user, id, currentPage, isBookmarked]);
 
   // Fetch user's vote for this book
   useEffect(() => {
-    if (user && user.username && id) {
-      fetch(`${API_BASE_URL}/api/user-voted-books?username=${user.username}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && Array.isArray(data.voted_books)) {
-            const v = data.voted_books.find(b => b.book_id === id);
-            if (v) setUserVote(v.value);
-          }
-        });
+    async function fetchUserVote() {
+      if (user && user.username && id) {
+        await waitForServerHealth();
+        fetch(`${API_BASE_URL}/api/user-voted-books?username=${user.username}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && Array.isArray(data.voted_books)) {
+              const v = data.voted_books.find(b => b.book_id === id);
+              if (v) setUserVote(v.value);
+            }
+          });
+      }
     }
+    fetchUserVote();
   }, [user, id]);
 
   // Fetch vote stats for this book
   useEffect(() => {
-    if (id) {
-      fetch(`${API_BASE_URL}/api/book-votes?book_id=${id}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) setVoteStats({ average: data.average, count: data.count });
-        });
+    async function fetchVoteStats() {
+      if (id) {
+        await waitForServerHealth();
+        fetch(`${API_BASE_URL}/api/book-votes?book_id=${id}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) setVoteStats({ average: data.average, count: data.count });
+          });
+      }
     }
+    fetchVoteStats();
   }, [id, userVote]);
 
   // Voting handler
   const handleVote = async (value) => {
     if (!user || !user.username) return;
+    await waitForServerHealth();
     const res = await fetch(`${API_BASE_URL}/api/vote-book`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -406,6 +426,7 @@ export default function PDFReader() {
       setBookmarkMsg("Please log in to bookmark.");
       return;
     }
+    await waitForServerHealth();
     const res = await fetch(`${API_BASE_URL}/api/add-bookmark`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -426,6 +447,7 @@ export default function PDFReader() {
       setBookmarkMsg("Please log in to remove bookmark.");
       return;
     }
+    await waitForServerHealth();
     const res = await fetch(`${API_BASE_URL}/api/remove-bookmark`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

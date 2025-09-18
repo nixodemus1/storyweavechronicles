@@ -6,6 +6,7 @@ import Slider from "react-slick";
 import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
 import { ContainerDepthProvider, SteppedContainer } from "../components/ContainerDepthContext";
+import { waitForServerHealth } from "../utils/serviceHealth";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
@@ -594,83 +595,98 @@ export default function LandingPage() {
     let allBookIds = [];
 
     // Fetch all books (top 20 newest)
-    fetch(`${API_BASE_URL}/api/all-books`)
-      .then(res => res.json())
-      .then(dataAll => {
-        if (Array.isArray(dataAll.books)) {
-          const newestBooks = dataAll.books.slice(0, 20).map(b => ({ ...b, drive_id: b.drive_id || b.id }));
-          if (isMounted) {
-            setPdfs(newestBooks);
-            setTopNewest(newestBooks.slice(0, 10));
+    waitForServerHealth().then(() => {
+      fetch(`${API_BASE_URL}/api/all-books`)
+        .then(res => res.json())
+        .then(dataAll => {
+          if (Array.isArray(dataAll.books)) {
+            const newestBooks = dataAll.books.slice(0, 20).map(b => ({ ...b, drive_id: b.drive_id || b.id }));
+            if (isMounted) {
+              setPdfs(newestBooks);
+              setTopNewest(newestBooks.slice(0, 10));
+            }
+            allBookIds = newestBooks.map(b => b.drive_id);
           }
-          allBookIds = newestBooks.map(b => b.drive_id);
-        }
-        // After newest, fetch voted
-        fetch(`${API_BASE_URL}/api/top-voted-books`)
-          .then(resVoted => resVoted.json())
-          .then(dataVoted => {
-            if (dataVoted.success && Array.isArray(dataVoted.books)) {
-              const votedBooks = dataVoted.books.map(b => ({ ...b, drive_id: b.drive_id || b.id })).filter(b => b.drive_id);
-              if (isMounted) {
-                setTopVoted(votedBooks.slice(0, 10));
-              }
-              const votedIds = votedBooks.map(b => b.drive_id);
-              allBookIds = Array.from(new Set([...allBookIds, ...votedIds]));
-            }
-            // POST all IDs to /api/rebuild-cover-cache
-            if (allBookIds.length === 0) {
-              setCoversReady(true);
-              return;
-            }
-            fetch(`${API_BASE_URL}/api/rebuild-cover-cache`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ book_ids: allBookIds })
-            })
-              .then(resp => resp.json())
-              .then(data => {
-                const missingIds = Array.isArray(data.missing_ids) ? data.missing_ids : [];
-                if (missingIds.length > 0) {
-                  Promise.all(missingIds.map(async bookId => {
-                    try {
-                      const sessionId = user?.session_id || localStorage.getItem('session_id');
-                      const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}?session_id=${encodeURIComponent(sessionId || '')}`;
-                      const resp = await fetch(coverUrl);
-                      if (resp.status === 429) {
-                        setCoverInCache(bookId, '/no-cover.png');
-                      } else {
-                        const contentType = resp.headers.get('content-type');
-                        if (contentType && contentType.startsWith('image/')) {
-                          setCoverInCache(bookId, `${API_BASE_URL}/covers/${bookId}.jpg`);
-                        } else {
-                          setCoverInCache(bookId, '/no-cover.png');
-                        }
-                      }
-                    } catch (err) {
-                      console.error(`[LandingPage] Error fetching cover for book ${bookId}:`, err);
-                      setCoverInCache(bookId, '/no-cover.png');
-                    }
-                  })).then(() => {
-                    setCoversReady(true);
-                  });
-                } else {
-                  setCoversReady(true);
+          // After newest, fetch voted
+          waitForServerHealth().then(() => {
+            fetch(`${API_BASE_URL}/api/top-voted-books`)
+              .then(resVoted => resVoted.json())
+              .then(dataVoted => {
+                if (dataVoted.success && Array.isArray(dataVoted.books)) {
+                  const votedBooks = dataVoted.books.map(b => ({ ...b, drive_id: b.drive_id || b.id })).filter(b => b.drive_id);
+                  if (isMounted) {
+                    setTopVoted(votedBooks.slice(0, 10));
+                  }
+                  const votedIds = votedBooks.map(b => b.drive_id);
+                  allBookIds = Array.from(new Set([...allBookIds, ...votedIds]));
                 }
+                // POST all IDs to /api/rebuild-cover-cache
+                if (allBookIds.length === 0) {
+                  setCoversReady(true);
+                  return;
+                }
+                waitForServerHealth().then(() => {
+                  fetch(`${API_BASE_URL}/api/rebuild-cover-cache`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ book_ids: allBookIds })
+                  })
+                    .then(resp => resp.json())
+                    .then(data => {
+                      const missingIds = Array.isArray(data.missing_ids) ? data.missing_ids : [];
+                      if (missingIds.length > 0) {
+                        Promise.all(missingIds.map(async bookId => {
+                          try {
+                            const sessionId = user?.session_id || localStorage.getItem('session_id');
+                            const coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}?session_id=${encodeURIComponent(sessionId || '')}`;
+                            await waitForServerHealth();
+                            const resp = await fetch(coverUrl);
+                            if (resp.status === 429) {
+                              setCoverInCache(bookId, '/no-cover.png');
+                            } else {
+                              const contentType = resp.headers.get('content-type');
+                              if (contentType && contentType.startsWith('image/')) {
+                                setCoverInCache(bookId, `${API_BASE_URL}/covers/${bookId}.jpg`);
+                              } else {
+                                setCoverInCache(bookId, '/no-cover.png');
+                              }
+                            }
+                          } catch (err) {
+                            console.error(`[LandingPage] Error fetching cover for book ${bookId}:`, err);
+                            setCoverInCache(bookId, '/no-cover.png');
+                          }
+                        })).then(() => {
+                          setCoversReady(true);
+                        });
+                      } else {
+                        setCoversReady(true);
+                      }
+                    })
+                    .catch(err => {
+                      console.error('[LandingPage] Error rebuilding cover cache:', err);
+                      setCoversReady(true);
+                    });
+                })
+                .catch(err => {
+                  console.error("Error fetching top voted books:", err);
+                  setCoversReady(true);
+                });
               })
               .catch(err => {
-                console.error('[LandingPage] Error rebuilding cover cache:', err);
+                console.error("Error fetching top voted books:", err);
                 setCoversReady(true);
               });
           })
           .catch(err => {
-            console.error("Error fetching top voted books:", err);
+            console.error("Error fetching all books:", err);
             setCoversReady(true);
           });
-      })
-      .catch(err => {
-        console.error("Error fetching all books:", err);
-        setCoversReady(true);
-      });
+        })
+        .catch(err => {
+          console.error("Error fetching all books:", err);
+          setCoversReady(true);
+        });
+    });
     return () => { isMounted = false; };
   }, [user]);
 

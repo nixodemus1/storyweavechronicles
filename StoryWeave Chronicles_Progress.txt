@@ -1,157 +1,52 @@
-# StoryWeave Chronicles – Project Status & Roadmap (September 13, 2025)
+# 📋 StoryWeave Chronicles – Project TODO List (September 17, 2025)
 
-## ✅ Current State & Completed Features
+## ✅ Completed & Stable
+- Newsletter feature added
+- Export/import bookmarks implemented
+- Carousel mobile issues fixed (desktop/mobile both usable, needs polish)
+- Database migrated to Neon (persistent, fast cover loading)
+- Cover caching system optimized and stress tested
+- RAM usage optimized (open to further improvements)
+- Made a new cover system for the sake of being super optimized. (way faster and using way less memory if you can get over the first dry launch)
+- managed to finally clean up and organize my back end. (will do the same for the front end once its completely stable)
 
-- **User Profiles:**  
-  - ✅ Persistent settings (color, font, timezone) via LocalStorage and SQLAlchemy.
-  - ✅ Sidebar tab layout for navigation (profile, settings, notifications, account).
+---
 
-- **Bookmarks/Favorites:**  
-  - ✅ Add/remove bookmarks, persistent across sessions.
-  - ✅ Bookmarks visible in user profile.
-  - ✅ Export/import planned.
+## ☐ Remaining Bugs & Improvements
+- Routing/refresh error: attempted fix, still unresolved (production, Render.com)
+- Carousel UI: polish for desktop and mobile
+- for advertising: propellerads, adsterra, and revenuehits are the ones i want to look at the most.
+- for OAuth and login credentials: firebase and clerk
+- for new Mail provider: sendgrid or mailgun (can integrate with flaskmail)
+- Minor bugs: address issues found during stress testing
+- Front end keeps polling after all covers are done downloading
+- churn is back. it fixed itself for a bit and now its back.
 
-- **Voting System:**  
-  - ✅ Backend and UI for voting on books.
-  - ✅ Top lists and carousel UI for newest/most voted books.
+---
 
-- **Comment & Reply System:**  
-  - ✅ Backend and UI for comments and replies.
-  - ✅ SQLAlchemy models for moderation.
+## 🚀 Future Goals
+- Continue monitoring and optimizing RAM/CPU usage
+- Add admin tools: logs, rate limiting, restore deleted content, user activity overview
+- Set up automated alerts for memory, queue length, error rates
+- Consider service workers for offline access
+- General UI polish and performance enhancements
+- Username changes (stretch goal, not prioritized)
+- cleanup and organize front end
 
-- **Notification System:**  
-  - ✅ In-app notifications (tab/dropdown).
-  - ✅ Email notifications via Flask-Mail.
-  - ✅ Notification preferences.
-
-- **Security Features:**  
-  - ✅ Password change, secondary email, account deletion.
-  - ✅ Security tab in UI.
-
-- **Database Migration:**  
-  - ✅ PostgreSQL on Render.com (1GB, expires monthly).
-  - ✅ SQLAlchemy ORM for all models.
-
-- **General UI/UX:**  
-  - ✅ Sidebar navigation, tabbed layout, logout.
-  - ✅ UI cleanup, placeholders/progress indicators for covers.
-  - ✅ Page-by-page text loading for readers.
-
-- **Optimization Achievements:**  
-  - ✅ Reduced requests, bandwidth, and RAM usage.
-  - ✅ DOMContentLoaded and load times <1s.
-  - ✅ Robust backend queue/lock management.
-  - ✅ Lazy loading and browser caching for images.
-  - ✅ Pagination and async APIs.
-
-- **Scalability:**  
-  - ✅ Can serve ~1M loads/month on free tier.
-  - ✅ Stable for 200 users (current: 172).
-
-- **Backend Stability:**  
-  - ✅ No server errors or restarts.
-  - ✅ Stable PDF processing and queue management.
-
-## ✅ Recent Bug Fixes & Improvements
-
-- ✅ Fixed notification dropdown toggle and update logic.
-- ✅ Provided feedback for admin rights changes.
-- ✅ Optimized performance and data usage.
-- ✅ Auto-setup timezone based on local time.
-- ✅ Fixed infinite loop in update depth (search/account pages).
-- ✅ Fixed document closing error.
-- ✅ Color theme logic unified: instant updates to ThemeContext, CSS variables, and user object (fixes color lag/mismatch).
-- ✅ Color theme edge cases and preview system fully resolved.
-- ✅ Refactored context exports for fast refresh and build compatibility.
-- ✅ Resolved build/deploy issues on Render.
-
-## ☐ Remaining Bugs, Edge Cases & New Goals
-☐ Admin features: logs, rate limiting, restore deleted content, user activity overview.
-✅ Newsletter feature (non-functional).
-✅ Export/import bookmarks.
-✅ Carousel issues on mobile.
-❌ Allow username changes after account creation.
-☐ Routing/refresh error fix (production: still broken on Render.com, revisit _redirects and deployment config)
-☐ Continue fixing any remaining bugs.
-
+---
 ## Deployment Constraints
 
 - **Render Free Tier:**  
   - 256 MB RAM, 0.1 CPU, 100 connections per instance.
   - 750 free instance hours/month.
   - Services spin down after 15 minutes inactivity.
-  - PostgreSQL: 1GB, expires every 30 days (next: 09/13/2025).
-
-## Future Goals
-
-- ✅ Migrate database to Neon for more space and persistent storage.
-- ✅ Reduce image/cover loading time (currently 47.6s).
-- ✅ Further optimize RAM usage (image processing, caching).
-- ☐ Consider service workers for offline access.
-- ❌ Set up automated alerts for memory, queue length, error rates.
-- ☐ UI polish, admin tools, and performance enhancements.
-
+  - PostgreSQL: 1GB, expires every 30 days (moved to neon, no need to worry about this).
 ---
 
 **Summary:**  
-All core features and recent improvements are checked off. You’ve resolved color theme edge cases, context refactoring, and build/deploy issues. Next priorities: Neon migration and mobile carousel fixes.
+Most major features and optimizations are complete. Focus now shifts to bug fixes, UI polish, admin tools, and ongoing performance improvements. Let me know which item you want to tackle next!
+
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Here’s a concise action plan and summary for your cover caching optimization, suitable for onboarding or resuming work in a new session:
-
----
-
-## StoryWeave Chronicles: Cover Caching Optimization Plan
-
-### **Background**
-- **Problem:** High RAM/CPU usage and slow load times due to repeated Google Drive downloads and PDF processing for book covers.
-- **Constraints:** Render.com free tier (256 MB RAM, 0.1 CPU, ephemeral disk, 100 connections).
-- **Goal:** Cache landing page book covers on disk, serve them directly, and minimize resource usage.
-
----
-
-### **Checklist / Goals**
-
-1. **Cover Storage Directory**
-   - Save all processed cover images to `public/covers/cover_id.jpg`.
-   - Use Flask’s static file serving or `send_from_directory` for access.
-
-2. **Atlas JSON**
-   - Maintain `public/covers/atlas.json` mapping book IDs to cover filenames.
-   - On landing page update, compare new book list to atlas, delete unused covers, and download/process new ones.
-
-3. **First-Load Rebuild**
-   - On first request after server restart, rebuild atlas and download/process covers for current landing page books.
-   - Save covers and update atlas.
-
-4. **Serving Covers**
-   - Serve covers from disk for all requests.
-   - If a cover is missing, serve frontend-generated loading or no-cover images (keep these as fallback).
-
-5. **Fallback Handling**
-   - Always use frontend-generated loading and no-cover covers for missing/processing images.
-
-6. **Resource Management**
-   - Limit disk cache to 20–30 covers (carousel + top voted).
-   - Handle ephemeral disk: covers/atlas are rebuilt after instance restart.
-
-7. **Performance Monitoring**
-   - Continue logging RAM/CPU usage for diagnostics.
-   - Monitor for timeouts and optimize as needed.
-
----
-
-### **Summary for New Sessions**
-
-- The backend caches book covers for the landing page in `public/covers/`.
-- An atlas JSON tracks which covers are present.
-- Covers are rebuilt on first load after restart.
-- Frontend loading/no-cover images are always used as fallback.
-- The goal is to minimize RAM/CPU usage and speed up load times, within Render’s free tier limits.
-
----
-
-**Ready to help with any step—just reference this checklist to get me up to speed!**
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 for definition so that we are on the same page: i am defining churn as = if the site deletes needed covers and then redownloads them wasting resources and time.
 so with my react site, i have an atlas and a folder full of covers. the image name is the <cover id>.jpg. for some reason, it will do a comparison on the landing page list
@@ -170,14 +65,90 @@ optimized as possible. which is why i want this churn gone!
   - Services spin down after 15 minutes inactivity.
   - PostgreSQL: 1GB, expires every 30 days.)
 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+2025-09-17 18:21:41,827 INFO 127.0.0.1 - - [17/Sep/2025 18:21:41] "OPTIONS /api/has-new-notifications HTTP/1.1" 200 -
+2025-09-17 18:21:42,157 INFO 127.0.0.1 - - [17/Sep/2025 18:21:42] "POST /api/has-new-notifications HTTP/1.1" 500 -
+Traceback (most recent call last):
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\engine\default.py", line 951, in do_execute
+    cursor.execute(statement, parameters)
+psycopg2.OperationalError: SSL connection has been closed unexpectedly
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\flask\app.py", line 1536, in __call__
+    return self.wsgi_app(environ, start_response)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\flask\app.py", line 1514, in wsgi_app
+    response = self.handle_exception(e)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\flask_cors\extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+                                                ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\flask\app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\flask\app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\flask_cors\extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+                                                ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]   
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+  File "C:\Users\nchow\source\repos\storyweavechronicles\server\server.py", line 878, in has_new_notifications
+    user = User.query.filter_by(username=username).first()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\orm\query.py", line 2759, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\orm\query.py", line 2857, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\orm\session.py", line 2365, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\orm\session.py", line 2251, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+             ^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\engine\base.py", line 1419, in execute
+    return meth(
+           ^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\sql\elements.py", line 526, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\engine\base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception        
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\nchow\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\sqlalchemy\engine\default.py", line 951, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) SSL connection has been closed unexpectedly      
+
+[SQL: SELECT "user".id AS user_id, "user".username AS user_username, "user".email AS user_email, "user".password AS user_password, "user".bookmarks AS user_bookmarks, "user".secondary_emails AS user_secondary_emails, "user".background_color AS user_background_color, "user".text_color AS user_text_color, "user".font AS user_font, "user".timezone AS user_timezone, "user".notification_prefs AS user_notification_prefs, "user".notification_history AS user_notification_history, "user".comments_page_size AS user_comments_page_size, "user".is_admin AS user_is_admin, "user".banned AS user_banned
+FROM "user"
+WHERE "user".username = %(username_1)s
+ LIMIT %(param_1)s]
+[parameters: {'username_1': 'nixodemus1', 'param_1': 1}]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
-my second question was about flaskmail. so render is going to make a change next week that makes it so you cant send mail through the usual mail ports in free tier. which, is obviously bad considering that we use mail for emergencies, notifications, the newletter, ect. so mail is a big part of our system. im wondering if we have a workaround, or if i need to move to a new backend hosting provider. here is the email in full:
 
-Starting next week, all free Render web services will block outbound network traffic to SMTP (email) ports 25, 465, and 587.
-
-This change will be rolled out across all regions by Friday, September 26th.
-
-One of your free web services has sent traffic to these ports in the past 30 days. To continue doing so, upgrade your service to any paid instance type. Alternatively, you can integrate with a managed email provider, such as SendGrid or Mailgun.
-
-what are my options?
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------

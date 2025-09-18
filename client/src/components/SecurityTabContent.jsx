@@ -2,6 +2,7 @@ import React, { useContext, useState } from "react";
 import { ThemeContext } from "../themeContext";
 import { stepColor } from "../utils/colorUtils";
 import { useNavigate } from "react-router-dom";
+import { waitForServerHealth } from "../utils/serviceHealth";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
@@ -33,45 +34,51 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
       return;
     }
     setSaving(true);
-    fetch(`${API_BASE_URL}/api/add-secondary-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: user.username, email: newSecondaryEmail })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setSecondaryEmails(data.secondaryEmails);
-          setSecondaryEmailSuccess("Secondary email added.");
-          setNewSecondaryEmail("");
-          if (setUser) setUser(u => u ? { ...u, secondaryEmails: data.secondaryEmails } : u);
-        } else {
-          setSecondaryEmailError(data.message || "Failed to add secondary email.");
-        }
+    (async () => {
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/add-secondary-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username, email: newSecondaryEmail })
       })
-      .finally(() => setSaving(false));
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setSecondaryEmails(data.secondaryEmails);
+            setSecondaryEmailSuccess("Secondary email added.");
+            setNewSecondaryEmail("");
+            if (setUser) setUser(u => u ? { ...u, secondaryEmails: data.secondaryEmails } : u);
+          } else {
+            setSecondaryEmailError(data.message || "Failed to add secondary email.");
+          }
+        })
+        .finally(() => setSaving(false));
+    })();
   }
 
   function handleRemoveSecondaryEmail(email) {
     setSecondaryEmailError("");
     setSecondaryEmailSuccess("");
     setSaving(true);
-    fetch(`${API_BASE_URL}/api/remove-secondary-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: user.username, email })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setSecondaryEmails(data.secondaryEmails);
-          setSecondaryEmailSuccess("Secondary email removed.");
-          if (setUser) setUser(u => u ? { ...u, secondaryEmails: data.secondaryEmails } : u);
-        } else {
-          setSecondaryEmailError(data.message || "Failed to remove secondary email.");
-        }
+    (async () => {
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/remove-secondary-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username, email })
       })
-      .finally(() => setSaving(false));
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setSecondaryEmails(data.secondaryEmails);
+            setSecondaryEmailSuccess("Secondary email removed.");
+            if (setUser) setUser(u => u ? { ...u, secondaryEmails: data.secondaryEmails } : u);
+          } else {
+            setSecondaryEmailError(data.message || "Failed to remove secondary email.");
+          }
+        })
+        .finally(() => setSaving(false));
+    })();
   }
 
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
@@ -98,22 +105,25 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
       return;
     }
     setSaving(true);
-    fetch(`${API_BASE_URL}/api/update-password`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: user.username, password })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setSuccess("Password updated successfully.");
-          setPassword("");
-          setConfirm("");
-        } else {
-          setError(data.error || "Failed to update password.");
-        }
+    (async () => {
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/update-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username, password })
       })
-      .finally(() => setSaving(false));
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setSuccess("Password updated successfully.");
+            setPassword("");
+            setConfirm("");
+          } else {
+            setError(data.error || "Failed to update password.");
+          }
+        })
+        .finally(() => setSaving(false));
+    })();
   }
 
   // Account deletion with password confirmation
@@ -128,21 +138,24 @@ const SecurityTabContent = React.memo(function SecurityTabContent({ user, setUse
     }
     setSaving(true);
     setDeleteError("");
-    fetch(`${API_BASE_URL}/api/delete-account`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: user.username, password: deletePassword })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setUser(null);
-          navigate("/");
-        } else {
-          setDeleteError(data.message || "Failed to delete account.");
-        }
+    (async () => {
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/delete-account`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username, password: deletePassword })
       })
-      .finally(() => setSaving(false));
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setUser(null);
+            navigate("/");
+          } else {
+            setDeleteError(data.message || "Failed to delete account.");
+          }
+        })
+        .finally(() => setSaving(false));
+    })();
   }
 
   return (

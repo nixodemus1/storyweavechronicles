@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
+import { CommentsContext } from "./commentsContextDef";
+export { CommentsContext };
 
-const CommentsContext = createContext();
 
 export function CommentsProvider({ bookId, children }) {
   const [comments, setComments] = useState([]);
@@ -85,6 +86,3 @@ export function CommentsProvider({ bookId, children }) {
   );
 }
 
-export function useCommentsContext() {
-  return useContext(CommentsContext);
-}

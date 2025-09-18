@@ -1,3 +1,11 @@
+import React, { useContext, useState } from "react";
+import { Link } from "react-router-dom";
+import { ThemeContext } from "../themeContext";
+import { stepColor } from "../utils/colorUtils";
+import { waitForServerHealth } from "../utils/serviceHealth";
+
+const API_BASE_URL = import.meta.env.VITE_HOST_URL;
+
 // --- Unified cover cache logic from LandingPage.jsx ---
 function useCachedCovers(pdfs) {
   const [covers, setCovers] = React.useState({});
@@ -65,15 +73,10 @@ function useCachedCovers(pdfs) {
       isMounted = false;
     };
     // DO NOT ADD covers TO DEPENDENCY ARRAY, IT CREATES AN INFINITE LOOP THAT WILL FREEZE YOUR BROWSER
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfs]);
   return covers;
 }
-import React, { useContext, useState } from "react";
-import { Link } from "react-router-dom";
-import { ThemeContext } from "../themeContext";
-import { stepColor } from "../utils/colorUtils";
-
-const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 function getCoverFromCache(bookId) {
   try {
@@ -114,18 +117,22 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
   const [loading, setLoading] = useState(true);
 
   React.useEffect(() => {
-    if (!user?.username) return;
-    setLoading(true);
-    fetch(`${API_BASE_URL}/api/get-bookmarks`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username })
-    })
-      .then(res => res.json())
-      .then(data => {
-        setBookmarks(Array.isArray(data.bookmarks) ? data.bookmarks : []);
-        setLoading(false);
-      });
+    async function fetchBookmarks() {
+      if (!user?.username) return;
+      setLoading(true);
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/get-bookmarks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user.username })
+      })
+        .then(res => res.json())
+        .then(data => {
+          setBookmarks(Array.isArray(data.bookmarks) ? data.bookmarks : []);
+          setLoading(false);
+        });
+    }
+    fetchBookmarks();
   }, [user?.username]);
 
   React.useEffect(() => {
@@ -235,18 +242,22 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
   const [loading, setLoading] = useState(true);
 
   React.useEffect(() => {
-    if (!user?.username) return;
-    setLoading(true);
-    fetch(`${API_BASE_URL}/api/user-top-voted-books?username=${user.username}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data && Array.isArray(data.books)) {
-          setBooks(data.books);
-        } else {
-          setBooks([]);
-        }
-        setLoading(false);
-      });
+    async function fetchTopVotedBooks() {
+      if (!user?.username) return;
+      setLoading(true);
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/user-top-voted-books?username=${user.username}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && Array.isArray(data.books)) {
+            setBooks(data.books);
+          } else {
+            setBooks([]);
+          }
+          setLoading(false);
+        });
+    }
+    fetchTopVotedBooks();
   }, [user?.username]);
 
   // Use unified cover cache logic from LandingPage.jsx
@@ -325,14 +336,18 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
   const commentsPageSize = user?.comments_page_size || 10;
 
   React.useEffect(() => {
-    if (!user?.username) return;
-    setLoading(true);
-    fetch(`${API_BASE_URL}/api/user-comments?username=${user.username}`)
-      .then(res => res.json())
-      .then(data => {
-        setComments(Array.isArray(data.comments) ? data.comments : []);
-        setLoading(false);
-      });
+    async function fetchUserComments() {
+      if (!user?.username) return;
+      setLoading(true);
+      await waitForServerHealth();
+      fetch(`${API_BASE_URL}/api/user-comments?username=${user.username}`)
+        .then(res => res.json())
+        .then(data => {
+          setComments(Array.isArray(data.comments) ? data.comments : []);
+          setLoading(false);
+        });
+    }
+    fetchUserComments();
   }, [user?.username]);
 
   React.useEffect(() => {
@@ -435,6 +450,7 @@ const AccountTabContent = React.memo(function AccountTabContent({ user, setUser 
   const handleExportAccount = async () => {
     if (!user?.username) return;
     try {
+      await waitForServerHealth();
       const res = await fetch(`${API_BASE_URL}/api/export-account`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -463,6 +479,7 @@ const AccountTabContent = React.memo(function AccountTabContent({ user, setUser 
     const file = event.target.files[0];
     if (!file) return;
     try {
+      await waitForServerHealth();
       const text = await file.text();
       const accountData = JSON.parse(text);
       const res = await fetch(`${API_BASE_URL}/api/import-account`, {
@@ -489,6 +506,7 @@ const AccountTabContent = React.memo(function AccountTabContent({ user, setUser 
     if (!user?.username) return;
     setSavingPageSize(true);
     try {
+      await waitForServerHealth();
       const res = await fetch(`${API_BASE_URL}/api/update-profile-settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

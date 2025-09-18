@@ -1,4 +1,5 @@
 import { stepColor } from "../utils/colorUtils";
+import { waitForServerHealth } from "../utils/serviceHealth";
 
 // --- Unified cover cache logic from LandingPage.jsx ---
 function useCachedCovers(pdfs) {
@@ -111,12 +112,14 @@ export default function SearchResults() {
 
   // Fetch all books metadata from DB, filter by query, then fetch details for matching IDs
   useEffect(() => {
-    if (!query) return;
-    setLoading(true);
-    // Step 1: Get all book metadata (just IDs/titles) from DB
-    fetch(`${API_BASE_URL}/api/all-books`)
-      .then(res => res.json())
-      .then(data => {
+    async function fetchResultsAndBookmarks() {
+      if (!query) return;
+      setLoading(true);
+      // Step 1: Get all book metadata (just IDs/titles) from DB
+      await waitForServerHealth();
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/all-books`);
+        const data = await res.json();
         let filtered = [];
         if (Array.isArray(data.books)) {
           // Partial and prefix match on title OR external_story_id
@@ -136,45 +139,49 @@ export default function SearchResults() {
         // Step 2: Fetch full metadata for matching IDs
         if (filtered.length > 0) {
           const ids = filtered.map(b => b.id).filter(Boolean);
-          fetch(`${API_BASE_URL}/api/books?ids=${ids.join(',')}`)
-            .then(res2 => res2.json())
-            .then(data2 => {
-              if (Array.isArray(data2.books)) {
-                setResults(data2.books);
-              } else {
-                setResults([]);
-              }
-              setLoading(false);
-            })
-            .catch(() => {
+          await waitForServerHealth();
+          try {
+            const res2 = await fetch(`${API_BASE_URL}/api/books?ids=${ids.join(',')}`);
+            const data2 = await res2.json();
+            if (Array.isArray(data2.books)) {
+              setResults(data2.books);
+            } else {
               setResults([]);
-              setLoading(false);
-            });
+            }
+            setLoading(false);
+          } catch {
+            setResults([]);
+            setLoading(false);
+          }
         } else {
           setResults([]);
           setLoading(false);
         }
-      })
-      .catch(() => {
+      } catch {
         setResults([]);
         setLoading(false);
-      });
-    // Fetch bookmarks if user is logged in
-    if (user && user.username) {
-      fetch(`${API_BASE_URL}/api/get-bookmarks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && Array.isArray(data.bookmarks)) {
-            setBookmarks(data.bookmarks.map(bm => bm.id));
+      }
+      // Fetch bookmarks if user is logged in
+      if (user && user.username) {
+        await waitForServerHealth();
+        try {
+          const resBm = await fetch(`${API_BASE_URL}/api/get-bookmarks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user.username })
+          });
+          const dataBm = await resBm.json();
+          if (dataBm.success && Array.isArray(dataBm.bookmarks)) {
+            setBookmarks(dataBm.bookmarks.map(bm => bm.id));
           }
-        });
-    } else {
-      setBookmarks([]);
+        } catch {
+          setBookmarks([]);
+        }
+      } else {
+        setBookmarks([]);
+      }
     }
+    fetchResultsAndBookmarks();
   }, [query, user]);
 
   // Sorting logic

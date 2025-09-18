@@ -1,5 +1,6 @@
 import React, { useState, useContext } from "react";
 import { ThemeContext } from "../themeContext";
+import { waitForServerHealth } from "../utils/serviceHealth";
 
 // Utility to normalize hex color to 6 digits
 function normalizeHex(hex) {
@@ -42,6 +43,7 @@ export default function LoginRegisterPage({ onAuth }) {
       ? { username, password }
       : { username, email, password, backgroundColor: normBg, textColor: normText };
     try {
+      await waitForServerHealth();
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
