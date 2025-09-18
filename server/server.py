@@ -3356,28 +3356,39 @@ def serve_react(path):
     # 2. Serve cover images from disk if requested
     if path.startswith("covers/") and path.endswith(".jpg"):
         cover_id = path.split("/")[-1].replace(".jpg", "")
-        cover_path = os.path.join(COVERS_DIR, f"{cover_id}.jpg")
+        # Use FRONTEND_STATIC_DIR for covers if set, else fallback to COVERS_DIR
+        covers_dir = os.path.join(os.getenv("FRONTEND_STATIC_DIR") or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "client", "public")), "covers")
+        cover_path = os.path.join(covers_dir, f"{cover_id}.jpg")
         if os.path.exists(cover_path):
-            return send_from_directory(COVERS_DIR, f"{cover_id}.jpg")
+            return send_from_directory(covers_dir, f"{cover_id}.jpg")
         else:
             return jsonify({"success": False, "message": f"Cover {cover_id}.jpg not found."}), 404
 
-    # 3. Serve favicon.ico from client/public (or vite.svg)
+    # 3. Serve favicon.ico from frontend static dir (or vite.svg)
+    frontend_static_dir = os.getenv("FRONTEND_STATIC_DIR") or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "client", "public"))
     if path == "favicon.ico":
-        return send_from_directory("../client/public", "vite.svg")
+        vite_svg_path = os.path.join(frontend_static_dir, "vite.svg")
+        if os.path.exists(vite_svg_path):
+            return send_from_directory(frontend_static_dir, "vite.svg")
+        else:
+            return jsonify({"success": False, "message": "vite.svg not found in frontend static directory."}), 404
 
-    # 4. Serve static files (css, js, images) from client/public
+    # 4. Serve static files (css, js, images) from frontend static dir
     static_extensions = [".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".json"]
     if any(path.endswith(ext) for ext in static_extensions):
-        static_file_path = os.path.join("../client/public", path)
+        static_file_path = os.path.join(frontend_static_dir, path)
         if os.path.exists(static_file_path):
-            return send_from_directory("../client/public", path)
+            return send_from_directory(frontend_static_dir, path)
         else:
             return jsonify({"success": False, "message": f"Static file {path} not found."}), 404
 
     # 5. Serve index.html for all other non-API routes (React SPA fallback)
     try:
-        return send_from_directory("../client/public", "index.html")
+        index_path = os.path.join(frontend_static_dir, "index.html")
+        if os.path.exists(index_path):
+            return send_from_directory(frontend_static_dir, "index.html")
+        else:
+            return jsonify({"success": False, "message": "index.html not found in frontend static directory."}), 404
     except Exception as e:
         # 6. Render.com fallback: return helpful JSON if index.html missing
         return jsonify({"success": False, "message": "Frontend not found. This may be a Render.com deployment issue.", "error": str(e), "hint": "Check / for API Almanac."}), 404
