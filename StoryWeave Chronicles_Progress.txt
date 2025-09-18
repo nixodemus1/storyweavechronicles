@@ -150,5 +150,110 @@ WHERE "user".username = %(username_1)s
 [parameters: {'username_1': 'nixodemus1', 'param_1': 1}]
 (Background on this error at: https://sqlalche.me/e/20/e3q8)
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ok, lets try this one more time. things got a little bit messed up. so: i think last time things got messed up cause we tried to make ALL the changes in one go. this time, lets try and do this section by section. that should make it easier and also prevent the same problem happening again. im going to put the list below again. but instead of trying to do all of it. organize the first section. and then we'll do the next. and the next. and so on so forth till we have organized the whole file. just like i said before I have actually gone ahead and added "#--- apis ---" so that you know where the apis start. dont change anything above that comment, and dont change anything below "if __name__ == '__main__':" at the very bottom. just the end points in the middle being organized, and do it section by section. here is the message again:
+```
+Here’s a categorized list of your Flask endpoints from `server.py`.  
+I’ve grouped them by their most likely purpose. If any endpoint is unclear or miscategorized, let me know and I’ll update the list.
+
+---
+
+### Authentication & User Management
+- `/api/login`
+- `/api/register`
+- `/api/change-password`
+- `/api/get-user`
+- `/api/update-profile-settings`
+- `/api/export-account`
+- `/api/import-account`
+- `/api/add-secondary-email`
+- `/api/remove-secondary-email`
+- `/api/get-user-meta`
+
+### Admin & Moderation
+- `/api/admin/make-admin`
+- `/api/admin/remove-admin`
+- `/api/admin/bootstrap-admin`
+- `/api/admin/send-emergency-email`
+- `/api/admin/send-newsletter`
+- `/api/admin/ban-user`
+- `/api/admin/unban-user`
+
+### Book & PDF Management
+- `/list-pdfs/<folder_id>`
+- `/api/all-books`
+- `/api/user-voted-books`
+- `/api/books`
+- `/api/top-voted-books`
+- `/api/user-top-voted-books`
+- `/api/update-external-id`
+- `/api/seed-drive-books`
+- `/pdf-cover/<file_id>`
+- `/api/cover-exists/<file_id>`
+- `/api/simulate-cover-load`
+- `/covers/<cover_id>.jpg`
+- `/api/landing-page-book-ids`
+- `/api/rebuild-cover-cache`
+- `/api/cover-diagnostics`
+
+### Voting
+- `/api/vote-book`
+- `/api/book-votes`
+
+### Bookmarks
+- `/api/get-bookmarks`
+- `/api/add-bookmark`
+- `/api/remove-bookmark`
+- `/api/update-bookmark-meta`
+
+### Comments
+- `/api/add-comment`
+- `/api/edit-comment`
+- `/api/delete-comment`
+- `/api/get-comments`
+- `/api/has-new-comments`
+- `/api/vote-comment`
+- `/api/get-comment-votes`
+- `/api/user-comments`
+- `/api/moderate-comment`
+
+### Notifications
+- `/api/get-notification-prefs`
+- `/api/update-notification-prefs`
+- `/api/get-notification-history`
+- `/api/notification-history`
+- `/api/notify-reply`
+- `/api/notify-new-book`
+- `/api/notify-book-update`
+- `/api/notify-app-update`
+- `/api/mark-all-notifications-read`
+- `/api/delete-notification`
+- `/api/dismiss-all-notifications`
+- `/api/mark-notification-read`
+- `/api/delete-all-notification-history`
+- `/api/test-send-scheduled-notifications`
+- `/api/has-new-notifications`
+
+### Health & Diagnostics
+- `/api/cover-queue-health`
+- `/api/server-health`
+- `/api/health`
+- `/api/cover-diagnostics`
+
+### Queue & Session Management
+- `/api/cancel-session`
+- `/api/pdf-text/<file_id>`
+
+### Webhooks & Integrations
+- `/api/drive-webhook`
+- `/api/github-webhook`
+- `/authorize`
+
+### Static & Fallback
+- `/covers/<cover_id>.jpg`
+- `/` and `/<path:path>` (serves React frontend)
+
+---
+
+If you want more granularity or clarification for any endpoint, just ask!
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------

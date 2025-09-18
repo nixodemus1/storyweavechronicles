@@ -870,31 +870,338 @@ def cleanup_locals(locals_dict):
         gc.collect()
     logging.info("[cleanup_locals] Finished cleanup and GC.")
 
-# Endpoint to check for new notifications for polling
-@app.route('/api/has-new-notifications', methods=['POST'])
-def has_new_notifications():
-    data = request.get_json(force=True)
-    username = data.get('username')
-    user = User.query.filter_by(username=username).first()
-    has_new = False
-    if user and user.notification_history:
-        try:
-            history = json.loads(user.notification_history)
-            # Only count notifications that are not read and not dismissed
-            has_new = any(not n.get('read', False) and not n.get('dismissed', False) for n in history if isinstance(n, dict))
-        except Exception:
-            has_new = False
-    response = jsonify({'hasNew': has_new})
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
-    return response
-
 # --- Admin Utility ---
 def is_admin(username):
     user = User.query.filter_by(username=username).first()
     return user and user.is_admin
 
+#--- apis ---
+
+# === Authentication & User Management ===
+# Update font and timezone for user
+@app.route('/api/update-profile-settings', methods=['POST'])
+def update_profile_settings():
+    data = request.get_json()
+    username = data.get('username')
+    font = data.get('font')
+    timezone = data.get('timezone')
+    comments_page_size = data.get('comments_page_size')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    if font is not None:
+        user.font = font
+    if timezone is not None:
+        user.timezone = timezone
+    if comments_page_size is not None:
+        try:
+            val = int(comments_page_size)
+            if 1 <= val <= 20:
+                user.comments_page_size = val
+        except Exception:
+            pass
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Profile settings updated.', 'font': user.font, 'timezone': user.timezone, 'comments_page_size': user.comments_page_size})
+
+@app.route('/api/export-account', methods=['POST'])
+def export_account():
+    data = request.get_json(force=True)
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+
+    account = {
+        'username': user.username,
+        'email': user.email,
+        'background_color': user.background_color,
+        'text_color': user.text_color,
+        'font': user.font,
+        'timezone': user.timezone,
+        'comments_page_size': user.comments_page_size,
+        'secondary_emails': json.loads(user.secondary_emails) if user.secondary_emails else [],
+        'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
+        'notification_prefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
+        'notification_history': json.loads(user.notification_history) if user.notification_history else [],
+        # Optionally include votes and comments:
+        'votes': [
+            {
+                'book_id': v.book_id,
+                'value': v.value,
+                'timestamp': v.timestamp.isoformat()
+            } for v in Vote.query.filter_by(username=username).all()
+        ],
+        'comments': [
+            {
+                'book_id': c.book_id,
+                'parent_id': c.parent_id,
+                'text': c.text,
+                'timestamp': c.timestamp.isoformat(),
+                'edited': c.edited,
+                'upvotes': c.upvotes,
+                'downvotes': c.downvotes,
+                'deleted': c.deleted,
+                'background_color': c.background_color,
+                'text_color': c.text_color
+            } for c in Comment.query.filter_by(username=username).all()
+        ]
+    }
+    return jsonify({'success': True, 'account': account})
+
+@app.route('/api/import-account', methods=['POST'])
+def import_account():
+    data = request.get_json(force=True)
+    username = data.get('username')
+    account = data.get('account')
+    user = User.query.filter_by(username=username).first()
+    if not user or not account:
+        return jsonify({'success': False, 'message': 'User not found or invalid data.'}), 400
+
+    # Update basic fields
+    user.email = account.get('email', user.email)
+    user.background_color = account.get('background_color', user.background_color)
+    user.text_color = account.get('text_color', user.text_color)
+    user.font = account.get('font', user.font)
+    user.timezone = account.get('timezone', user.timezone)
+    user.comments_page_size = account.get('comments_page_size', user.comments_page_size)
+    user.secondary_emails = json.dumps(account.get('secondary_emails', []))
+    user.bookmarks = json.dumps(account.get('bookmarks', []))
+    user.notification_prefs = json.dumps(account.get('notification_prefs', {}))
+    user.notification_history = json.dumps(account.get('notification_history', []))
+
+    db.session.commit()
+
+    # Optionally merge votes and comments (skip duplicates)
+    # Votes
+    imported_votes = account.get('votes', [])
+    for v in imported_votes:
+        if not Vote.query.filter_by(username=username, book_id=v.get('book_id')).first():
+            vote = Vote(
+                username=username,
+                book_id=v.get('book_id'),
+                value=v.get('value', 1),
+                timestamp=datetime.datetime.fromisoformat(v.get('timestamp')) if v.get('timestamp') else datetime.datetime.now(datetime.UTC)
+            )
+            db.session.add(vote)
+    # Comments
+    imported_comments = account.get('comments', [])
+    for c in imported_comments:
+        if not Comment.query.filter_by(username=username, book_id=c.get('book_id'), text=c.get('text')).first():
+            comment = Comment(
+                book_id=c.get('book_id'),
+                username=username,
+                parent_id=c.get('parent_id'),
+                text=c.get('text'),
+                timestamp=datetime.datetime.fromisoformat(c.get('timestamp')) if c.get('timestamp') else datetime.datetime.now(datetime.UTC),
+                edited=c.get('edited', False),
+                upvotes=c.get('upvotes', 0),
+                downvotes=c.get('downvotes', 0),
+                deleted=c.get('deleted', False),
+                background_color=c.get('background_color'),
+                text_color=c.get('text_color')
+            )
+            db.session.add(comment)
+    db.session.commit()
+
+    return jsonify({'success': True, 'message': 'Account data imported.'})
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    identifier = data.get('username')  # could be username or email
+    password = data.get('password')
+    if not identifier or not password:
+        return jsonify({'success': False, 'message': 'Username/email and password required.'}), 400
+    user = User.query.filter_by(username=identifier).first()
+    if not user:
+        user = User.query.filter_by(email=identifier).first()
+    if not user or user.password != hash_password(password):
+        return jsonify({'success': False, 'message': 'Invalid username/email or password.'}), 401
+    if user.banned:
+        return jsonify({'success': False, 'message': 'Your account has been banned.'}), 403
+    return jsonify({
+        'success': True,
+        'message': 'Login successful.',
+        'username': user.username,
+        'email': user.email,
+        'backgroundColor': user.background_color or '#ffffff',
+        'textColor': user.text_color or '#000000',
+        'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
+        'secondaryEmails': json.loads(user.secondary_emails) if user.secondary_emails else [],
+        'font': user.font or '',
+        'timezone': user.timezone or 'UTC',
+        'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
+        'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
+        'is_admin': user.is_admin
+    })
+
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    username = data.get('username')
+    email = data.get('email')
+    password = data.get('password')
+    backgroundColor = data.get('backgroundColor')
+    textColor = data.get('textColor')
+    if not username or not email or not password:
+        return jsonify({'success': False, 'message': 'Username, email, and password required.'}), 400
+    if User.query.filter_by(username=username).first():
+        return jsonify({'success': False, 'message': 'Username already exists.'}), 400
+    if User.query.filter_by(email=email).first():
+        return jsonify({'success': False, 'message': 'Email already registered.'}), 400
+    user = User(
+        username=username,
+        email=email,
+        password=hash_password(password),
+        background_color=backgroundColor or '#ffffff',
+        text_color=textColor or '#000000',
+        bookmarks='[]',
+        secondary_emails='[]',
+        font='',
+        timezone='UTC',
+        notification_prefs=json.dumps({
+            'muteAll': False,
+            'newBooks': True,
+            'updates': True,
+            'announcements': True,
+            'channels': ['primary']
+        }),
+        notification_history='[]'
+    )
+    db.session.add(user)
+    db.session.commit()
+    # Send welcome notification
+    add_notification(
+        user,
+        'announcement',
+        'Welcome to Storyweave Chronicles!',
+        'Thank you for registering. Explore stories, bookmark your favorites, and join the community!',
+        link='/'
+    )
+    # Send welcome email
+    send_notification_email(
+        user,
+        'Welcome to Storyweave Chronicles!',
+        f"Welcome to the site! You can read stories, bookmark your favorites, and join the community discussion. Hope you have a great time!\n\nYour account info:\nUsername: {user.username}\nEmail: {user.email}\n"
+    )
+    return jsonify({
+        'success': True,
+        'message': 'Registration successful.',
+        'username': user.username,
+        'email': user.email,
+        'backgroundColor': user.background_color or '#ffffff',
+        'textColor': user.text_color or '#000000',
+        'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
+        'secondaryEmails': json.loads(user.secondary_emails) if user.secondary_emails else [],
+        'font': user.font or '',
+        'timezone': user.timezone or 'UTC',
+        'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
+        'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
+        'is_admin': user.is_admin
+    })
+
+@app.route('/api/change-password', methods=['POST'])
+def change_password():
+    data = request.get_json()
+    username = data.get('username')
+    current_password = data.get('currentPassword')
+    new_password = data.get('newPassword')
+    if not username or not current_password or not new_password:
+        return jsonify({'success': False, 'message': 'All fields are required.'}), 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    if user.password != hash_password(current_password):
+        return jsonify({'success': False, 'message': 'Current password is incorrect.'}), 401
+    user.password = hash_password(new_password)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Password changed successfully.'})
+
+@app.route('/api/add-secondary-email', methods=['POST'])
+def add_secondary_email():
+    data = request.get_json()
+    username = data.get('username')
+    new_email = data.get('email')
+    if not username:
+        return jsonify({'success': False, 'message': 'Username required.'}), 400
+    if not new_email:
+        return jsonify({'success': False, 'message': 'Email required.'}), 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    secondary = json.loads(user.secondary_emails) if user.secondary_emails else []
+    if new_email == user.email or new_email in secondary:
+        return jsonify({'success': False, 'message': 'Email already associated with account.'}), 400
+    if User.query.filter_by(email=new_email).first():
+        return jsonify({'success': False, 'message': 'Email already registered to another account.'}), 400
+    secondary.append(new_email)
+    user.secondary_emails = json.dumps(secondary)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Secondary email added.', 'secondaryEmails': secondary})
+
+@app.route('/api/remove-secondary-email', methods=['POST'])
+def remove_secondary_email():
+    data = request.get_json()
+    username = data.get('username')
+    email_to_remove = data.get('email')
+    if not username or not email_to_remove:
+        return jsonify({'success': False, 'message': 'Username and email required.'}), 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    secondary = json.loads(user.secondary_emails) if user.secondary_emails else []
+    if email_to_remove not in secondary:
+        return jsonify({'success': False, 'message': 'Email not found in secondary emails.'}), 400
+    secondary.remove(email_to_remove)
+    user.secondary_emails = json.dumps(secondary)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Secondary email removed.', 'secondaryEmails': secondary})
+
+@app.route('/api/get-user', methods=['POST'])
+def get_user():
+    data = request.get_json()
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.', 'username': None, 'email': None}), 404
+    email = user.email
+    secondary = json.loads(user.secondary_emails) if user.secondary_emails else []
+    if not email and secondary and len(secondary) > 0:
+        email = secondary[0]
+    return jsonify({
+        'success': True,
+        'username': username,
+        'email': email,
+        'backgroundColor': user.background_color or '#ffffff',
+        'textColor': user.text_color or '#000000',
+        'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
+        'secondaryEmails': secondary,
+        'font': user.font or '',
+        'timezone': user.timezone or 'UTC',
+        'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
+        'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
+        'is_admin': user.is_admin
+    })
+
+@app.route('/api/get-user-meta', methods=['GET'])
+def get_user_meta():
+    username = request.args.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        # Always return valid JSON, even for missing users
+        return jsonify({
+            'success': False,
+            'background_color': '#232323',
+            'text_color': '#fff',
+            'message': 'User not found.'
+        })
+    return jsonify({
+        'success': True,
+        'background_color': user.background_color or '#232323',
+        'text_color': user.text_color or '#fff'
+    })
+
+# === Admin & Moderation ===
 # Make a user admin (admin-only)
 @app.route('/api/admin/make-admin', methods=['POST'])
 def make_admin():
@@ -995,14 +1302,117 @@ def send_emergency_email():
     logging.info(f"Emergency email result: {result}")
     return jsonify(result)
 
-@app.route('/authorize')
-def authorize():
-    creds = service_account.Credentials.from_service_account_info(
-        service_account_info,
-        scopes=SCOPES
-    )
-    return redirect("/")
+@app.route('/api/admin/send-newsletter', methods=['POST'])
+def send_newsletter():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    subject = data.get('subject')
+    message = data.get('message')
+    errors = []
+    sent_count = 0
 
+    # Only allow admins
+    if not is_admin(admin_username):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    # Compose newsletter subject and body
+    today = datetime.datetime.now().strftime('%m/%d/%Y')
+    newsletter_subject = f"Newsletter {today} - {subject}"
+    newsletter_body = f"{message}\n\nSincerely,\n{admin_username}"
+
+    # Send only to users with newsletter enabled in notification_prefs
+    users = User.query.all()
+    for user in users:
+        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+        if prefs.get('newsletter', False) and user.email:
+            try:
+                send_notification_email(user, newsletter_subject, newsletter_body)
+                sent_count += 1
+            except Exception as e:
+                errors.append(f"Failed to send to {user.username}: {e}")
+
+    return jsonify({'success': True, 'message': f'Newsletter sent to {sent_count} user(s).', 'errors': errors})
+
+# --- Ban/Unban Endpoints ---
+@app.route('/api/admin/ban-user', methods=['POST'])
+def ban_user():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    target_username = data.get('targetUsername')
+    if not is_admin(admin_username):
+        user = User.query.filter_by(username=target_username).first()
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    user = User.query.filter_by(username=target_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+    if user.is_admin:
+        return jsonify({'success': False, 'message': 'You cannot ban another admin.'}), 403
+    user.banned = True
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'User {target_username} has been banned.'})
+
+@app.route('/api/admin/unban-user', methods=['POST'])
+def unban_user():
+    data = request.get_json()
+    admin_username = data.get('adminUsername')
+    target_username = data.get('targetUsername')
+    if not is_admin(admin_username):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    user = User.query.filter_by(username=target_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+    user.banned = False
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'User {target_username} has been unbanned.'})
+
+@app.route('/api/moderate-comment', methods=['POST'])
+def moderate_comment():
+    data = request.get_json()
+    comment_id = data.get('comment_id')
+    action = data.get('action')  # 'delete', 'hide', etc.
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user or not user.is_admin:
+        return jsonify({'success': False, 'message': 'Not authorized.'}), 403
+    comment = Comment.query.get(comment_id)
+    if not comment:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+    if action == 'delete':
+        comment.deleted = True
+        db.session.commit()
+        # Notify comment author if deleted by moderator/admin
+        author = User.query.filter_by(username=comment.username).first()
+        if author:
+            add_notification(
+                author,
+                'moderation',
+                'Comment Deleted by Moderator',
+                f'Your comment on book {comment.book_id} was deleted by an admin/moderator.',
+                link=f'/read/{comment.book_id}?comment={comment_id}'
+            )
+        return jsonify({'success': True, 'message': 'Comment deleted.'})
+
+# Endpoint to check for new notifications for polling
+@app.route('/api/has-new-notifications', methods=['POST'])
+def has_new_notifications():
+    data = request.get_json(force=True)
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    has_new = False
+    if user and user.notification_history:
+        try:
+            history = json.loads(user.notification_history)
+            # Only count notifications that are not read and not dismissed
+            has_new = any(not n.get('read', False) and not n.get('dismissed', False) for n in history if isinstance(n, dict))
+        except Exception:
+            has_new = False
+    response = jsonify({'hasNew': has_new})
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
+    return response
+
+# === Book & PDF Management ===
 @app.route('/api/update-external-id', methods=['POST'])
 def update_external_id():
     """
@@ -1028,7 +1438,6 @@ def update_external_id():
         db.session.commit()
         return jsonify({'success': True, 'message': 'External ID updated.', 'external_story_id': new_external_id})
     return jsonify({'success': True, 'message': 'No update needed.', 'external_story_id': book.external_story_id})
-
 
 # Paginated PDF list endpoint
 @app.route('/list-pdfs/<folder_id>')
@@ -1086,7 +1495,7 @@ def list_pdfs(folder_id):
     except Exception as e:
         logging.error(f"Error in paginated /list-pdfs/: {e}")
         return jsonify({'error': 'Failed to list PDFs', 'details': str(e)}), 500
-
+    
 @app.route('/api/rebuild-cover-cache', methods=['POST'])
 def api_rebuild_cover_cache():
     try:
@@ -1132,44 +1541,41 @@ def get_books_by_ids():
         })
     return jsonify({'books': result})
 
+@app.route('/api/cover-exists/<file_id>', methods=['GET'])
+def cover_exists(file_id):
+    cover_path = os.path.join(COVERS_DIR, f"{file_id}.jpg")
+    exists = os.path.exists(cover_path)
+    return jsonify({'exists': exists})
 
-# --- Health Checks ---
-@app.route('/api/cover-queue-health', methods=['GET'])
-def cover_queue_health():
-    status = get_queue_status()
-    return jsonify({
-        'success': True,
-        'active': status['active'],
-        'queue_length': status['queue_length'],
-        'queue': status['queue'],
-        'sessions': status['sessions'],
-    })
-
-@app.route('/api/server-health', methods=['GET'])
-def server_health():
+@app.route('/api/landing-page-book-ids', methods=['GET'])
+def api_landing_page_book_ids():
     """
-    Health check endpoint: verifies DB connectivity. Returns success: true if DB responds, else false.
+    Returns the list of book IDs for the landing page (carousel + top voted).
     """
+    logging.info(f"[DIAGNOSTIC][ServeCover] Covers folder (image serve): {os.listdir(COVERS_DIR)}")
     try:
-        # Simple DB query to test connection
-        db.session.execute(text('SELECT 1'))
-        return jsonify({'success': True})
+        book_ids = get_landing_page_book_ids()
+        logging.info(f"[DIAGNOSTIC][ServeCover] Covers folder (fallback serve): {os.listdir(COVERS_DIR)}")
+        return jsonify({'success': True, 'book_ids': book_ids})
     except Exception as e:
-        logging.error(f"[server_health] DB health check failed: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """
-    Health check endpoint for Render.com. Returns 200 OK and JSON status.
-    Only log if status is not 200.
-    """
-    response = jsonify({'status': 'ok', 'message': 'Service is healthy.'})
-    status_code = 200
-    # Only log if status is not 200
-    if status_code != 200:
-        logging.info(f"[HEALTH CHECK] Status: {status_code} Response: {response.get_json()}")
-    return response, status_code
+        logging.error(f"[Atlas] Error in /api/landing-page-book-ids: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    
+@app.route('/api/cover-diagnostics', methods=['GET'])
+def cover_diagnostics():
+    covers_dir_files = os.listdir(COVERS_DIR)
+    disk_covers = [fname for fname in covers_dir_files if fname.endswith('.jpg')]
+    atlas = load_atlas()
+    atlas_ids = list(atlas.keys())
+    missing_on_disk = [bid for bid in atlas_ids if f"{bid}.jpg" not in disk_covers]
+    extra_on_disk = [fname for fname in disk_covers if fname.replace('.jpg', '') not in atlas_ids]
+    return jsonify({
+        'covers_on_disk': disk_covers,
+        'atlas_ids': atlas_ids,
+        'missing_on_disk': missing_on_disk,
+        'extra_on_disk': extra_on_disk,
+        'atlas': atlas,
+    })
 
 # --- Serve covers from disk with fallback ---
 @app.route('/covers/<cover_id>.jpg')
@@ -1337,36 +1743,6 @@ def serve_cover(cover_id):
         return send_file(fallback_path, mimetype='image/png')
     logging.error(f"[ServeCover] No cover or fallback found for {cover_id}")
     return jsonify({'success': False, 'message': 'Cover not found.'}), 404
-
-@app.route('/api/landing-page-book-ids', methods=['GET'])
-def api_landing_page_book_ids():
-    """
-    Returns the list of book IDs for the landing page (carousel + top voted).
-    """
-    logging.info(f"[DIAGNOSTIC][ServeCover] Covers folder (image serve): {os.listdir(COVERS_DIR)}")
-    try:
-        book_ids = get_landing_page_book_ids()
-        logging.info(f"[DIAGNOSTIC][ServeCover] Covers folder (fallback serve): {os.listdir(COVERS_DIR)}")
-        return jsonify({'success': True, 'book_ids': book_ids})
-    except Exception as e:
-        logging.error(f"[Atlas] Error in /api/landing-page-book-ids: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-    
-@app.route('/api/cover-diagnostics', methods=['GET'])
-def cover_diagnostics():
-    covers_dir_files = os.listdir(COVERS_DIR)
-    disk_covers = [fname for fname in covers_dir_files if fname.endswith('.jpg')]
-    atlas = load_atlas()
-    atlas_ids = list(atlas.keys())
-    missing_on_disk = [bid for bid in atlas_ids if f"{bid}.jpg" not in disk_covers]
-    extra_on_disk = [fname for fname in disk_covers if fname.replace('.jpg', '') not in atlas_ids]
-    return jsonify({
-        'covers_on_disk': disk_covers,
-        'atlas_ids': atlas_ids,
-        'missing_on_disk': missing_on_disk,
-        'extra_on_disk': extra_on_disk,
-        'atlas': atlas,
-    })
 
 @app.route('/pdf-cover/<file_id>', methods=['GET'])
 def pdf_cover(file_id):
@@ -1743,7 +2119,333 @@ def pdf_text(file_id):
             else:
                 logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock in error cleanup.")
         return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/simulate-cover-load', methods=['POST'])
+def simulate_cover_load():
+    """
+    Simulate multiple users requesting covers at the same time for stress testing.
+    POST data: {"file_ids": ["id1", "id2", ...], "num_users": 200, "concurrency": 20}
+    """
+    data = request.get_json(force=True)
+    file_ids = data.get('file_ids', [])
+    num_users = int(data.get('num_users', 200))
+    concurrency = int(data.get('concurrency', 20))
+    if not file_ids:
+        return jsonify({'success': False, 'message': 'file_ids required'}), 400
+    results = []
+    start_time = time.time()
+    # --- Attach FileHandler for simulation logging ---
+    log_path = os.path.join(os.path.dirname(__file__), 'logs.txt')
+    sim_handler = logging.FileHandler(log_path, mode='w', encoding='utf-8')
+    sim_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    sim_handler.setFormatter(formatter)
+    logging.getLogger().addHandler(sim_handler)
+    # Save current handlers to restore later
+    old_handlers = [h for h in logging.getLogger().handlers if h is not sim_handler]
+    try:
+        def simulate_user(user_idx):
+            session_id = f"simuser-{user_idx}-{uuid.uuid4()}"
+            file_id = random.choice(file_ids)
+            url = f"http://localhost:{os.getenv('PORT', 5000)}/pdf-cover/{file_id}?session_id={session_id}"
+            try:
+                resp = requests.get(url, timeout=30)
+                status = resp.status_code
+                log_msg = f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} status={status}"
+                logging.info(log_msg)
+                return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'status': status}
+            except Exception as e:
+                logging.error(f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} ERROR: {e}")
+                return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'error': str(e)}
+        # Use ThreadPoolExecutor for concurrency
+        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(simulate_user, i) for i in range(num_users)]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+        duration = time.time() - start_time
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[SIM] Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB")
+    finally:
+        # Remove simulation handler and restore previous handlers
+        logging.getLogger().removeHandler(sim_handler)
+        sim_handler.close()
+    # --- Write simulation results to logs.txt (append) ---
+    with open(log_path, 'a', encoding='utf-8') as f:
+        f.write(f"Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB\n")
+    return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
+
+@app.route('/api/drive-webhook', methods=['POST'])
+def drive_webhook():
+    channel_id = request.headers.get('X-Goog-Channel-ID')
+    resource_id = request.headers.get('X-Goog-Resource-ID')
+    resource_state = request.headers.get('X-Goog-Resource-State')
+    changed = request.headers.get('X-Goog-Changed')
+    logging.info(f"[Drive Webhook] Channel: {channel_id}, Resource: {resource_id}, State: {resource_state}, Changed: {changed}")
+
+    # Only handle 'update' or 'add' events
+    if resource_state in ['update', 'add']:
+        try:
+                service = get_drive_service()
+                file = service.files().get(fileId=resource_id, fields='id, name, createdTime, modifiedTime').execute()
+                book = Book.query.filter_by(drive_id=resource_id).first()
+                if not book:
+                    new_book = Book(
+                        drive_id=file['id'],
+                        title=file['name'],
+                        created_at=file.get('createdTime'),
+                        updated_at=file.get('modifiedTime')
+                    )
+                    db.session.add(new_book)
+                    db.session.commit()
+                    logging.info(f"Added new book to DB: {file['name']}")
+                    notify_new_book(new_book.drive_id, new_book.title)
+                else:
+                    book.title = file['name']
+                   
+                    book.updated_at = file.get('modifiedTime')
+                    db.session.commit()
+                    logging.info(f"Updated book in DB: {file['name']}")
+                    notify_book_update(book.drive_id, book.title)
+        except Exception as e:
+            logging.error(f"Error updating DB from webhook: {e}")
+    return '', 200
+
+# --- Manual Seed Endpoint ---
+@app.route('/api/seed-drive-books', methods=['POST'])
+def seed_drive_books():
+    """
+    Manually repopulate the Book table from all PDFs in the configured Google Drive folder.
+    Returns: {success, added_count, skipped_count, errors}
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        folder_id = data.get('folder_id') or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
+        if not folder_id:
+            return jsonify({'success': False, 'message': 'GOOGLE_DRIVE_FOLDER_ID not set.'}), 500
+        service = get_drive_service()
+        # List all PDFs in the folder
+        query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed = false"
+        files = []
+        page_token = None
+        while True:
+            response = service.files().list(
+                q=query,
+                spaces='drive',
+                fields='nextPageToken, files(id, name, createdTime, modifiedTime)',
+                pageToken=page_token
+            ).execute()
+            files.extend(response.get('files', []))
+            page_token = response.get('nextPageToken', None)
+            if not page_token:
+                break
+        added_count = 0
+        updated_count = 0
+        external_id_updates = 0
+        skipped_count = 0
+        errors = []
+        new_books = []
+        updated_books = []
+        logging.info(f"[Seed] Total files returned from Drive: {len(files)}")
+        for idx, f in enumerate(files):
+            drive_id = f.get('id')
+            title = f.get('name')
+            created_time = f.get('createdTime')
+            modified_time = f.get('modifiedTime')
+            logging.info(f"[Seed] Processing file {idx+1}/{len(files)}: drive_id={drive_id}, title={title}, created_time={created_time}, modified_time={modified_time}")
+            try:
+                book = Book.query.filter_by(drive_id=drive_id).first()
+                if not book:
+                    # New book: extract external_story_id
+                    external_story_id = None
+                    try:
+                        file_request = service.files().get_media(fileId=drive_id)
+                        file_content = file_request.execute()
+                        external_story_id = extract_story_id_from_pdf(file_content)
+                    except Exception as e:
+                        logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
+                        external_story_id = None
+                    book = Book(
+                        drive_id=drive_id,
+                        title=title,
+                        external_story_id=external_story_id,
+                        version_history=None,
+                        created_at=datetime.datetime.fromisoformat(created_time.replace('Z', '+00:00')) if created_time else datetime.datetime.now(datetime.UTC),
+                        updated_at=datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00')) if modified_time else None
+                    )
+                    db.session.add(book)
+                    added_count += 1
+                    new_books.append({'id': drive_id, 'title': title})
+                    logging.info(f"[Seed] Added new book: drive_id={drive_id}, title={title}")
+                else:
+                    # Existing book: update metadata if changed
+                    updated = False
+                    if book.title != title:
+                        book.title = title
+                        updated = True
+                    if modified_time:
+                        new_updated_at = datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
+                        if new_updated_at.tzinfo is None:
+                            new_updated_at = new_updated_at.replace(tzinfo=datetime.timezone.utc)
+                        if book.updated_at and book.updated_at.tzinfo is None:
+                            book.updated_at = book.updated_at.replace(tzinfo=datetime.timezone.utc)
+                        if not book.updated_at or book.updated_at < new_updated_at:
+                            book.updated_at = new_updated_at
+                            updated = True
+                    if not book.external_story_id or not str(book.external_story_id).strip():
+                        try:
+                            file_request = service.files().get_media(fileId=drive_id)
+                            file_content = file_request.execute()
+                            external_story_id = extract_story_id_from_pdf(file_content)
+                            if external_story_id:
+                                book.external_story_id = external_story_id
+                                external_id_updates += 1
+                                updated = True
+                        except Exception as e:
+                            logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
+                            errors.append(f"Error extracting story ID for {title}: {e}")
+                    if updated:
+                        updated_count += 1
+                        updated_books.append({'id': drive_id, 'title': title})
+                        logging.info(f"[Seed] Updated book: drive_id={drive_id}, title={title}")
+            except Exception as e:
+                skipped_count += 1
+                errors.append(f"Error processing file {title} ({drive_id}): {e}")
+                logging.error(f"[Seed] Skipped file due to error: drive_id={drive_id}, title={title}, error={e}")
+        db.session.commit()
+        # Use notification utility endpoints for new and updated books
+        for book_info in new_books:
+            try:
+                notify_new_book(book_info['id'], book_info['title'])
+            except Exception as e:
+                errors.append(f"Error notifying new book {book_info['title']}: {e}")
+        for book_info in updated_books:
+            try:
+                notify_book_update(book_info['id'], book_info['title'])
+            except Exception as e:
+                errors.append(f"Error notifying book update {book_info['title']}: {e}")
+
+        # --- Cache covers for newest 20 and top voted books only ---
+        # Get newest 20 books with their updated_at
+        newest_books_full = Book.query.order_by(desc(Book.updated_at)).limit(20).all()
+        logging.info("[Atlas] Newest books for cover cache:")
+        for b in newest_books_full:
+            logging.info(f"  drive_id={b.drive_id}, title={b.title}, updated_at={b.updated_at}")
+        newest_books = [b.drive_id for b in newest_books_full]
+
+        # Get voted books (top 10)
+        voted_books_full = Book.query.join(Vote, Book.drive_id == Vote.book_id).group_by(Book.id).order_by(func.count(Vote.id).desc()).limit(10).all()
+        logging.info("[Atlas] Top voted books for cover cache:")
+        for b in voted_books_full:
+            logging.info(f"  drive_id={b.drive_id}, title={b.title}, updated_at={b.updated_at}")
+        voted_books = [b.drive_id for b in voted_books_full]
+
+        cover_ids = set(newest_books + voted_books)
+        logging.info(f"[Atlas] Final cover_ids for cache: {list(cover_ids)} (total: {len(cover_ids)})")
+                # Rebuild cover cache for correct set
+        logging.info(f"[Atlas][seed_drive_books] Starting batch cover cache for {len(cover_ids)} books.")
+        try:
+            cleanup_unused_covers(cover_ids)
+            for book_id in cover_ids:
+                logging.info(f"[Atlas][seed_drive_books] Processing cover for book_id={book_id}")
+                filename = f"{book_id}.jpg"
+                cover_path = os.path.join(COVERS_DIR, filename)
+                cover_valid = False
+                if os.path.exists(cover_path):
+                    try:
+                        with Image.open(cover_path) as img:
+                            img.verify()
+                        cover_valid = True
+                        covers_map = load_atlas()
+                        if book_id not in covers_map:
+                            covers_map[book_id] = filename
+                            save_atlas(covers_map)
+                            logging.info(f"[Atlas][seed_drive_books] Added missing atlas mapping for {book_id}")
+                        logging.info(f"[Atlas][seed_drive_books] Verified disk cover for {book_id} is valid JPEG.")
+                    except Exception as e:
+                        logging.warning(f"[Atlas][seed_drive_books] Disk cover for {book_id} exists but is invalid: {e}. Will re-extract.")
+                        cover_valid = False
+                if not cover_valid:
+                    img = extract_cover_image_from_pdf(book_id)
+                    if img is not None:
+                        img.save(cover_path, format='JPEG', quality=70)
+                        covers_map = load_atlas()
+                        covers_map[book_id] = filename
+                        save_atlas(covers_map)
+                        logging.info(f"[Atlas][seed_drive_books] Extracted and cached cover for {book_id}")
+                    else:
+                        logging.warning(f"[Atlas][seed_drive_books] Failed to extract cover for {book_id}")
+                else:
+                    covers_map = load_atlas()
+                    covers_map[book_id] = filename
+                    save_atlas(covers_map)
+                    logging.info(f"[Atlas][seed_drive_books] Mapping updated for {book_id}")
+            logging.info(f"[Atlas][seed_drive_books] Finished batch cover cache for {len(cover_ids)} books.")
+        except Exception as e:
+            errors.append(f"Error rebuilding cover cache: {e}")
+
+        return jsonify({
+            'success': True,
+            'added_count': added_count,
+            'updated_count': updated_count,
+            'external_id_updates': external_id_updates,
+            'skipped_count': skipped_count,
+            'errors': errors,
+            'message': f"Seeded {added_count} new books, updated {updated_count} existing books, {external_id_updates} external IDs set."
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+
+@app.route('/authorize')
+def authorize():
+    creds = service_account.Credentials.from_service_account_info(
+        service_account_info,
+        scopes=SCOPES
+    )
+    return redirect("/")
+
+
+# --- Health Checks ---
+@app.route('/api/cover-queue-health', methods=['GET'])
+def cover_queue_health():
+    status = get_queue_status()
+    return jsonify({
+        'success': True,
+        'active': status['active'],
+        'queue_length': status['queue_length'],
+        'queue': status['queue'],
+        'sessions': status['sessions'],
+    })
+
+@app.route('/api/server-health', methods=['GET'])
+def server_health():
+    """
+    Health check endpoint: verifies DB connectivity. Returns success: true if DB responds, else false.
+    """
+    try:
+        # Simple DB query to test connection
+        db.session.execute(text('SELECT 1'))
+        return jsonify({'success': True})
+    except Exception as e:
+        logging.error(f"[server_health] DB health check failed: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """
+    Health check endpoint for Render.com. Returns 200 OK and JSON status.
+    Only log if status is not 200.
+    """
+    response = jsonify({'status': 'ok', 'message': 'Service is healthy.'})
+    status_code = 200
+    # Only log if status is not 200
+    if status_code != 200:
+        logging.info(f"[HEALTH CHECK] Status: {status_code} Response: {response.get_json()}")
+    return response, status_code
     
+
+
 @app.route('/api/cancel-session', methods=['POST'])
 def cancel_session():
     """
@@ -2086,351 +2788,6 @@ def delete_all_notification_history():
     logging.info(f"[DELETE ALL] Notification history cleared for user: {username}")
     return jsonify({'success': True, 'message': 'All notifications deleted from history.', 'history': []})
 
-# Update font and timezone for user
-@app.route('/api/update-profile-settings', methods=['POST'])
-def update_profile_settings():
-    data = request.get_json()
-    username = data.get('username')
-    font = data.get('font')
-    timezone = data.get('timezone')
-    comments_page_size = data.get('comments_page_size')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    if font is not None:
-        user.font = font
-    if timezone is not None:
-        user.timezone = timezone
-    if comments_page_size is not None:
-        try:
-            val = int(comments_page_size)
-            if 1 <= val <= 20:
-                user.comments_page_size = val
-        except Exception:
-            pass
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Profile settings updated.', 'font': user.font, 'timezone': user.timezone, 'comments_page_size': user.comments_page_size})
-
-@app.route('/api/export-account', methods=['POST'])
-def export_account():
-    data = request.get_json(force=True)
-    username = data.get('username')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-
-    account = {
-        'username': user.username,
-        'email': user.email,
-        'background_color': user.background_color,
-        'text_color': user.text_color,
-        'font': user.font,
-        'timezone': user.timezone,
-        'comments_page_size': user.comments_page_size,
-        'secondary_emails': json.loads(user.secondary_emails) if user.secondary_emails else [],
-        'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
-        'notification_prefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
-        'notification_history': json.loads(user.notification_history) if user.notification_history else [],
-        # Optionally include votes and comments:
-        'votes': [
-            {
-                'book_id': v.book_id,
-                'value': v.value,
-                'timestamp': v.timestamp.isoformat()
-            } for v in Vote.query.filter_by(username=username).all()
-        ],
-        'comments': [
-            {
-                'book_id': c.book_id,
-                'parent_id': c.parent_id,
-                'text': c.text,
-                'timestamp': c.timestamp.isoformat(),
-                'edited': c.edited,
-                'upvotes': c.upvotes,
-                'downvotes': c.downvotes,
-                'deleted': c.deleted,
-                'background_color': c.background_color,
-                'text_color': c.text_color
-            } for c in Comment.query.filter_by(username=username).all()
-        ]
-    }
-    return jsonify({'success': True, 'account': account})
-
-@app.route('/api/import-account', methods=['POST'])
-def import_account():
-    data = request.get_json(force=True)
-    username = data.get('username')
-    account = data.get('account')
-    user = User.query.filter_by(username=username).first()
-    if not user or not account:
-        return jsonify({'success': False, 'message': 'User not found or invalid data.'}), 400
-
-    # Update basic fields
-    user.email = account.get('email', user.email)
-    user.background_color = account.get('background_color', user.background_color)
-    user.text_color = account.get('text_color', user.text_color)
-    user.font = account.get('font', user.font)
-    user.timezone = account.get('timezone', user.timezone)
-    user.comments_page_size = account.get('comments_page_size', user.comments_page_size)
-    user.secondary_emails = json.dumps(account.get('secondary_emails', []))
-    user.bookmarks = json.dumps(account.get('bookmarks', []))
-    user.notification_prefs = json.dumps(account.get('notification_prefs', {}))
-    user.notification_history = json.dumps(account.get('notification_history', []))
-
-    db.session.commit()
-
-    # Optionally merge votes and comments (skip duplicates)
-    # Votes
-    imported_votes = account.get('votes', [])
-    for v in imported_votes:
-        if not Vote.query.filter_by(username=username, book_id=v.get('book_id')).first():
-            vote = Vote(
-                username=username,
-                book_id=v.get('book_id'),
-                value=v.get('value', 1),
-                timestamp=datetime.datetime.fromisoformat(v.get('timestamp')) if v.get('timestamp') else datetime.datetime.now(datetime.UTC)
-            )
-            db.session.add(vote)
-    # Comments
-    imported_comments = account.get('comments', [])
-    for c in imported_comments:
-        if not Comment.query.filter_by(username=username, book_id=c.get('book_id'), text=c.get('text')).first():
-            comment = Comment(
-                book_id=c.get('book_id'),
-                username=username,
-                parent_id=c.get('parent_id'),
-                text=c.get('text'),
-                timestamp=datetime.datetime.fromisoformat(c.get('timestamp')) if c.get('timestamp') else datetime.datetime.now(datetime.UTC),
-                edited=c.get('edited', False),
-                upvotes=c.get('upvotes', 0),
-                downvotes=c.get('downvotes', 0),
-                deleted=c.get('deleted', False),
-                background_color=c.get('background_color'),
-                text_color=c.get('text_color')
-            )
-            db.session.add(comment)
-    db.session.commit()
-
-    return jsonify({'success': True, 'message': 'Account data imported.'})
-
-@app.route('/api/admin/send-newsletter', methods=['POST'])
-def send_newsletter():
-    data = request.get_json()
-    admin_username = data.get('adminUsername')
-    subject = data.get('subject')
-    message = data.get('message')
-    errors = []
-    sent_count = 0
-
-    # Only allow admins
-    if not is_admin(admin_username):
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-
-    # Compose newsletter subject and body
-    today = datetime.datetime.now().strftime('%m/%d/%Y')
-    newsletter_subject = f"Newsletter {today} - {subject}"
-    newsletter_body = f"{message}\n\nSincerely,\n{admin_username}"
-
-    # Send only to users with newsletter enabled in notification_prefs
-    users = User.query.all()
-    for user in users:
-        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-        if prefs.get('newsletter', False) and user.email:
-            try:
-                send_notification_email(user, newsletter_subject, newsletter_body)
-                sent_count += 1
-            except Exception as e:
-                errors.append(f"Failed to send to {user.username}: {e}")
-
-    return jsonify({'success': True, 'message': f'Newsletter sent to {sent_count} user(s).', 'errors': errors})
-
-@app.route('/api/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    identifier = data.get('username')  # could be username or email
-    password = data.get('password')
-    if not identifier or not password:
-        return jsonify({'success': False, 'message': 'Username/email and password required.'}), 400
-    user = User.query.filter_by(username=identifier).first()
-    if not user:
-        user = User.query.filter_by(email=identifier).first()
-    if not user or user.password != hash_password(password):
-        return jsonify({'success': False, 'message': 'Invalid username/email or password.'}), 401
-    if user.banned:
-        return jsonify({'success': False, 'message': 'Your account has been banned.'}), 403
-    return jsonify({
-        'success': True,
-        'message': 'Login successful.',
-        'username': user.username,
-        'email': user.email,
-        'backgroundColor': user.background_color or '#ffffff',
-        'textColor': user.text_color or '#000000',
-        'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
-        'secondaryEmails': json.loads(user.secondary_emails) if user.secondary_emails else [],
-        'font': user.font or '',
-        'timezone': user.timezone or 'UTC',
-        'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
-        'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
-        'is_admin': user.is_admin
-    })
-
-@app.route('/api/register', methods=['POST'])
-def register():
-    data = request.get_json()
-    username = data.get('username')
-    email = data.get('email')
-    password = data.get('password')
-    backgroundColor = data.get('backgroundColor')
-    textColor = data.get('textColor')
-    if not username or not email or not password:
-        return jsonify({'success': False, 'message': 'Username, email, and password required.'}), 400
-    if User.query.filter_by(username=username).first():
-        return jsonify({'success': False, 'message': 'Username already exists.'}), 400
-    if User.query.filter_by(email=email).first():
-        return jsonify({'success': False, 'message': 'Email already registered.'}), 400
-    user = User(
-        username=username,
-        email=email,
-        password=hash_password(password),
-        background_color=backgroundColor or '#ffffff',
-        text_color=textColor or '#000000',
-        bookmarks='[]',
-        secondary_emails='[]',
-        font='',
-        timezone='UTC',
-        notification_prefs=json.dumps({
-            'muteAll': False,
-            'newBooks': True,
-            'updates': True,
-            'announcements': True,
-            'channels': ['primary']
-        }),
-        notification_history='[]'
-    )
-    db.session.add(user)
-    db.session.commit()
-    # Send welcome notification
-    add_notification(
-        user,
-        'announcement',
-        'Welcome to Storyweave Chronicles!',
-        'Thank you for registering. Explore stories, bookmark your favorites, and join the community!',
-        link='/'
-    )
-    # Send welcome email
-    send_notification_email(
-        user,
-        'Welcome to Storyweave Chronicles!',
-        f"Welcome to the site! You can read stories, bookmark your favorites, and join the community discussion. Hope you have a great time!\n\nYour account info:\nUsername: {user.username}\nEmail: {user.email}\n"
-    )
-    return jsonify({
-        'success': True,
-        'message': 'Registration successful.',
-        'username': user.username,
-        'email': user.email,
-        'backgroundColor': user.background_color or '#ffffff',
-        'textColor': user.text_color or '#000000',
-        'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
-        'secondaryEmails': json.loads(user.secondary_emails) if user.secondary_emails else [],
-        'font': user.font or '',
-        'timezone': user.timezone or 'UTC',
-        'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
-        'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
-        'is_admin': user.is_admin
-    })
-
-@app.route('/api/change-password', methods=['POST'])
-def change_password():
-    data = request.get_json()
-    username = data.get('username')
-    current_password = data.get('currentPassword')
-    new_password = data.get('newPassword')
-    if not username or not current_password or not new_password:
-        return jsonify({'success': False, 'message': 'All fields are required.'}), 400
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    if user.password != hash_password(current_password):
-        return jsonify({'success': False, 'message': 'Current password is incorrect.'}), 401
-    user.password = hash_password(new_password)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Password changed successfully.'})
-
-@app.route('/api/add-secondary-email', methods=['POST'])
-def add_secondary_email():
-    data = request.get_json()
-    username = data.get('username')
-    new_email = data.get('email')
-    if not username:
-        return jsonify({'success': False, 'message': 'Username required.'}), 400
-    if not new_email:
-        return jsonify({'success': False, 'message': 'Email required.'}), 400
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    secondary = json.loads(user.secondary_emails) if user.secondary_emails else []
-    if new_email == user.email or new_email in secondary:
-        return jsonify({'success': False, 'message': 'Email already associated with account.'}), 400
-    if User.query.filter_by(email=new_email).first():
-        return jsonify({'success': False, 'message': 'Email already registered to another account.'}), 400
-    secondary.append(new_email)
-    user.secondary_emails = json.dumps(secondary)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Secondary email added.', 'secondaryEmails': secondary})
-
-@app.route('/api/remove-secondary-email', methods=['POST'])
-def remove_secondary_email():
-    data = request.get_json()
-    username = data.get('username')
-    email_to_remove = data.get('email')
-    if not username or not email_to_remove:
-        return jsonify({'success': False, 'message': 'Username and email required.'}), 400
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    secondary = json.loads(user.secondary_emails) if user.secondary_emails else []
-    if email_to_remove not in secondary:
-        return jsonify({'success': False, 'message': 'Email not found in secondary emails.'}), 400
-    secondary.remove(email_to_remove)
-    user.secondary_emails = json.dumps(secondary)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Secondary email removed.', 'secondaryEmails': secondary})
-
-@app.route('/api/drive-webhook', methods=['POST'])
-def drive_webhook():
-    channel_id = request.headers.get('X-Goog-Channel-ID')
-    resource_id = request.headers.get('X-Goog-Resource-ID')
-    resource_state = request.headers.get('X-Goog-Resource-State')
-    changed = request.headers.get('X-Goog-Changed')
-    logging.info(f"[Drive Webhook] Channel: {channel_id}, Resource: {resource_id}, State: {resource_state}, Changed: {changed}")
-
-    # Only handle 'update' or 'add' events
-    if resource_state in ['update', 'add']:
-        try:
-                service = get_drive_service()
-                file = service.files().get(fileId=resource_id, fields='id, name, createdTime, modifiedTime').execute()
-                book = Book.query.filter_by(drive_id=resource_id).first()
-                if not book:
-                    new_book = Book(
-                        drive_id=file['id'],
-                        title=file['name'],
-                        created_at=file.get('createdTime'),
-                        updated_at=file.get('modifiedTime')
-                    )
-                    db.session.add(new_book)
-                    db.session.commit()
-                    logging.info(f"Added new book to DB: {file['name']}")
-                    notify_new_book(new_book.drive_id, new_book.title)
-                else:
-                    book.title = file['name']
-                   
-                    book.updated_at = file.get('modifiedTime')
-                    db.session.commit()
-                    logging.info(f"Updated book in DB: {file['name']}")
-                    notify_book_update(book.drive_id, book.title)
-        except Exception as e:
-            logging.error(f"Error updating DB from webhook: {e}")
-    return '', 200
 
 @app.route('/api/test-send-scheduled-notifications', methods=['POST'])
 def test_send_scheduled_notifications():
@@ -2550,32 +2907,6 @@ def update_bookmark_meta():
     user.bookmarks = json.dumps(bookmarks)
     db.session.commit()
     return jsonify({'success': True, 'message': 'Bookmark updated.', 'bookmarks': bookmarks})
-
-@app.route('/api/get-user', methods=['POST'])
-def get_user():
-    data = request.get_json()
-    username = data.get('username')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.', 'username': None, 'email': None}), 404
-    email = user.email
-    secondary = json.loads(user.secondary_emails) if user.secondary_emails else []
-    if not email and secondary and len(secondary) > 0:
-        email = secondary[0]
-    return jsonify({
-        'success': True,
-        'username': username,
-        'email': email,
-        'backgroundColor': user.background_color or '#ffffff',
-        'textColor': user.text_color or '#000000',
-        'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
-        'secondaryEmails': secondary,
-        'font': user.font or '',
-        'timezone': user.timezone or 'UTC',
-        'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
-        'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
-        'is_admin': user.is_admin
-    })
 
 @app.route('/api/vote-book', methods=['POST'])
 def vote_book():
@@ -2839,33 +3170,6 @@ def user_comments():
         } for c in comments if not c.deleted
     ]})
 
-@app.route('/api/moderate-comment', methods=['POST'])
-def moderate_comment():
-    data = request.get_json()
-    comment_id = data.get('comment_id')
-    action = data.get('action')  # 'delete', 'hide', etc.
-    username = data.get('username')
-    user = User.query.filter_by(username=username).first()
-    if not user or not user.is_admin:
-        return jsonify({'success': False, 'message': 'Not authorized.'}), 403
-    comment = Comment.query.get(comment_id)
-    if not comment:
-        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
-    if action == 'delete':
-        comment.deleted = True
-        db.session.commit()
-        # Notify comment author if deleted by moderator/admin
-        author = User.query.filter_by(username=comment.username).first()
-        if author:
-            add_notification(
-                author,
-                'moderation',
-                'Comment Deleted by Moderator',
-                f'Your comment on book {comment.book_id} was deleted by an admin/moderator.',
-                link=f'/read/{comment.book_id}?comment={comment_id}'
-            )
-        return jsonify({'success': True, 'message': 'Comment deleted.'})
-    
 # --- GitHub Webhook for App Update Notifications ---
 @app.route('/api/github-webhook', methods=['POST'])
 def github_webhook():
@@ -2897,24 +3201,6 @@ def github_webhook():
             )
     return jsonify({'success': True, 'message': 'App update notifications sent.'})
     # Add more moderation actions as needed
-
-@app.route('/api/get-user-meta', methods=['GET'])
-def get_user_meta():
-    username = request.args.get('username')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        # Always return valid JSON, even for missing users
-        return jsonify({
-            'success': False,
-            'background_color': '#232323',
-            'text_color': '#fff',
-            'message': 'User not found.'
-        })
-    return jsonify({
-        'success': True,
-        'background_color': user.background_color or '#232323',
-        'text_color': user.text_color or '#fff'
-    })
 
 # --- GLOBAL BOOK METADATA ENDPOINT ---
 @app.route('/api/all-books', methods=['GET'])
@@ -2975,282 +3261,6 @@ def user_voted_books():
             })
     return jsonify({'success': True, 'voted_books': voted_books})
 
-# --- Ban/Unban Endpoints ---
-@app.route('/api/admin/ban-user', methods=['POST'])
-def ban_user():
-    data = request.get_json()
-    admin_username = data.get('adminUsername')
-    target_username = data.get('targetUsername')
-    if not is_admin(admin_username):
-        user = User.query.filter_by(username=target_username).first()
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-    user = User.query.filter_by(username=target_username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
-    if user.is_admin:
-        return jsonify({'success': False, 'message': 'You cannot ban another admin.'}), 403
-    user.banned = True
-    db.session.commit()
-    return jsonify({'success': True, 'message': f'User {target_username} has been banned.'})
-
-@app.route('/api/admin/unban-user', methods=['POST'])
-def unban_user():
-    data = request.get_json()
-    admin_username = data.get('adminUsername')
-    target_username = data.get('targetUsername')
-    if not is_admin(admin_username):
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-    user = User.query.filter_by(username=target_username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'Target user not found.'}), 404
-    user.banned = False
-    db.session.commit()
-    return jsonify({'success': True, 'message': f'User {target_username} has been unbanned.'})
-
-# --- Manual Seed Endpoint ---
-@app.route('/api/seed-drive-books', methods=['POST'])
-def seed_drive_books():
-    """
-    Manually repopulate the Book table from all PDFs in the configured Google Drive folder.
-    Returns: {success, added_count, skipped_count, errors}
-    """
-    try:
-        data = request.get_json(silent=True) or {}
-        folder_id = data.get('folder_id') or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
-        if not folder_id:
-            return jsonify({'success': False, 'message': 'GOOGLE_DRIVE_FOLDER_ID not set.'}), 500
-        service = get_drive_service()
-        # List all PDFs in the folder
-        query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed = false"
-        files = []
-        page_token = None
-        while True:
-            response = service.files().list(
-                q=query,
-                spaces='drive',
-                fields='nextPageToken, files(id, name, createdTime, modifiedTime)',
-                pageToken=page_token
-            ).execute()
-            files.extend(response.get('files', []))
-            page_token = response.get('nextPageToken', None)
-            if not page_token:
-                break
-        added_count = 0
-        updated_count = 0
-        external_id_updates = 0
-        skipped_count = 0
-        errors = []
-        new_books = []
-        updated_books = []
-        logging.info(f"[Seed] Total files returned from Drive: {len(files)}")
-        for idx, f in enumerate(files):
-            drive_id = f.get('id')
-            title = f.get('name')
-            created_time = f.get('createdTime')
-            modified_time = f.get('modifiedTime')
-            logging.info(f"[Seed] Processing file {idx+1}/{len(files)}: drive_id={drive_id}, title={title}, created_time={created_time}, modified_time={modified_time}")
-            try:
-                book = Book.query.filter_by(drive_id=drive_id).first()
-                if not book:
-                    # New book: extract external_story_id
-                    external_story_id = None
-                    try:
-                        file_request = service.files().get_media(fileId=drive_id)
-                        file_content = file_request.execute()
-                        external_story_id = extract_story_id_from_pdf(file_content)
-                    except Exception as e:
-                        logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
-                        external_story_id = None
-                    book = Book(
-                        drive_id=drive_id,
-                        title=title,
-                        external_story_id=external_story_id,
-                        version_history=None,
-                        created_at=datetime.datetime.fromisoformat(created_time.replace('Z', '+00:00')) if created_time else datetime.datetime.now(datetime.UTC),
-                        updated_at=datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00')) if modified_time else None
-                    )
-                    db.session.add(book)
-                    added_count += 1
-                    new_books.append({'id': drive_id, 'title': title})
-                    logging.info(f"[Seed] Added new book: drive_id={drive_id}, title={title}")
-                else:
-                    # Existing book: update metadata if changed
-                    updated = False
-                    if book.title != title:
-                        book.title = title
-                        updated = True
-                    if modified_time:
-                        new_updated_at = datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
-                        if new_updated_at.tzinfo is None:
-                            new_updated_at = new_updated_at.replace(tzinfo=datetime.timezone.utc)
-                        if book.updated_at and book.updated_at.tzinfo is None:
-                            book.updated_at = book.updated_at.replace(tzinfo=datetime.timezone.utc)
-                        if not book.updated_at or book.updated_at < new_updated_at:
-                            book.updated_at = new_updated_at
-                            updated = True
-                    if not book.external_story_id or not str(book.external_story_id).strip():
-                        try:
-                            file_request = service.files().get_media(fileId=drive_id)
-                            file_content = file_request.execute()
-                            external_story_id = extract_story_id_from_pdf(file_content)
-                            if external_story_id:
-                                book.external_story_id = external_story_id
-                                external_id_updates += 1
-                                updated = True
-                        except Exception as e:
-                            logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
-                            errors.append(f"Error extracting story ID for {title}: {e}")
-                    if updated:
-                        updated_count += 1
-                        updated_books.append({'id': drive_id, 'title': title})
-                        logging.info(f"[Seed] Updated book: drive_id={drive_id}, title={title}")
-            except Exception as e:
-                skipped_count += 1
-                errors.append(f"Error processing file {title} ({drive_id}): {e}")
-                logging.error(f"[Seed] Skipped file due to error: drive_id={drive_id}, title={title}, error={e}")
-        db.session.commit()
-        # Use notification utility endpoints for new and updated books
-        for book_info in new_books:
-            try:
-                notify_new_book(book_info['id'], book_info['title'])
-            except Exception as e:
-                errors.append(f"Error notifying new book {book_info['title']}: {e}")
-        for book_info in updated_books:
-            try:
-                notify_book_update(book_info['id'], book_info['title'])
-            except Exception as e:
-                errors.append(f"Error notifying book update {book_info['title']}: {e}")
-
-        # --- Cache covers for newest 20 and top voted books only ---
-        # Get newest 20 books with their updated_at
-        newest_books_full = Book.query.order_by(desc(Book.updated_at)).limit(20).all()
-        logging.info("[Atlas] Newest books for cover cache:")
-        for b in newest_books_full:
-            logging.info(f"  drive_id={b.drive_id}, title={b.title}, updated_at={b.updated_at}")
-        newest_books = [b.drive_id for b in newest_books_full]
-
-        # Get voted books (top 10)
-        voted_books_full = Book.query.join(Vote, Book.drive_id == Vote.book_id).group_by(Book.id).order_by(func.count(Vote.id).desc()).limit(10).all()
-        logging.info("[Atlas] Top voted books for cover cache:")
-        for b in voted_books_full:
-            logging.info(f"  drive_id={b.drive_id}, title={b.title}, updated_at={b.updated_at}")
-        voted_books = [b.drive_id for b in voted_books_full]
-
-        cover_ids = set(newest_books + voted_books)
-        logging.info(f"[Atlas] Final cover_ids for cache: {list(cover_ids)} (total: {len(cover_ids)})")
-                # Rebuild cover cache for correct set
-        logging.info(f"[Atlas][seed_drive_books] Starting batch cover cache for {len(cover_ids)} books.")
-        try:
-            cleanup_unused_covers(cover_ids)
-            for book_id in cover_ids:
-                logging.info(f"[Atlas][seed_drive_books] Processing cover for book_id={book_id}")
-                filename = f"{book_id}.jpg"
-                cover_path = os.path.join(COVERS_DIR, filename)
-                cover_valid = False
-                if os.path.exists(cover_path):
-                    try:
-                        with Image.open(cover_path) as img:
-                            img.verify()
-                        cover_valid = True
-                        covers_map = load_atlas()
-                        if book_id not in covers_map:
-                            covers_map[book_id] = filename
-                            save_atlas(covers_map)
-                            logging.info(f"[Atlas][seed_drive_books] Added missing atlas mapping for {book_id}")
-                        logging.info(f"[Atlas][seed_drive_books] Verified disk cover for {book_id} is valid JPEG.")
-                    except Exception as e:
-                        logging.warning(f"[Atlas][seed_drive_books] Disk cover for {book_id} exists but is invalid: {e}. Will re-extract.")
-                        cover_valid = False
-                if not cover_valid:
-                    img = extract_cover_image_from_pdf(book_id)
-                    if img is not None:
-                        img.save(cover_path, format='JPEG', quality=70)
-                        covers_map = load_atlas()
-                        covers_map[book_id] = filename
-                        save_atlas(covers_map)
-                        logging.info(f"[Atlas][seed_drive_books] Extracted and cached cover for {book_id}")
-                    else:
-                        logging.warning(f"[Atlas][seed_drive_books] Failed to extract cover for {book_id}")
-                else:
-                    covers_map = load_atlas()
-                    covers_map[book_id] = filename
-                    save_atlas(covers_map)
-                    logging.info(f"[Atlas][seed_drive_books] Mapping updated for {book_id}")
-            logging.info(f"[Atlas][seed_drive_books] Finished batch cover cache for {len(cover_ids)} books.")
-        except Exception as e:
-            errors.append(f"Error rebuilding cover cache: {e}")
-
-        return jsonify({
-            'success': True,
-            'added_count': added_count,
-            'updated_count': updated_count,
-            'external_id_updates': external_id_updates,
-            'skipped_count': skipped_count,
-            'errors': errors,
-            'message': f"Seeded {added_count} new books, updated {updated_count} existing books, {external_id_updates} external IDs set."
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-@app.route('/api/cover-exists/<file_id>', methods=['GET'])
-def cover_exists(file_id):
-    cover_path = os.path.join(COVERS_DIR, f"{file_id}.jpg")
-    exists = os.path.exists(cover_path)
-    return jsonify({'exists': exists})
-
-@app.route('/api/simulate-cover-load', methods=['POST'])
-def simulate_cover_load():
-    """
-    Simulate multiple users requesting covers at the same time for stress testing.
-    POST data: {"file_ids": ["id1", "id2", ...], "num_users": 200, "concurrency": 20}
-    """
-    data = request.get_json(force=True)
-    file_ids = data.get('file_ids', [])
-    num_users = int(data.get('num_users', 200))
-    concurrency = int(data.get('concurrency', 20))
-    if not file_ids:
-        return jsonify({'success': False, 'message': 'file_ids required'}), 400
-    results = []
-    start_time = time.time()
-    # --- Attach FileHandler for simulation logging ---
-    log_path = os.path.join(os.path.dirname(__file__), 'logs.txt')
-    sim_handler = logging.FileHandler(log_path, mode='w', encoding='utf-8')
-    sim_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-    sim_handler.setFormatter(formatter)
-    logging.getLogger().addHandler(sim_handler)
-    # Save current handlers to restore later
-    old_handlers = [h for h in logging.getLogger().handlers if h is not sim_handler]
-    try:
-        def simulate_user(user_idx):
-            session_id = f"simuser-{user_idx}-{uuid.uuid4()}"
-            file_id = random.choice(file_ids)
-            url = f"http://localhost:{os.getenv('PORT', 5000)}/pdf-cover/{file_id}?session_id={session_id}"
-            try:
-                resp = requests.get(url, timeout=30)
-                status = resp.status_code
-                log_msg = f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} status={status}"
-                logging.info(log_msg)
-                return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'status': status}
-            except Exception as e:
-                logging.error(f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} ERROR: {e}")
-                return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'error': str(e)}
-        # Use ThreadPoolExecutor for concurrency
-        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = [executor.submit(simulate_user, i) for i in range(num_users)]
-            for future in concurrent.futures.as_completed(futures):
-                results.append(future.result())
-        duration = time.time() - start_time
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[SIM] Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB")
-    finally:
-        # Remove simulation handler and restore previous handlers
-        logging.getLogger().removeHandler(sim_handler)
-        sim_handler.close()
-    # --- Write simulation results to logs.txt (append) ---
-    with open(log_path, 'a', encoding='utf-8') as f:
-        f.write(f"Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB\n")
-    return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
