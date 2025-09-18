@@ -903,6 +903,48 @@ def update_profile_settings():
     db.session.commit()
     return jsonify({'success': True, 'message': 'Profile settings updated.', 'font': user.font, 'timezone': user.timezone, 'comments_page_size': user.comments_page_size})
 
+@app.route('/api/update-colors', methods=['POST'])
+def update_colors():
+    data = request.get_json(force=True)
+    username = data.get('username')
+    background_color = data.get('backgroundColor')
+    text_color = data.get('textColor')
+    # Validate required fields
+    if not username or not background_color or not text_color:
+        return jsonify({'success': False, 'message': 'Missing required fields.'}), 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    try:
+        user.background_color = background_color
+        user.text_color = text_color
+        db.session.commit()
+        # Efficiently update all comments by this user
+        comments = Comment.query.filter_by(username=username).all()
+        for comment in comments:
+            comment.background_color = background_color
+            comment.text_color = text_color
+        db.session.commit()
+        # Return all user fields needed for frontend sync
+        return jsonify({
+            'success': True,
+            'message': 'Colors updated.',
+            'backgroundColor': user.background_color,
+            'textColor': user.text_color,
+            'username': user.username,
+            'email': user.email,
+            'font': getattr(user, 'font', None),
+            'timezone': getattr(user, 'timezone', None),
+            'is_admin': getattr(user, 'is_admin', False),
+            'bookmarks': getattr(user, 'bookmarks', []),
+            'secondaryEmails': getattr(user, 'secondary_emails', []),
+            'notificationPrefs': getattr(user, 'notification_prefs', None),
+            'notificationHistory': getattr(user, 'notification_history', None)
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/export-account', methods=['POST'])
 def export_account():
     data = request.get_json(force=True)
@@ -1392,26 +1434,6 @@ def moderate_comment():
             )
         return jsonify({'success': True, 'message': 'Comment deleted.'})
 
-# Endpoint to check for new notifications for polling
-@app.route('/api/has-new-notifications', methods=['POST'])
-def has_new_notifications():
-    data = request.get_json(force=True)
-    username = data.get('username')
-    user = User.query.filter_by(username=username).first()
-    has_new = False
-    if user and user.notification_history:
-        try:
-            history = json.loads(user.notification_history)
-            # Only count notifications that are not read and not dismissed
-            has_new = any(not n.get('read', False) and not n.get('dismissed', False) for n in history if isinstance(n, dict))
-        except Exception:
-            has_new = False
-    response = jsonify({'hasNew': has_new})
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
-    return response
-
 # === Book & PDF Management ===
 @app.route('/api/update-external-id', methods=['POST'])
 def update_external_id():
@@ -1439,63 +1461,6 @@ def update_external_id():
         return jsonify({'success': True, 'message': 'External ID updated.', 'external_story_id': new_external_id})
     return jsonify({'success': True, 'message': 'No update needed.', 'external_story_id': book.external_story_id})
 
-# Paginated PDF list endpoint
-@app.route('/list-pdfs/<folder_id>')
-def list_pdfs(folder_id):
-    try:
-        # Get pagination params
-        page = int(request.args.get('page', 1))
-        page_size = int(request.args.get('page_size', 50))
-        if page_size > 200:
-            page_size = 200  # Prevent excessive memory usage
-        offset = (page - 1) * page_size
-
-        # Fetch PDFs from Google Drive folder
-        service = get_drive_service()
-        query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
-        drive_files = []
-        page_token = None
-        while True:
-            response = service.files().list(
-                q=query,
-                fields="nextPageToken, files(id, name, createdTime, modifiedTime)",
-                pageSize=1000,
-                pageToken=page_token
-            ).execute()
-            drive_files.extend(response.get('files', []))
-            page_token = response.get('nextPageToken', None)
-            if not page_token:
-                break
-
-        # Only list PDFs from Drive, do not sync to DB
-        existing_books = {b.drive_id: b for b in Book.query.filter(Book.drive_id.in_([f['id'] for f in drive_files])).all()}
-
-        # Paginate results from drive_files
-        total_count = len(drive_files)
-        paged_files = drive_files[offset:offset+page_size]
-        pdf_list = []
-        for f in paged_files:
-            created_time = f.get('createdTime')
-            modified_time = f.get('modifiedTime')
-            pdf_list.append({
-                'id': f['id'],
-                'title': f.get('name', 'Untitled'),
-                'createdTime': created_time,
-                'modifiedTime': modified_time
-            })
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[list-pdfs] Memory usage: {mem:.2f} MB for folder_id={folder_id}")
-        return jsonify({
-            'pdfs': pdf_list,
-            'page': page,
-            'page_size': page_size,
-            'total_count': total_count,
-            'has_more': offset + len(pdf_list) < total_count
-        })
-    except Exception as e:
-        logging.error(f"Error in paginated /list-pdfs/: {e}")
-        return jsonify({'error': 'Failed to list PDFs', 'details': str(e)}), 500
-    
 @app.route('/api/rebuild-cover-cache', methods=['POST'])
 def api_rebuild_cover_cache():
     try:
@@ -1541,6 +1506,42 @@ def get_books_by_ids():
         })
     return jsonify({'books': result})
 
+# --- GLOBAL BOOK METADATA ENDPOINT ---
+@app.route('/api/all-books', methods=['GET'])
+def all_books():
+    try:
+        # Get all books for frontend
+        books = Book.query.all()
+        result = []
+        for book in books:
+            result.append({
+                'id': book.id,
+                'drive_id': book.drive_id,
+                'title': book.title,
+                'external_story_id': book.external_story_id,
+                'created_at': book.created_at.isoformat() if book.created_at else None,
+                'updated_at': book.updated_at.isoformat() if book.updated_at else None
+            })
+        response = jsonify(success=True, books=result)
+
+        # For cover cache management, get top 20 newest and top 10 voted book IDs
+        newest_books = Book.query.order_by(desc(Book.updated_at)).limit(20).with_entities(Book.drive_id).all()
+        voted_books = (
+            Book.query
+            .join(Vote, Book.drive_id == Vote.book_id)
+            .group_by(Book.id)
+            .order_by(func.count(Vote.id).desc())
+            .limit(10)
+            .with_entities(Book.drive_id)
+            .all()
+        )
+        cover_ids = set([b.drive_id for b in newest_books] + [b.drive_id for b in voted_books])
+        # Trigger async cover cache update (non-blocking)
+        return response
+    except Exception as e:
+        response = jsonify(success=False, error=str(e))
+        return response, 500
+
 @app.route('/api/cover-exists/<file_id>', methods=['GET'])
 def cover_exists(file_id):
     cover_path = os.path.join(COVERS_DIR, f"{file_id}.jpg")
@@ -1560,22 +1561,7 @@ def api_landing_page_book_ids():
     except Exception as e:
         logging.error(f"[Atlas] Error in /api/landing-page-book-ids: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
-    
-@app.route('/api/cover-diagnostics', methods=['GET'])
-def cover_diagnostics():
-    covers_dir_files = os.listdir(COVERS_DIR)
-    disk_covers = [fname for fname in covers_dir_files if fname.endswith('.jpg')]
-    atlas = load_atlas()
-    atlas_ids = list(atlas.keys())
-    missing_on_disk = [bid for bid in atlas_ids if f"{bid}.jpg" not in disk_covers]
-    extra_on_disk = [fname for fname in disk_covers if fname.replace('.jpg', '') not in atlas_ids]
-    return jsonify({
-        'covers_on_disk': disk_covers,
-        'atlas_ids': atlas_ids,
-        'missing_on_disk': missing_on_disk,
-        'extra_on_disk': extra_on_disk,
-        'atlas': atlas,
-    })
+
 
 # --- Serve covers from disk with fallback ---
 @app.route('/covers/<cover_id>.jpg')
@@ -1743,6 +1729,43 @@ def serve_cover(cover_id):
         return send_file(fallback_path, mimetype='image/png')
     logging.error(f"[ServeCover] No cover or fallback found for {cover_id}")
     return jsonify({'success': False, 'message': 'Cover not found.'}), 404
+
+@app.route('/api/cancel-session', methods=['POST'])
+def cancel_session():
+    """
+    Cancel all active and queued requests for a given session_id and type ('cover' or 'text').
+    Body: { "session_id": "...", "type": "cover" | "text" }
+    """
+    data = request.get_json(force=True)
+    session_id = data.get('session_id')
+    req_type = data.get('type')
+    if not session_id or req_type not in ['cover', 'text']:
+        return jsonify({'success': False, 'message': 'Missing session_id or invalid type.'}), 400
+
+    removed = 0
+    if req_type == 'cover':
+        with cover_queue_lock:
+            # Remove from queue
+            before = len(cover_request_queue)
+            cover_request_queue[:] = [e for e in cover_request_queue if e['session_id'] != session_id]
+            removed = before - len(cover_request_queue)
+            # Cancel active if matches
+            global cover_queue_active
+            if cover_queue_active and cover_queue_active.get('session_id') == session_id:
+                cover_queue_active = None
+    elif req_type == 'text':
+        with text_queue_lock:
+            before = len(text_request_queue)
+            text_request_queue[:] = [e for e in text_request_queue if e['session_id'] != session_id]
+            removed = before - len(text_request_queue)
+            global text_queue_active
+            if text_queue_active and text_queue_active.get('session_id') == session_id:
+                text_queue_active = None
+
+    # Remove session heartbeat
+    session_last_seen.pop(session_id, None)
+    return jsonify({'success': True, 'removed': removed, 'message': f'Cancelled session {session_id} for {req_type}.'})
+    
 
 @app.route('/pdf-cover/<file_id>', methods=['GET'])
 def pdf_cover(file_id):
@@ -2120,96 +2143,787 @@ def pdf_text(file_id):
                 logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock in error cleanup.")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/api/simulate-cover-load', methods=['POST'])
-def simulate_cover_load():
-    """
-    Simulate multiple users requesting covers at the same time for stress testing.
-    POST data: {"file_ids": ["id1", "id2", ...], "num_users": 200, "concurrency": 20}
-    """
-    data = request.get_json(force=True)
-    file_ids = data.get('file_ids', [])
-    num_users = int(data.get('num_users', 200))
-    concurrency = int(data.get('concurrency', 20))
-    if not file_ids:
-        return jsonify({'success': False, 'message': 'file_ids required'}), 400
-    results = []
-    start_time = time.time()
-    # --- Attach FileHandler for simulation logging ---
-    log_path = os.path.join(os.path.dirname(__file__), 'logs.txt')
-    sim_handler = logging.FileHandler(log_path, mode='w', encoding='utf-8')
-    sim_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-    sim_handler.setFormatter(formatter)
-    logging.getLogger().addHandler(sim_handler)
-    # Save current handlers to restore later
-    old_handlers = [h for h in logging.getLogger().handlers if h is not sim_handler]
+# === Voting ===
+@app.route('/api/vote-book', methods=['POST'])
+def vote_book():
+    data = request.get_json()
+    username = data.get('username')
+    book_id = data.get('book_id')
+    value = data.get('value')  # 1-5
+    if not username or not book_id or value not in [1,2,3,4,5]:
+        return jsonify({'success': False, 'message': 'Invalid vote data.'}), 400
+    vote = Vote.query.filter_by(username=username, book_id=book_id).first()
+    if vote:
+        vote.value = value
+        vote.timestamp = datetime.datetime.now(datetime.UTC)
+    else:
+        vote = Vote(username=username, book_id=book_id, value=value)
+        db.session.add(vote)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Vote recorded.'})
+
+@app.route('/api/book-votes', methods=['GET'])
+def book_votes():
+    book_id = request.args.get('book_id')
+    if not book_id:
+        return jsonify({'success': False, 'message': 'Book ID required.'}), 400
+    votes = Vote.query.filter_by(book_id=book_id).all()
+    if not votes:
+        return jsonify({'success': True, 'average': 0, 'count': 0})
+    avg = round(sum(v.value for v in votes) / len(votes), 2)
+    return jsonify({'success': True, 'average': avg, 'count': len(votes)})
+
+@app.route('/api/top-voted-books', methods=['GET'])
+def top_voted_books():
+    vote_counts = db.session.query(
+        Vote.book_id,
+        func.avg(Vote.value).label('avg_vote'),
+        func.count(Vote.value).label('vote_count')
+    ).group_by(Vote.book_id).order_by(func.avg(Vote.value).desc()).limit(10).all()
+    # Get book metadata from Google Drive
+    service = None
     try:
-        def simulate_user(user_idx):
-            session_id = f"simuser-{user_idx}-{uuid.uuid4()}"
-            file_id = random.choice(file_ids)
-            url = f"http://localhost:{os.getenv('PORT', 5000)}/pdf-cover/{file_id}?session_id={session_id}"
+        service = get_drive_service()
+    except Exception:
+        pass
+    books = []
+    for book_id, avg_vote, vote_count in vote_counts:
+        meta = {'id': book_id, 'average': round(avg_vote,2), 'count': vote_count}
+        if service:
             try:
-                resp = requests.get(url, timeout=30)
-                status = resp.status_code
-                log_msg = f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} status={status}"
-                logging.info(log_msg)
-                return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'status': status}
-            except Exception as e:
-                logging.error(f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} ERROR: {e}")
-                return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'error': str(e)}
-        # Use ThreadPoolExecutor for concurrency
-        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = [executor.submit(simulate_user, i) for i in range(num_users)]
-            for future in concurrent.futures.as_completed(futures):
-                results.append(future.result())
-        duration = time.time() - start_time
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[SIM] Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB")
-    finally:
-        # Remove simulation handler and restore previous handlers
-        logging.getLogger().removeHandler(sim_handler)
-        sim_handler.close()
-    # --- Write simulation results to logs.txt (append) ---
-    with open(log_path, 'a', encoding='utf-8') as f:
-        f.write(f"Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB\n")
-    return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
+                file_metadata = service.files().get(fileId=book_id, fields='name').execute()
+                meta['name'] = file_metadata.get('name')
+            except Exception:
+                meta['name'] = None
+        books.append(meta)
+    return jsonify({'success': True, 'books': books})
 
-@app.route('/api/drive-webhook', methods=['POST'])
-def drive_webhook():
-    channel_id = request.headers.get('X-Goog-Channel-ID')
-    resource_id = request.headers.get('X-Goog-Resource-ID')
-    resource_state = request.headers.get('X-Goog-Resource-State')
-    changed = request.headers.get('X-Goog-Changed')
-    logging.info(f"[Drive Webhook] Channel: {channel_id}, Resource: {resource_id}, State: {resource_state}, Changed: {changed}")
+@app.route('/api/user-voted-books', methods=['GET'])
+def user_voted_books():
+    username = request.args.get('username')
+    if not username:
+        return jsonify({'success': False, 'message': 'Username required.'}), 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    # Get all votes by this user
+    votes = Vote.query.filter_by(username=username).all()
+    voted_books = []
+    for vote in votes:
+        book = Book.query.filter_by(drive_id=vote.book_id).first()
+        if book:
+            voted_books.append({
+                'book_id': book.drive_id,
+                'title': book.title,
+                'vote': vote.value,
+                'timestamp': vote.timestamp.strftime('%Y-%m-%d %H:%M'),
+                'external_story_id': book.external_story_id
+            })
+    return jsonify({'success': True, 'voted_books': voted_books})
 
-    # Only handle 'update' or 'add' events
-    if resource_state in ['update', 'add']:
+@app.route('/api/user-top-voted-books', methods=['GET'])
+def user_top_voted_books():
+    username = request.args.get('username')
+    if not username:
+        response = jsonify({'error': 'Missing username'})
+        return response, 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        response = jsonify({'error': 'User not found'})
+        return response, 404
+    # Get all votes by this user
+    votes = Vote.query.filter_by(username=username).all()
+    if not votes:
+        response = jsonify({'books': []})
+        return response, 200
+    # Get book info for each voted book
+    book_ids = [v.book_id for v in votes]
+    books = Book.query.filter(Book.drive_id.in_(book_ids)).all()
+    # Build result list with vote info
+    result = []
+    for book in books:
+        vote = next((v for v in votes if v.book_id == book.drive_id), None)
+        result.append({
+            'id': book.drive_id,
+            'title': book.title,
+            'cover_url': f'/pdf-cover/{book.drive_id}',
+            'votes': vote.value if vote else None
+        })
+    # Sort by vote value descending, then by title
+    result.sort(key=lambda b: (-b['votes'] if b['votes'] is not None else 0, b['title']))
+    response = jsonify({'books': result})
+    return response, 200
+
+# === Bookmarks ===
+@app.route('/api/get-bookmarks', methods=['GET', 'POST'])
+def get_bookmarks():
+    if request.method == 'POST':
+        data = request.get_json()
+        username = data.get('username') if data else None
+    else:
+        username = request.args.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        response = jsonify({'success': False, 'message': 'User not found.'})
+        return response, 404
+    bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
+    # Get last updated time for each bookmarked PDF from Google Drive
+    try:
+        service = get_drive_service()
+        # Get all file IDs in bookmarks
+        file_ids = [bm['id'] for bm in bookmarks]
+        if file_ids:
+            # Query Google Drive for these files
+            query = " or ".join([f"'{fid}' in parents or id='{fid}'" for fid in file_ids])
+            results = service.files().list(q=query, fields="files(id, modifiedTime)").execute()
+            files = results.get('files', [])
+            file_update_map = {f['id']: f.get('modifiedTime') for f in files}
+            # Update each bookmark with actual last updated time
+            for bm in bookmarks:
+                bm['last_updated'] = file_update_map.get(bm['id'], bm.get('last_updated'))
+    except Exception as e:
+        pass  # If Drive fails, fallback to stored last_updated
+    response = jsonify({'success': True, 'bookmarks': bookmarks})
+    return response
+
+@app.route('/api/add-bookmark', methods=['POST'])
+def add_bookmark():
+    data = request.get_json()
+    username = data.get('username')
+    book_id = data.get('book_id')
+    if not username or not book_id:
+        return jsonify({'success': False, 'message': 'Username and book_id required.'}), 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
+    for bm in bookmarks:
+        if bm['id'] == book_id:
+            return jsonify({'success': True, 'message': 'Already bookmarked.', 'bookmarks': bookmarks})
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    bookmarks.append({'id': book_id, 'last_page': 1, 'last_updated': now, 'unread': False})
+    user.bookmarks = json.dumps(bookmarks)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Bookmarked.', 'bookmarks': bookmarks})
+
+@app.route('/api/remove-bookmark', methods=['POST'])
+def remove_bookmark():
+    data = request.get_json()
+    username = data.get('username')
+    book_id = data.get('book_id')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    if not book_id:
+        return jsonify({'success': False, 'message': 'Book ID missing.'}), 400
+    bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
+    before = len(bookmarks)
+    bookmarks = [bm for bm in bookmarks if bm['id'] != book_id]
+    after = len(bookmarks)
+    user.bookmarks = json.dumps(bookmarks)
+    db.session.commit()
+    if before == after:
+        return jsonify({'success': False, 'message': 'Bookmark not found.', 'bookmarks': bookmarks})
+    return jsonify({'success': True, 'message': 'Bookmark removed.', 'bookmarks': bookmarks})
+
+@app.route('/api/update-bookmark-meta', methods=['POST'])
+def update_bookmark_meta():
+    data = request.get_json()
+    username = data.get('username')
+    book_id = data.get('book_id')
+    last_page = data.get('last_page')
+    unread = data.get('unread')
+    if not username or not book_id:
+        return jsonify({'success': False, 'message': 'Username and book_id required.'}), 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
+    updated = False
+    for bm in bookmarks:
+        if bm['id'] == book_id:
+            if last_page is not None:
+                bm['last_page'] = last_page
+            if unread is not None:
+                bm['unread'] = unread
+            bm['last_updated'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+            updated = True
+    if not updated:
+        return jsonify({'success': False, 'message': 'Bookmark not found.'}), 404
+    user.bookmarks = json.dumps(bookmarks)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Bookmark updated.', 'bookmarks': bookmarks})
+
+# === Comments ===
+@app.route('/api/add-comment', methods=['POST'])
+def add_comment():
+    data = request.get_json()
+    book_id = data.get('book_id')
+    username = data.get('username')
+    text = data.get('text')
+    parent_id = data.get('parent_id')
+    if not book_id or not username or not text:
+        return jsonify({'success': False, 'message': 'Missing fields.'}), 400
+    comment = Comment(book_id=book_id, username=username, text=text, parent_id=parent_id)
+    db.session.add(comment)
+    db.session.commit()
+    # Hook for notifications: if parent_id, notify parent comment's author
+    return jsonify({'success': True, 'message': 'Comment added.', 'comment_id': comment.id})
+
+@app.route('/api/edit-comment', methods=['POST'])
+def edit_comment():
+    data = request.get_json()
+    comment_id = data.get('comment_id')
+    username = data.get('username')
+    text = data.get('text')
+    comment = Comment.query.get(comment_id)
+    if not comment or comment.deleted:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+    if comment.username != username:
+        user = User.query.filter_by(username=username).first()
+        if not user or not user.is_admin:
+            return jsonify({'success': False, 'message': 'Not authorized.'}), 403
+    comment.text = text
+    comment.edited = True
+    comment.timestamp = datetime.datetime.now(datetime.UTC)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Comment edited.'})
+
+@app.route('/api/delete-comment', methods=['POST'])
+def delete_comment():
+    data = request.get_json()
+    comment_id = data.get('comment_id')
+    username = data.get('username')
+    comment = Comment.query.get(comment_id)
+    if not comment or comment.deleted:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+    if comment.username != username:
+        user = User.query.filter_by(username=username).first()
+        if not user or not user.is_admin:
+            return jsonify({'success': False, 'message': 'Not authorized.'}), 403
+    comment.deleted = True
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Comment deleted.'})
+
+@app.route('/api/get-comments', methods=['GET'])
+def get_comments():
+    book_id = request.args.get('book_id')
+    page = int(request.args.get('page', 1))
+    page_size = int(request.args.get('page_size', 20))
+    if not book_id:
+        return jsonify({'success': False, 'message': 'Book ID required.'}), 400
+    # Query all comments for the book, ordered by timestamp ascending
+    query = Comment.query.filter_by(book_id=book_id).order_by(Comment.timestamp.asc())
+    total_comments = query.count()
+    total_pages = (total_comments + page_size - 1) // page_size
+    comments = query.offset((page - 1) * page_size).limit(page_size).all()
+    # Build nested replies for only the current page
+    comment_map = {}
+    tree = []
+    for c in comments:
+        if c.deleted:
+            continue
+        user = User.query.filter_by(username=c.username).first()
+        item = {
+            'id': c.id,
+            'book_id': c.book_id,
+            'username': c.username,
+            'parent_id': c.parent_id,
+            'text': c.text,
+            'timestamp': c.timestamp.isoformat(),
+            'edited': c.edited,
+            'upvotes': c.upvotes,
+            'downvotes': c.downvotes,
+            'deleted': c.deleted,
+            'background_color': user.background_color if user and user.background_color else None,
+            'text_color': user.text_color if user and user.text_color else None,
+            'replies': []
+        }
+        comment_map[c.id] = item
+    for item in comment_map.values():
+        if item['parent_id'] and item['parent_id'] in comment_map:
+            comment_map[item['parent_id']]['replies'].append(item)
+        else:
+            tree.append(item)
+    return jsonify({
+        'success': True,
+        'comments': tree,
+        'page': page,
+        'page_size': page_size,
+        'total_comments': total_comments,
+        'total_pages': total_pages
+    })
+
+# Efficient polling endpoint for new comments on a book
+@app.route('/api/has-new-comments', methods=['POST'])
+def has_new_comments():
+    data = request.get_json()
+    book_id = data.get('book_id')
+    # Accept either a list of known comment IDs or the latest timestamp
+    known_ids = set(data.get('known_ids', []))
+    latest_timestamp = data.get('latest_timestamp')  # ISO8601 string or None
+    if not book_id:
+        return jsonify({'success': False, 'message': 'Book ID required.'}), 400
+    # Query all non-deleted comments for the book
+    query = Comment.query.filter_by(book_id=book_id, deleted=False)
+    # If known_ids provided, check for any comments not in known_ids
+    if known_ids:
+        new_comments = query.filter(~Comment.id.in_(known_ids)).all()
+        has_new = len(new_comments) > 0
+        new_ids = [c.id for c in new_comments]
+        return jsonify({'success': True, 'hasNew': has_new, 'new_ids': new_ids})
+    # If latest_timestamp provided, check for any comments newer than that
+    elif latest_timestamp:
         try:
-                service = get_drive_service()
-                file = service.files().get(fileId=resource_id, fields='id, name, createdTime, modifiedTime').execute()
-                book = Book.query.filter_by(drive_id=resource_id).first()
-                if not book:
-                    new_book = Book(
-                        drive_id=file['id'],
-                        title=file['name'],
-                        created_at=file.get('createdTime'),
-                        updated_at=file.get('modifiedTime')
-                    )
-                    db.session.add(new_book)
-                    db.session.commit()
-                    logging.info(f"Added new book to DB: {file['name']}")
-                    notify_new_book(new_book.drive_id, new_book.title)
-                else:
-                    book.title = file['name']
-                   
-                    book.updated_at = file.get('modifiedTime')
-                    db.session.commit()
-                    logging.info(f"Updated book in DB: {file['name']}")
-                    notify_book_update(book.drive_id, book.title)
-        except Exception as e:
-            logging.error(f"Error updating DB from webhook: {e}")
-    return '', 200
+            ts = dateutil.parser.isoparse(latest_timestamp)
+        except Exception:
+            return jsonify({'success': False, 'message': 'Invalid timestamp.'}), 400
+        new_comments = query.filter(Comment.timestamp > ts).all()
+        has_new = len(new_comments) > 0
+        new_ids = [c.id for c in new_comments]
+        return jsonify({'success': True, 'hasNew': has_new, 'new_ids': new_ids})
+    else:
+        # If neither provided, just return False
+        return jsonify({'success': True, 'hasNew': False, 'new_ids': []})
 
+@app.route('/api/vote-comment', methods=['POST'])
+def vote_comment():
+    data = request.get_json()
+    comment_id = data.get('comment_id')
+    value = data.get('value')  # 1 for upvote, -1 for downvote
+    if value not in [1, -1]:
+        return jsonify({'success': False, 'message': 'Invalid vote value.'}), 400
+    comment = Comment.query.get(comment_id)
+    if not comment or comment.deleted:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+    if value == 1:
+        comment.upvotes += 1
+    else:
+        comment.downvotes += 1
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Vote recorded.', 'upvotes': comment.upvotes, 'downvotes': comment.downvotes})
+
+@app.route('/api/get-comment-votes', methods=['GET'])
+def get_comment_votes():
+    comment_id = request.args.get('comment_id')
+    comment = Comment.query.get(comment_id)
+    if not comment or comment.deleted:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+    return jsonify({'success': True, 'upvotes': comment.upvotes, 'downvotes': comment.downvotes})
+
+@app.route('/api/user-comments', methods=['GET'])
+def user_comments():
+    username = request.args.get('username')
+    comments = Comment.query.filter_by(username=username).order_by(Comment.timestamp.desc()).all()
+    return jsonify({'success': True, 'comments': [
+        {
+            'id': c.id,
+            'book_id': c.book_id,
+            'parent_id': c.parent_id,
+            'text': c.text,
+            'timestamp': c.timestamp.isoformat(),
+            'edited': c.edited,
+            'upvotes': c.upvotes,
+            'downvotes': c.downvotes,
+            'deleted': c.deleted
+        } for c in comments if not c.deleted
+    ]})
+
+# === Notifications ===
+@app.route('/api/get-notification-prefs', methods=['POST'])
+def get_notification_prefs():
+    data = request.get_json()
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first() if username else None
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    # Define all expected keys and their defaults
+    expected_defaults = {
+        'email': False,
+        'push': False,
+        'newsletter': False,
+        'siteUpdates': True,
+        'newBook': True,
+        'bookmarkUpdates': True,
+        'replyNotifications': True,
+        'emailChannels': [],
+        'emailFrequency': 'immediate',
+        'muteAll': False,
+        'newBooks': True,
+        'updates': True,
+        'announcements': True,
+        'channels': ['primary']
+    }
+    if user.notification_prefs:
+        prefs = json.loads(user.notification_prefs)
+    else:
+        prefs = expected_defaults.copy()
+        user.notification_prefs = json.dumps(prefs)
+        db.session.commit()
+    # Normalize: ensure all expected keys are present
+    normalized = expected_defaults.copy()
+    normalized.update(prefs)
+    # Type normalization: ensure booleans are booleans, arrays are arrays
+    for k, v in expected_defaults.items():
+        if isinstance(v, bool):
+            normalized[k] = bool(normalized.get(k, v))
+        elif isinstance(v, list):
+            val = normalized.get(k, v)
+            if not isinstance(val, list):
+                try:
+                    val = list(val) if isinstance(val, (tuple, set)) else [val] if val else []
+                except Exception:
+                    val = []
+            normalized[k] = val
+        else:
+            normalized[k] = normalized.get(k, v)
+    return jsonify({'success': True, 'prefs': normalized})
+
+@app.route('/api/update-notification-prefs', methods=['POST'])
+def update_notification_prefs():
+    data = request.get_json()
+    username = data.get('username')
+    prefs = data.get('prefs')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    user.notification_prefs = json.dumps(prefs)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Notification preferences updated.'})
+
+# Paginated notification history endpoint
+@app.route('/api/get-notification-history', methods=['POST'])
+def get_notification_history():
+    try:
+        data = request.get_json(force=True)
+        username = data.get('username')
+        page = int(data.get('page', 1))
+        page_size = int(data.get('page_size', 100))
+        user = User.query.filter_by(username=username).first()
+        logging.info(f"[get-notification-history] Requested username: {username}")
+        if not user:
+            logging.warning(f"Notification history: User not found: {username}")
+            return jsonify({'success': False, 'message': 'User not found', 'notifications': []})
+        logging.info(f"[get-notification-history] Found user: {user.username}, notification_history type: {type(user.notification_history)}, value: {repr(user.notification_history)[:200]}")
+        history = []
+        if user.notification_history:
+            try:
+                history = json.loads(user.notification_history)
+                logging.info(f"[get-notification-history] Parsed notification_history, type: {type(history)}, length: {len(history) if isinstance(history, list) else 'N/A'}")
+                if not isinstance(history, list):
+                    logging.error(f"Notification history for user {username} is not a list. Got: {type(history)}")
+                    history = []
+            except Exception as e:
+                logging.error(f"Error loading notification history for user {username}: {e}")
+                history = []
+        else:
+            logging.info(f"[get-notification-history] No notification_history for user {username}")
+        # Sort by timestamp descending (newest first)
+        history.sort(key=lambda n: n.get('timestamp', 0), reverse=True)
+        total = len(history)
+        start = (page - 1) * page_size
+        end = start + page_size
+        chunk = history[start:end]
+        logging.info(f"[get-notification-history] Returning {len(chunk)} notifications out of {total} total.")
+        return jsonify({
+            'success': True,
+            'notifications': chunk,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size
+        })
+    except Exception as e:
+        logging.error(f"Exception in get_notification_history: {e}")
+        return jsonify({'success': False, 'message': f'Error: {str(e)}', 'notifications': []})
+
+# Add a GET handler to return JSON error
+@app.route('/api/notification-history', methods=['GET'])
+def notification_history_get():
+    return jsonify({'success': False, 'message': 'Use POST for this endpoint.'}), 405
+
+@app.route('/api/notify-reply', methods=['POST'])
+def notify_reply():
+    data = request.get_json()
+    book_id = data.get('book_id')
+    comment_id = data.get('comment_id')
+    message = data.get('message', 'Someone replied to your comment!')
+    # Find the parent comment (use Session.get for SQLAlchemy 2.x compatibility)
+    parent_comment = db.session.get(Comment, comment_id)
+    if not parent_comment or parent_comment.deleted:
+        return jsonify({'success': False, 'message': 'Parent comment not found.'}), 404
+    parent_username = parent_comment.username
+    user = User.query.filter_by(username=parent_username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    # Add notification with link to the reply
+    add_notification(
+        user,
+        'reply',
+        'New Reply!',
+        message,
+        link=f'/read/{book_id}?comment={comment_id}'
+    )
+    return jsonify({'success': True, 'message': f'Reply notification sent to {parent_username}.'})
+
+@app.route('/api/notify-new-book', methods=['POST'])
+def notify_new_book():
+    data = request.get_json()
+    book_id = data.get('book_id')
+    book_title = data.get('book_title', 'Untitled Book')
+    users = User.query.all()
+    for user in users:
+        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+        if not prefs.get('muteAll', False) and prefs.get('newBooks', True):
+            add_notification(user, 'newBook', 'New Book Added!', f'A new book "{book_title}" is now available in the library.', link=f'/read/{book_id}')
+    return jsonify({'success': True, 'message': f'Notification sent for new book: {book_title}.'})
+
+@app.route('/api/notify-book-update', methods=['POST'])
+def notify_book_update():
+    data = request.get_json()
+    book_id = data.get('book_id')
+    book_title = data.get('book_title', 'A book in your favorites')
+    count = 0
+    users = User.query.all()
+    for user in users:
+        bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
+        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+        if any(bm['id'] == book_id for bm in bookmarks) and not prefs.get('muteAll', False) and prefs.get('updates', True):
+            add_notification(user, 'bookUpdate', 'Book Updated!', f'"{book_title}" in your favorites has been updated.', link=f'/read/{book_id}')
+            count += 1
+    return jsonify({'success': True, 'message': f'Notification sent to {count} users for book update.'})
+
+@app.route('/api/notify-app-update', methods=['POST'])
+def notify_app_update():
+    users = User.query.all()
+    for user in users:
+        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+        if not prefs.get('muteAll', False) and prefs.get('announcements', True):
+            add_notification(user, 'appUpdate', 'App Updated!', 'Storyweave Chronicles has been updated!')
+    return jsonify({'success': True, 'message': 'App update notification sent to all users.'})
+
+@app.route('/api/mark-all-notifications-read', methods=['POST'])
+def mark_notifications_read():
+    data = request.get_json()
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    history = json.loads(user.notification_history) if user.notification_history else []
+    for n in history:
+        n['read'] = True
+    user.notification_history = json.dumps(history)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Notifications marked as read.', 'history': history})
+
+@app.route('/api/delete-notification', methods=['POST'])
+def delete_notification():
+    data = request.get_json()
+    username = data.get('username')
+    notification_id = data.get('notificationId')
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    history = json.loads(user.notification_history) if user.notification_history else []
+    new_history = [n for n in history if str(n.get('id', n.get('timestamp'))) != str(notification_id)]
+    found = len(new_history) < len(history)
+    user.notification_history = json.dumps(new_history)
+    db.session.commit()
+    return jsonify({'success': found, 'message': 'Notification deleted.' if found else 'Notification not found.', 'history': new_history})
+
+# Dismiss all notifications for a user
+@app.route('/api/dismiss-all-notifications', methods=['POST'])
+def dismiss_all_notifications():
+    data = request.get_json()
+    username = data.get('username')
+    logging.info(f"[DISMISS ALL] Request for user: {username}")
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        logging.error(f"[DISMISS ALL] User not found: {username}")
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    history = json.loads(user.notification_history) if user.notification_history else []
+    logging.info(f"[DISMISS ALL] Initial history count: {len(history)}")
+    for n in history:
+        n['dismissed'] = True
+        if 'id' not in n:
+            n['id'] = n.get('timestamp')
+    user.notification_history = json.dumps(history)
+    db.session.commit()
+    logging.info(f"[DISMISS ALL] All notifications set to dismissed. History count: {len(history)}")
+    return jsonify({'success': True, 'message': 'All notifications dismissed.', 'history': history})
+
+# Mark a single notification as read/unread
+@app.route('/api/mark-notification-read', methods=['POST'])
+def mark_notification_read():
+    data = request.get_json()
+    username = data.get('username')
+    notification_id = data.get('notificationId')
+    read = data.get('read', True)
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    history = json.loads(user.notification_history) if user.notification_history else []
+    found = False
+    for n in history:
+        if 'id' not in n:
+            n['id'] = n.get('timestamp')
+        if n.get('id') == notification_id or n.get('timestamp') == notification_id:
+            n['read'] = read
+            found = True
+    user.notification_history = json.dumps(history)
+    db.session.commit()
+    return jsonify({'success': found, 'message': 'Notification marked as read.' if found else 'Notification not found.', 'history': history})
+
+@app.route('/api/delete-all-notification-history', methods=['POST'])
+def delete_all_notification_history():
+    data = request.get_json()
+    username = data.get('username')
+    logging.info(f"[DELETE ALL] Request for user: {username}")
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        logging.error(f"[DELETE ALL] User not found: {username}")
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    logging.info(f"[DELETE ALL] History BEFORE: {user.notification_history}")
+    user.notification_history = json.dumps([])
+    db.session.commit()
+    logging.info(f"[DELETE ALL] History AFTER: {user.notification_history}")
+    # Double-check by reloading from DB
+    user_check = User.query.filter_by(username=username).first()
+    logging.info(f"[DELETE ALL] History AFTER COMMIT (reloaded): {user_check.notification_history}")
+    logging.info(f"[DELETE ALL] Notification history cleared for user: {username}")
+    return jsonify({'success': True, 'message': 'All notifications deleted from history.', 'history': []})
+
+# Endpoint to check for new notifications for polling
+@app.route('/api/has-new-notifications', methods=['POST'])
+def has_new_notifications():
+    data = request.get_json(force=True)
+    username = data.get('username')
+    user = User.query.filter_by(username=username).first()
+    has_new = False
+    if user and user.notification_history:
+        try:
+            history = json.loads(user.notification_history)
+            # Only count notifications that are not read and not dismissed
+            has_new = any(not n.get('read', False) and not n.get('dismissed', False) for n in history if isinstance(n, dict))
+        except Exception:
+            has_new = False
+    response = jsonify({'hasNew': has_new})
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
+    return response
+
+# === Health & Diagnostics ===
+
+# Paginated PDF list endpoint
+@app.route('/list-pdfs/<folder_id>')
+def list_pdfs(folder_id):
+    try:
+        # Get pagination params
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 50))
+        if page_size > 200:
+            page_size = 200  # Prevent excessive memory usage
+        offset = (page - 1) * page_size
+
+        # Fetch PDFs from Google Drive folder
+        service = get_drive_service()
+        query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
+        drive_files = []
+        page_token = None
+        while True:
+            response = service.files().list(
+                q=query,
+                fields="nextPageToken, files(id, name, createdTime, modifiedTime)",
+                pageSize=1000,
+                pageToken=page_token
+            ).execute()
+            drive_files.extend(response.get('files', []))
+            page_token = response.get('nextPageToken', None)
+            if not page_token:
+                break
+
+        # Only list PDFs from Drive, do not sync to DB
+        existing_books = {b.drive_id: b for b in Book.query.filter(Book.drive_id.in_([f['id'] for f in drive_files])).all()}
+
+        # Paginate results from drive_files
+        total_count = len(drive_files)
+        paged_files = drive_files[offset:offset+page_size]
+        pdf_list = []
+        for f in paged_files:
+            created_time = f.get('createdTime')
+            modified_time = f.get('modifiedTime')
+            pdf_list.append({
+                'id': f['id'],
+                'title': f.get('name', 'Untitled'),
+                'createdTime': created_time,
+                'modifiedTime': modified_time
+            })
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[list-pdfs] Memory usage: {mem:.2f} MB for folder_id={folder_id}")
+        return jsonify({
+            'pdfs': pdf_list,
+            'page': page,
+            'page_size': page_size,
+            'total_count': total_count,
+            'has_more': offset + len(pdf_list) < total_count
+        })
+    except Exception as e:
+        logging.error(f"Error in paginated /list-pdfs/: {e}")
+        return jsonify({'error': 'Failed to list PDFs', 'details': str(e)}), 500
+
+@app.route('/api/cover-queue-health', methods=['GET'])
+def cover_queue_health():
+    status = get_queue_status()
+    return jsonify({
+        'success': True,
+        'active': status['active'],
+        'queue_length': status['queue_length'],
+        'queue': status['queue'],
+        'sessions': status['sessions'],
+    })
+
+@app.route('/api/server-health', methods=['GET'])
+def server_health():
+    """
+    Health check endpoint: verifies DB connectivity. Returns success: true if DB responds, else false.
+    """
+    try:
+        # Simple DB query to test connection
+        db.session.execute(text('SELECT 1'))
+        return jsonify({'success': True})
+    except Exception as e:
+        logging.error(f"[server_health] DB health check failed: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """
+    Health check endpoint for Render.com. Returns 200 OK and JSON status.
+    Only log if status is not 200.
+    """
+    response = jsonify({'status': 'ok', 'message': 'Service is healthy.'})
+    status_code = 200
+    # Only log if status is not 200
+    if status_code != 200:
+        logging.info(f"[HEALTH CHECK] Status: {status_code} Response: {response.get_json()}")
+    return response, status_code
+
+@app.route('/api/cover-diagnostics', methods=['GET'])
+def cover_diagnostics():
+    covers_dir_files = os.listdir(COVERS_DIR)
+    disk_covers = [fname for fname in covers_dir_files if fname.endswith('.jpg')]
+    atlas = load_atlas()
+    atlas_ids = list(atlas.keys())
+    missing_on_disk = [bid for bid in atlas_ids if f"{bid}.jpg" not in disk_covers]
+    extra_on_disk = [fname for fname in disk_covers if fname.replace('.jpg', '') not in atlas_ids]
+    return jsonify({
+        'covers_on_disk': disk_covers,
+        'atlas_ids': atlas_ids,
+        'missing_on_disk': missing_on_disk,
+        'extra_on_disk': extra_on_disk,
+        'atlas': atlas,
+    })
 # --- Manual Seed Endpoint ---
 @app.route('/api/seed-drive-books', methods=['POST'])
 def seed_drive_books():
@@ -2395,399 +3109,59 @@ def seed_drive_books():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-
-
-@app.route('/authorize')
-def authorize():
-    creds = service_account.Credentials.from_service_account_info(
-        service_account_info,
-        scopes=SCOPES
-    )
-    return redirect("/")
-
-
-# --- Health Checks ---
-@app.route('/api/cover-queue-health', methods=['GET'])
-def cover_queue_health():
-    status = get_queue_status()
-    return jsonify({
-        'success': True,
-        'active': status['active'],
-        'queue_length': status['queue_length'],
-        'queue': status['queue'],
-        'sessions': status['sessions'],
-    })
-
-@app.route('/api/server-health', methods=['GET'])
-def server_health():
+@app.route('/api/simulate-cover-load', methods=['POST'])
+def simulate_cover_load():
     """
-    Health check endpoint: verifies DB connectivity. Returns success: true if DB responds, else false.
-    """
-    try:
-        # Simple DB query to test connection
-        db.session.execute(text('SELECT 1'))
-        return jsonify({'success': True})
-    except Exception as e:
-        logging.error(f"[server_health] DB health check failed: {e}")
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """
-    Health check endpoint for Render.com. Returns 200 OK and JSON status.
-    Only log if status is not 200.
-    """
-    response = jsonify({'status': 'ok', 'message': 'Service is healthy.'})
-    status_code = 200
-    # Only log if status is not 200
-    if status_code != 200:
-        logging.info(f"[HEALTH CHECK] Status: {status_code} Response: {response.get_json()}")
-    return response, status_code
-    
-
-
-@app.route('/api/cancel-session', methods=['POST'])
-def cancel_session():
-    """
-    Cancel all active and queued requests for a given session_id and type ('cover' or 'text').
-    Body: { "session_id": "...", "type": "cover" | "text" }
+    Simulate multiple users requesting covers at the same time for stress testing.
+    POST data: {"file_ids": ["id1", "id2", ...], "num_users": 200, "concurrency": 20}
     """
     data = request.get_json(force=True)
-    session_id = data.get('session_id')
-    req_type = data.get('type')
-    if not session_id or req_type not in ['cover', 'text']:
-        return jsonify({'success': False, 'message': 'Missing session_id or invalid type.'}), 400
-
-    removed = 0
-    if req_type == 'cover':
-        with cover_queue_lock:
-            # Remove from queue
-            before = len(cover_request_queue)
-            cover_request_queue[:] = [e for e in cover_request_queue if e['session_id'] != session_id]
-            removed = before - len(cover_request_queue)
-            # Cancel active if matches
-            global cover_queue_active
-            if cover_queue_active and cover_queue_active.get('session_id') == session_id:
-                cover_queue_active = None
-    elif req_type == 'text':
-        with text_queue_lock:
-            before = len(text_request_queue)
-            text_request_queue[:] = [e for e in text_request_queue if e['session_id'] != session_id]
-            removed = before - len(text_request_queue)
-            global text_queue_active
-            if text_queue_active and text_queue_active.get('session_id') == session_id:
-                text_queue_active = None
-
-    # Remove session heartbeat
-    session_last_seen.pop(session_id, None)
-    return jsonify({'success': True, 'removed': removed, 'message': f'Cancelled session {session_id} for {req_type}.'})
-    
-@app.route('/api/update-colors', methods=['POST'])
-def update_colors():
-    data = request.get_json(force=True)
-    username = data.get('username')
-    background_color = data.get('backgroundColor')
-    text_color = data.get('textColor')
-    # Validate required fields
-    if not username or not background_color or not text_color:
-        return jsonify({'success': False, 'message': 'Missing required fields.'}), 400
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
+    file_ids = data.get('file_ids', [])
+    num_users = int(data.get('num_users', 200))
+    concurrency = int(data.get('concurrency', 20))
+    if not file_ids:
+        return jsonify({'success': False, 'message': 'file_ids required'}), 400
+    results = []
+    start_time = time.time()
+    # --- Attach FileHandler for simulation logging ---
+    log_path = os.path.join(os.path.dirname(__file__), 'logs.txt')
+    sim_handler = logging.FileHandler(log_path, mode='w', encoding='utf-8')
+    sim_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    sim_handler.setFormatter(formatter)
+    logging.getLogger().addHandler(sim_handler)
+    # Save current handlers to restore later
+    old_handlers = [h for h in logging.getLogger().handlers if h is not sim_handler]
     try:
-        user.background_color = background_color
-        user.text_color = text_color
-        db.session.commit()
-        # Efficiently update all comments by this user
-        comments = Comment.query.filter_by(username=username).all()
-        for comment in comments:
-            comment.background_color = background_color
-            comment.text_color = text_color
-        db.session.commit()
-        # Return all user fields needed for frontend sync
-        return jsonify({
-            'success': True,
-            'message': 'Colors updated.',
-            'backgroundColor': user.background_color,
-            'textColor': user.text_color,
-            'username': user.username,
-            'email': user.email,
-            'font': getattr(user, 'font', None),
-            'timezone': getattr(user, 'timezone', None),
-            'is_admin': getattr(user, 'is_admin', False),
-            'bookmarks': getattr(user, 'bookmarks', []),
-            'secondaryEmails': getattr(user, 'secondary_emails', []),
-            'notificationPrefs': getattr(user, 'notification_prefs', None),
-            'notificationHistory': getattr(user, 'notification_history', None)
-        })
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-@app.route('/api/get-notification-prefs', methods=['POST'])
-def get_notification_prefs():
-    data = request.get_json()
-    username = data.get('username')
-    user = User.query.filter_by(username=username).first() if username else None
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    # Define all expected keys and their defaults
-    expected_defaults = {
-        'email': False,
-        'push': False,
-        'newsletter': False,
-        'siteUpdates': True,
-        'newBook': True,
-        'bookmarkUpdates': True,
-        'replyNotifications': True,
-        'emailChannels': [],
-        'emailFrequency': 'immediate',
-        'muteAll': False,
-        'newBooks': True,
-        'updates': True,
-        'announcements': True,
-        'channels': ['primary']
-    }
-    if user.notification_prefs:
-        prefs = json.loads(user.notification_prefs)
-    else:
-        prefs = expected_defaults.copy()
-        user.notification_prefs = json.dumps(prefs)
-        db.session.commit()
-    # Normalize: ensure all expected keys are present
-    normalized = expected_defaults.copy()
-    normalized.update(prefs)
-    # Type normalization: ensure booleans are booleans, arrays are arrays
-    for k, v in expected_defaults.items():
-        if isinstance(v, bool):
-            normalized[k] = bool(normalized.get(k, v))
-        elif isinstance(v, list):
-            val = normalized.get(k, v)
-            if not isinstance(val, list):
-                try:
-                    val = list(val) if isinstance(val, (tuple, set)) else [val] if val else []
-                except Exception:
-                    val = []
-            normalized[k] = val
-        else:
-            normalized[k] = normalized.get(k, v)
-    return jsonify({'success': True, 'prefs': normalized})
-
-@app.route('/api/notify-reply', methods=['POST'])
-def notify_reply():
-    data = request.get_json()
-    book_id = data.get('book_id')
-    comment_id = data.get('comment_id')
-    message = data.get('message', 'Someone replied to your comment!')
-    # Find the parent comment (use Session.get for SQLAlchemy 2.x compatibility)
-    parent_comment = db.session.get(Comment, comment_id)
-    if not parent_comment or parent_comment.deleted:
-        return jsonify({'success': False, 'message': 'Parent comment not found.'}), 404
-    parent_username = parent_comment.username
-    user = User.query.filter_by(username=parent_username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    # Add notification with link to the reply
-    add_notification(
-        user,
-        'reply',
-        'New Reply!',
-        message,
-        link=f'/read/{book_id}?comment={comment_id}'
-    )
-    return jsonify({'success': True, 'message': f'Reply notification sent to {parent_username}.'})
-
-@app.route('/api/update-notification-prefs', methods=['POST'])
-def update_notification_prefs():
-    data = request.get_json()
-    username = data.get('username')
-    prefs = data.get('prefs')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    user.notification_prefs = json.dumps(prefs)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Notification preferences updated.'})
-
-
-# Paginated notification history endpoint
-@app.route('/api/get-notification-history', methods=['POST'])
-def get_notification_history():
-    try:
-        data = request.get_json(force=True)
-        username = data.get('username')
-        page = int(data.get('page', 1))
-        page_size = int(data.get('page_size', 100))
-        user = User.query.filter_by(username=username).first()
-        logging.info(f"[get-notification-history] Requested username: {username}")
-        if not user:
-            logging.warning(f"Notification history: User not found: {username}")
-            return jsonify({'success': False, 'message': 'User not found', 'notifications': []})
-        logging.info(f"[get-notification-history] Found user: {user.username}, notification_history type: {type(user.notification_history)}, value: {repr(user.notification_history)[:200]}")
-        history = []
-        if user.notification_history:
+        def simulate_user(user_idx):
+            session_id = f"simuser-{user_idx}-{uuid.uuid4()}"
+            file_id = random.choice(file_ids)
+            url = f"http://localhost:{os.getenv('PORT', 5000)}/pdf-cover/{file_id}?session_id={session_id}"
             try:
-                history = json.loads(user.notification_history)
-                logging.info(f"[get-notification-history] Parsed notification_history, type: {type(history)}, length: {len(history) if isinstance(history, list) else 'N/A'}")
-                if not isinstance(history, list):
-                    logging.error(f"Notification history for user {username} is not a list. Got: {type(history)}")
-                    history = []
+                resp = requests.get(url, timeout=30)
+                status = resp.status_code
+                log_msg = f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} status={status}"
+                logging.info(log_msg)
+                return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'status': status}
             except Exception as e:
-                logging.error(f"Error loading notification history for user {username}: {e}")
-                history = []
-        else:
-            logging.info(f"[get-notification-history] No notification_history for user {username}")
-        # Sort by timestamp descending (newest first)
-        history.sort(key=lambda n: n.get('timestamp', 0), reverse=True)
-        total = len(history)
-        start = (page - 1) * page_size
-        end = start + page_size
-        chunk = history[start:end]
-        logging.info(f"[get-notification-history] Returning {len(chunk)} notifications out of {total} total.")
-        return jsonify({
-            'success': True,
-            'notifications': chunk,
-            'total': total,
-            'page': page,
-            'page_size': page_size,
-            'total_pages': (total + page_size - 1) // page_size
-        })
-    except Exception as e:
-        logging.error(f"Exception in get_notification_history: {e}")
-        return jsonify({'success': False, 'message': f'Error: {str(e)}', 'notifications': []})
-
-# Add a GET handler to return JSON error
-@app.route('/api/notification-history', methods=['GET'])
-def notification_history_get():
-    return jsonify({'success': False, 'message': 'Use POST for this endpoint.'}), 405
-
-@app.route('/api/notify-new-book', methods=['POST'])
-def notify_new_book():
-    data = request.get_json()
-    book_id = data.get('book_id')
-    book_title = data.get('book_title', 'Untitled Book')
-    users = User.query.all()
-    for user in users:
-        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-        if not prefs.get('muteAll', False) and prefs.get('newBooks', True):
-            add_notification(user, 'newBook', 'New Book Added!', f'A new book "{book_title}" is now available in the library.', link=f'/read/{book_id}')
-    return jsonify({'success': True, 'message': f'Notification sent for new book: {book_title}.'})
-
-@app.route('/api/notify-book-update', methods=['POST'])
-def notify_book_update():
-    data = request.get_json()
-    book_id = data.get('book_id')
-    book_title = data.get('book_title', 'A book in your favorites')
-    count = 0
-    users = User.query.all()
-    for user in users:
-        bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
-        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-        if any(bm['id'] == book_id for bm in bookmarks) and not prefs.get('muteAll', False) and prefs.get('updates', True):
-            add_notification(user, 'bookUpdate', 'Book Updated!', f'"{book_title}" in your favorites has been updated.', link=f'/read/{book_id}')
-            count += 1
-    return jsonify({'success': True, 'message': f'Notification sent to {count} users for book update.'})
-
-@app.route('/api/notify-app-update', methods=['POST'])
-def notify_app_update():
-    users = User.query.all()
-    for user in users:
-        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-        if not prefs.get('muteAll', False) and prefs.get('announcements', True):
-            add_notification(user, 'appUpdate', 'App Updated!', 'Storyweave Chronicles has been updated!')
-    return jsonify({'success': True, 'message': 'App update notification sent to all users.'})
-
-@app.route('/api/mark-all-notifications-read', methods=['POST'])
-def mark_notifications_read():
-    data = request.get_json()
-    username = data.get('username')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    history = json.loads(user.notification_history) if user.notification_history else []
-    for n in history:
-        n['read'] = True
-    user.notification_history = json.dumps(history)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Notifications marked as read.', 'history': history})
-
-@app.route('/api/delete-notification', methods=['POST'])
-def delete_notification():
-    data = request.get_json()
-    username = data.get('username')
-    notification_id = data.get('notificationId')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    history = json.loads(user.notification_history) if user.notification_history else []
-    new_history = [n for n in history if str(n.get('id', n.get('timestamp'))) != str(notification_id)]
-    found = len(new_history) < len(history)
-    user.notification_history = json.dumps(new_history)
-    db.session.commit()
-    return jsonify({'success': found, 'message': 'Notification deleted.' if found else 'Notification not found.', 'history': new_history})
-
-# Dismiss all notifications for a user
-@app.route('/api/dismiss-all-notifications', methods=['POST'])
-def dismiss_all_notifications():
-    data = request.get_json()
-    username = data.get('username')
-    logging.info(f"[DISMISS ALL] Request for user: {username}")
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        logging.error(f"[DISMISS ALL] User not found: {username}")
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    history = json.loads(user.notification_history) if user.notification_history else []
-    logging.info(f"[DISMISS ALL] Initial history count: {len(history)}")
-    for n in history:
-        n['dismissed'] = True
-        if 'id' not in n:
-            n['id'] = n.get('timestamp')
-    user.notification_history = json.dumps(history)
-    db.session.commit()
-    logging.info(f"[DISMISS ALL] All notifications set to dismissed. History count: {len(history)}")
-    return jsonify({'success': True, 'message': 'All notifications dismissed.', 'history': history})
-
-# Mark a single notification as read/unread
-@app.route('/api/mark-notification-read', methods=['POST'])
-def mark_notification_read():
-    data = request.get_json()
-    username = data.get('username')
-    notification_id = data.get('notificationId')
-    read = data.get('read', True)
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    history = json.loads(user.notification_history) if user.notification_history else []
-    found = False
-    for n in history:
-        if 'id' not in n:
-            n['id'] = n.get('timestamp')
-        if n.get('id') == notification_id or n.get('timestamp') == notification_id:
-            n['read'] = read
-            found = True
-    user.notification_history = json.dumps(history)
-    db.session.commit()
-    return jsonify({'success': found, 'message': 'Notification marked as read.' if found else 'Notification not found.', 'history': history})
-
-@app.route('/api/delete-all-notification-history', methods=['POST'])
-def delete_all_notification_history():
-    data = request.get_json()
-    username = data.get('username')
-    logging.info(f"[DELETE ALL] Request for user: {username}")
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        logging.error(f"[DELETE ALL] User not found: {username}")
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    logging.info(f"[DELETE ALL] History BEFORE: {user.notification_history}")
-    user.notification_history = json.dumps([])
-    db.session.commit()
-    logging.info(f"[DELETE ALL] History AFTER: {user.notification_history}")
-    # Double-check by reloading from DB
-    user_check = User.query.filter_by(username=username).first()
-    logging.info(f"[DELETE ALL] History AFTER COMMIT (reloaded): {user_check.notification_history}")
-    logging.info(f"[DELETE ALL] Notification history cleared for user: {username}")
-    return jsonify({'success': True, 'message': 'All notifications deleted from history.', 'history': []})
-
+                logging.error(f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} ERROR: {e}")
+                return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'error': str(e)}
+        # Use ThreadPoolExecutor for concurrency
+        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(simulate_user, i) for i in range(num_users)]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+        duration = time.time() - start_time
+        mem = psutil.Process().memory_info().rss / (1024 * 1024)
+        logging.info(f"[SIM] Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB")
+    finally:
+        # Remove simulation handler and restore previous handlers
+        logging.getLogger().removeHandler(sim_handler)
+        sim_handler.close()
+    # --- Write simulation results to logs.txt (append) ---
+    with open(log_path, 'a', encoding='utf-8') as f:
+        f.write(f"Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB\n")
+    return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
 
 @app.route('/api/test-send-scheduled-notifications', methods=['POST'])
 def test_send_scheduled_notifications():
@@ -2808,367 +3182,42 @@ def test_send_scheduled_notifications():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e), 'trace': traceback.format_exc()}), 500
 
-@app.route('/api/get-bookmarks', methods=['GET', 'POST'])
-def get_bookmarks():
-    if request.method == 'POST':
-        data = request.get_json()
-        username = data.get('username') if data else None
-    else:
-        username = request.args.get('username')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        response = jsonify({'success': False, 'message': 'User not found.'})
-        return response, 404
-    bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
-    # Get last updated time for each bookmarked PDF from Google Drive
-    try:
-        service = get_drive_service()
-        # Get all file IDs in bookmarks
-        file_ids = [bm['id'] for bm in bookmarks]
-        if file_ids:
-            # Query Google Drive for these files
-            query = " or ".join([f"'{fid}' in parents or id='{fid}'" for fid in file_ids])
-            results = service.files().list(q=query, fields="files(id, modifiedTime)").execute()
-            files = results.get('files', [])
-            file_update_map = {f['id']: f.get('modifiedTime') for f in files}
-            # Update each bookmark with actual last updated time
-            for bm in bookmarks:
-                bm['last_updated'] = file_update_map.get(bm['id'], bm.get('last_updated'))
-    except Exception as e:
-        pass  # If Drive fails, fallback to stored last_updated
-    response = jsonify({'success': True, 'bookmarks': bookmarks})
-    return response
+# === Webhooks & Integrations ===
+@app.route('/api/drive-webhook', methods=['POST'])
+def drive_webhook():
+    channel_id = request.headers.get('X-Goog-Channel-ID')
+    resource_id = request.headers.get('X-Goog-Resource-ID')
+    resource_state = request.headers.get('X-Goog-Resource-State')
+    changed = request.headers.get('X-Goog-Changed')
+    logging.info(f"[Drive Webhook] Channel: {channel_id}, Resource: {resource_id}, State: {resource_state}, Changed: {changed}")
 
-@app.route('/api/add-bookmark', methods=['POST'])
-def add_bookmark():
-    data = request.get_json()
-    username = data.get('username')
-    book_id = data.get('book_id')
-    if not username or not book_id:
-        return jsonify({'success': False, 'message': 'Username and book_id required.'}), 400
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
-    for bm in bookmarks:
-        if bm['id'] == book_id:
-            return jsonify({'success': True, 'message': 'Already bookmarked.', 'bookmarks': bookmarks})
-    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-    bookmarks.append({'id': book_id, 'last_page': 1, 'last_updated': now, 'unread': False})
-    user.bookmarks = json.dumps(bookmarks)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Bookmarked.', 'bookmarks': bookmarks})
-
-@app.route('/api/remove-bookmark', methods=['POST'])
-def remove_bookmark():
-    data = request.get_json()
-    username = data.get('username')
-    book_id = data.get('book_id')
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    if not book_id:
-        return jsonify({'success': False, 'message': 'Book ID missing.'}), 400
-    bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
-    before = len(bookmarks)
-    bookmarks = [bm for bm in bookmarks if bm['id'] != book_id]
-    after = len(bookmarks)
-    user.bookmarks = json.dumps(bookmarks)
-    db.session.commit()
-    if before == after:
-        return jsonify({'success': False, 'message': 'Bookmark not found.', 'bookmarks': bookmarks})
-    return jsonify({'success': True, 'message': 'Bookmark removed.', 'bookmarks': bookmarks})
-
-
-@app.route('/api/update-bookmark-meta', methods=['POST'])
-def update_bookmark_meta():
-    data = request.get_json()
-    username = data.get('username')
-    book_id = data.get('book_id')
-    last_page = data.get('last_page')
-    unread = data.get('unread')
-    if not username or not book_id:
-        return jsonify({'success': False, 'message': 'Username and book_id required.'}), 400
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
-    updated = False
-    for bm in bookmarks:
-        if bm['id'] == book_id:
-            if last_page is not None:
-                bm['last_page'] = last_page
-            if unread is not None:
-                bm['unread'] = unread
-            bm['last_updated'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-            updated = True
-    if not updated:
-        return jsonify({'success': False, 'message': 'Bookmark not found.'}), 404
-    user.bookmarks = json.dumps(bookmarks)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Bookmark updated.', 'bookmarks': bookmarks})
-
-@app.route('/api/vote-book', methods=['POST'])
-def vote_book():
-    data = request.get_json()
-    username = data.get('username')
-    book_id = data.get('book_id')
-    value = data.get('value')  # 1-5
-    if not username or not book_id or value not in [1,2,3,4,5]:
-        return jsonify({'success': False, 'message': 'Invalid vote data.'}), 400
-    vote = Vote.query.filter_by(username=username, book_id=book_id).first()
-    if vote:
-        vote.value = value
-        vote.timestamp = datetime.datetime.now(datetime.UTC)
-    else:
-        vote = Vote(username=username, book_id=book_id, value=value)
-        db.session.add(vote)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Vote recorded.'})
-
-@app.route('/api/book-votes', methods=['GET'])
-def book_votes():
-    book_id = request.args.get('book_id')
-    if not book_id:
-        return jsonify({'success': False, 'message': 'Book ID required.'}), 400
-    votes = Vote.query.filter_by(book_id=book_id).all()
-    if not votes:
-        return jsonify({'success': True, 'average': 0, 'count': 0})
-    avg = round(sum(v.value for v in votes) / len(votes), 2)
-    return jsonify({'success': True, 'average': avg, 'count': len(votes)})
-
-@app.route('/api/top-voted-books', methods=['GET'])
-def top_voted_books():
-    vote_counts = db.session.query(
-        Vote.book_id,
-        func.avg(Vote.value).label('avg_vote'),
-        func.count(Vote.value).label('vote_count')
-    ).group_by(Vote.book_id).order_by(func.avg(Vote.value).desc()).limit(10).all()
-    # Get book metadata from Google Drive
-    service = None
-    try:
-        service = get_drive_service()
-    except Exception:
-        pass
-    books = []
-    for book_id, avg_vote, vote_count in vote_counts:
-        meta = {'id': book_id, 'average': round(avg_vote,2), 'count': vote_count}
-        if service:
-            try:
-                file_metadata = service.files().get(fileId=book_id, fields='name').execute()
-                meta['name'] = file_metadata.get('name')
-            except Exception:
-                meta['name'] = None
-        books.append(meta)
-    return jsonify({'success': True, 'books': books})
-
-
-@app.route('/api/user-top-voted-books', methods=['GET'])
-def user_top_voted_books():
-    username = request.args.get('username')
-    if not username:
-        response = jsonify({'error': 'Missing username'})
-        return response, 400
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        response = jsonify({'error': 'User not found'})
-        return response, 404
-    # Get all votes by this user
-    votes = Vote.query.filter_by(username=username).all()
-    if not votes:
-        response = jsonify({'books': []})
-        return response, 200
-    # Get book info for each voted book
-    book_ids = [v.book_id for v in votes]
-    books = Book.query.filter(Book.drive_id.in_(book_ids)).all()
-    # Build result list with vote info
-    result = []
-    for book in books:
-        vote = next((v for v in votes if v.book_id == book.drive_id), None)
-        result.append({
-            'id': book.drive_id,
-            'title': book.title,
-            'cover_url': f'/pdf-cover/{book.drive_id}',
-            'votes': vote.value if vote else None
-        })
-    # Sort by vote value descending, then by title
-    result.sort(key=lambda b: (-b['votes'] if b['votes'] is not None else 0, b['title']))
-    response = jsonify({'books': result})
-    return response, 200
-
-@app.route('/api/add-comment', methods=['POST'])
-def add_comment():
-    data = request.get_json()
-    book_id = data.get('book_id')
-    username = data.get('username')
-    text = data.get('text')
-    parent_id = data.get('parent_id')
-    if not book_id or not username or not text:
-        return jsonify({'success': False, 'message': 'Missing fields.'}), 400
-    comment = Comment(book_id=book_id, username=username, text=text, parent_id=parent_id)
-    db.session.add(comment)
-    db.session.commit()
-    # Hook for notifications: if parent_id, notify parent comment's author
-    return jsonify({'success': True, 'message': 'Comment added.', 'comment_id': comment.id})
-
-@app.route('/api/edit-comment', methods=['POST'])
-def edit_comment():
-    data = request.get_json()
-    comment_id = data.get('comment_id')
-    username = data.get('username')
-    text = data.get('text')
-    comment = Comment.query.get(comment_id)
-    if not comment or comment.deleted:
-        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
-    if comment.username != username:
-        user = User.query.filter_by(username=username).first()
-        if not user or not user.is_admin:
-            return jsonify({'success': False, 'message': 'Not authorized.'}), 403
-    comment.text = text
-    comment.edited = True
-    comment.timestamp = datetime.datetime.now(datetime.UTC)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Comment edited.'})
-
-@app.route('/api/delete-comment', methods=['POST'])
-def delete_comment():
-    data = request.get_json()
-    comment_id = data.get('comment_id')
-    username = data.get('username')
-    comment = Comment.query.get(comment_id)
-    if not comment or comment.deleted:
-        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
-    if comment.username != username:
-        user = User.query.filter_by(username=username).first()
-        if not user or not user.is_admin:
-            return jsonify({'success': False, 'message': 'Not authorized.'}), 403
-    comment.deleted = True
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Comment deleted.'})
-
-@app.route('/api/get-comments', methods=['GET'])
-def get_comments():
-    book_id = request.args.get('book_id')
-    page = int(request.args.get('page', 1))
-    page_size = int(request.args.get('page_size', 20))
-    if not book_id:
-        return jsonify({'success': False, 'message': 'Book ID required.'}), 400
-    # Query all comments for the book, ordered by timestamp ascending
-    query = Comment.query.filter_by(book_id=book_id).order_by(Comment.timestamp.asc())
-    total_comments = query.count()
-    total_pages = (total_comments + page_size - 1) // page_size
-    comments = query.offset((page - 1) * page_size).limit(page_size).all()
-    # Build nested replies for only the current page
-    comment_map = {}
-    tree = []
-    for c in comments:
-        if c.deleted:
-            continue
-        user = User.query.filter_by(username=c.username).first()
-        item = {
-            'id': c.id,
-            'book_id': c.book_id,
-            'username': c.username,
-            'parent_id': c.parent_id,
-            'text': c.text,
-            'timestamp': c.timestamp.isoformat(),
-            'edited': c.edited,
-            'upvotes': c.upvotes,
-            'downvotes': c.downvotes,
-            'deleted': c.deleted,
-            'background_color': user.background_color if user and user.background_color else None,
-            'text_color': user.text_color if user and user.text_color else None,
-            'replies': []
-        }
-        comment_map[c.id] = item
-    for item in comment_map.values():
-        if item['parent_id'] and item['parent_id'] in comment_map:
-            comment_map[item['parent_id']]['replies'].append(item)
-        else:
-            tree.append(item)
-    return jsonify({
-        'success': True,
-        'comments': tree,
-        'page': page,
-        'page_size': page_size,
-        'total_comments': total_comments,
-        'total_pages': total_pages
-    })
-
-# Efficient polling endpoint for new comments on a book
-@app.route('/api/has-new-comments', methods=['POST'])
-def has_new_comments():
-    data = request.get_json()
-    book_id = data.get('book_id')
-    # Accept either a list of known comment IDs or the latest timestamp
-    known_ids = set(data.get('known_ids', []))
-    latest_timestamp = data.get('latest_timestamp')  # ISO8601 string or None
-    if not book_id:
-        return jsonify({'success': False, 'message': 'Book ID required.'}), 400
-    # Query all non-deleted comments for the book
-    query = Comment.query.filter_by(book_id=book_id, deleted=False)
-    # If known_ids provided, check for any comments not in known_ids
-    if known_ids:
-        new_comments = query.filter(~Comment.id.in_(known_ids)).all()
-        has_new = len(new_comments) > 0
-        new_ids = [c.id for c in new_comments]
-        return jsonify({'success': True, 'hasNew': has_new, 'new_ids': new_ids})
-    # If latest_timestamp provided, check for any comments newer than that
-    elif latest_timestamp:
+    # Only handle 'update' or 'add' events
+    if resource_state in ['update', 'add']:
         try:
-            ts = dateutil.parser.isoparse(latest_timestamp)
-        except Exception:
-            return jsonify({'success': False, 'message': 'Invalid timestamp.'}), 400
-        new_comments = query.filter(Comment.timestamp > ts).all()
-        has_new = len(new_comments) > 0
-        new_ids = [c.id for c in new_comments]
-        return jsonify({'success': True, 'hasNew': has_new, 'new_ids': new_ids})
-    else:
-        # If neither provided, just return False
-        return jsonify({'success': True, 'hasNew': False, 'new_ids': []})
-
-@app.route('/api/vote-comment', methods=['POST'])
-def vote_comment():
-    data = request.get_json()
-    comment_id = data.get('comment_id')
-    value = data.get('value')  # 1 for upvote, -1 for downvote
-    if value not in [1, -1]:
-        return jsonify({'success': False, 'message': 'Invalid vote value.'}), 400
-    comment = Comment.query.get(comment_id)
-    if not comment or comment.deleted:
-        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
-    if value == 1:
-        comment.upvotes += 1
-    else:
-        comment.downvotes += 1
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Vote recorded.', 'upvotes': comment.upvotes, 'downvotes': comment.downvotes})
-
-@app.route('/api/get-comment-votes', methods=['GET'])
-def get_comment_votes():
-    comment_id = request.args.get('comment_id')
-    comment = Comment.query.get(comment_id)
-    if not comment or comment.deleted:
-        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
-    return jsonify({'success': True, 'upvotes': comment.upvotes, 'downvotes': comment.downvotes})
-
-@app.route('/api/user-comments', methods=['GET'])
-def user_comments():
-    username = request.args.get('username')
-    comments = Comment.query.filter_by(username=username).order_by(Comment.timestamp.desc()).all()
-    return jsonify({'success': True, 'comments': [
-        {
-            'id': c.id,
-            'book_id': c.book_id,
-            'parent_id': c.parent_id,
-            'text': c.text,
-            'timestamp': c.timestamp.isoformat(),
-            'edited': c.edited,
-            'upvotes': c.upvotes,
-            'downvotes': c.downvotes,
-            'deleted': c.deleted
-        } for c in comments if not c.deleted
-    ]})
+                service = get_drive_service()
+                file = service.files().get(fileId=resource_id, fields='id, name, createdTime, modifiedTime').execute()
+                book = Book.query.filter_by(drive_id=resource_id).first()
+                if not book:
+                    new_book = Book(
+                        drive_id=file['id'],
+                        title=file['name'],
+                        created_at=file.get('createdTime'),
+                        updated_at=file.get('modifiedTime')
+                    )
+                    db.session.add(new_book)
+                    db.session.commit()
+                    logging.info(f"Added new book to DB: {file['name']}")
+                    notify_new_book(new_book.drive_id, new_book.title)
+                else:
+                    book.title = file['name']
+                   
+                    book.updated_at = file.get('modifiedTime')
+                    db.session.commit()
+                    logging.info(f"Updated book in DB: {file['name']}")
+                    notify_book_update(book.drive_id, book.title)
+        except Exception as e:
+            logging.error(f"Error updating DB from webhook: {e}")
+    return '', 200
 
 # --- GitHub Webhook for App Update Notifications ---
 @app.route('/api/github-webhook', methods=['POST'])
@@ -3202,82 +3251,138 @@ def github_webhook():
     return jsonify({'success': True, 'message': 'App update notifications sent.'})
     # Add more moderation actions as needed
 
-# --- GLOBAL BOOK METADATA ENDPOINT ---
-@app.route('/api/all-books', methods=['GET'])
-def all_books():
-    try:
-        # Get all books for frontend
-        books = Book.query.all()
-        result = []
-        for book in books:
-            result.append({
-                'id': book.id,
-                'drive_id': book.drive_id,
-                'title': book.title,
-                'external_story_id': book.external_story_id,
-                'created_at': book.created_at.isoformat() if book.created_at else None,
-                'updated_at': book.updated_at.isoformat() if book.updated_at else None
-            })
-        response = jsonify(success=True, books=result)
+@app.route('/authorize')
+def authorize():
+    creds = service_account.Credentials.from_service_account_info(
+        service_account_info,
+        scopes=SCOPES
+    )
+    return redirect("/")
 
-        # For cover cache management, get top 20 newest and top 10 voted book IDs
-        newest_books = Book.query.order_by(desc(Book.updated_at)).limit(20).with_entities(Book.drive_id).all()
-        voted_books = (
-            Book.query
-            .join(Vote, Book.drive_id == Vote.book_id)
-            .group_by(Book.id)
-            .order_by(func.count(Vote.id).desc())
-            .limit(10)
-            .with_entities(Book.drive_id)
-            .all()
-        )
-        cover_ids = set([b.drive_id for b in newest_books] + [b.drive_id for b in voted_books])
-        # Trigger async cover cache update (non-blocking)
-        return response
-    except Exception as e:
-        response = jsonify(success=False, error=str(e))
-        return response, 500
+# === Static ===
+@app.route("/")
+def api_almanac():
+    """
+    Returns a JSON object listing all API endpoints and their descriptions.
+    """
+    endpoints = {
+        # === Authentication & User Management ===
+        "/api/register": "Register a new user (POST)",
+        "/api/change-password": "Change user password (POST)",
+        "/api/add-secondary-email": "Add a secondary email to user (POST)",
+        "/api/remove-secondary-email": "Remove a secondary email from user (POST)",
+        "/api/get-user": "Get user info (POST)",
+        "/api/get-user-meta": "Get user metadata (GET)",
+        # === Admin & Moderation ===
+        "/api/admin/make-admin": "Make a user admin (POST, admin-only)",
+        "/api/admin/remove-admin": "Remove admin rights (POST, admin-only)",
+        "/api/admin/bootstrap-admin": "Bootstrap first admin if none exist (POST)",
+        "/api/admin/send-emergency-email": "Send emergency email to all users (POST, admin-only)",
+        "/api/admin/send-newsletter": "Send newsletter to all users (POST, admin-only)",
+        "/api/admin/ban-user": "Ban a user (POST, admin-only)",
+        "/api/admin/unban-user": "Unban a user (POST, admin-only)",
+        "/api/moderate-comment": "Moderate a comment (POST, admin-only)",
+        # === Book & PDF Management ===
+        "/api/update-external-id": "Update external story ID for a book (POST)",
+        "/api/rebuild-cover-cache": "Rebuild cover cache for books (POST)",
+        "/api/books": "Get books by drive_id (GET)",
+        "/api/all-books": "Get metadata for all books (GET)",
+        "/api/cover-exists/<file_id>": "Check if cover exists for file_id (GET)",
+        "/api/landing-page-book-ids": "Get book IDs for landing page (GET)",
+        "/covers/<cover_id>.jpg": "Serve cover image from disk (GET)",
+        "/api/cancel-session": "Cancel a session (POST)",
+        "/pdf-cover/<file_id>": "Serve PDF cover image (GET)",
+        "/api/pdf-text/<file_id>": "Extract text/images from a PDF page (GET)",
+        # === Voting ===
+        "/api/vote-book": "Vote for a book (POST)",
+        "/api/book-votes": "Get votes for a book (GET)",
+        "/api/top-voted-books": "Get top voted books (GET)",
+        "/api/user-voted-books": "Get books voted by a user (GET)",
+        "/api/user-top-voted-books": "Get user's top voted books (GET)",
+        # === Bookmarks ===
+        "/api/get-bookmarks": "Get bookmarks for a user (GET/POST)",
+        "/api/add-bookmark": "Add a bookmark (POST)",
+        "/api/remove-bookmark": "Remove a bookmark (POST)",
+        "/api/update-bookmark-meta": "Update bookmark metadata (POST)",
+        # === Comments ===
+        "/api/add-comment": "Add a comment to a book (POST)",
+        "/api/edit-comment": "Edit a comment (POST)",
+        "/api/delete-comment": "Delete a comment (POST)",
+        "/api/get-comments": "Get comments for a book (GET)",
+        "/api/has-new-comments": "Check for new comments (POST)",
+        "/api/vote-comment": "Upvote/downvote a comment (POST)",
+        "/api/get-comment-votes": "Get votes for a comment (GET)",
+        "/api/user-comments": "Get all comments by a user (GET)",
+        # === Notifications ===
+        "/api/get-notification-prefs": "Get notification preferences (POST)",
+        "/api/update-notification-prefs": "Update notification preferences (POST)",
+        "/api/get-notification-history": "Get notification history (POST)",
+        "/api/notification-history": "Notification history (GET, error)",
+        "/api/notify-reply": "Send reply notification (POST)",
+        "/api/notify-new-book": "Send new book notification (POST)",
+        "/api/notify-book-update": "Send book update notification (POST)",
+        "/api/notify-app-update": "Send app update notification (POST)",
+        "/api/mark-all-notifications-read": "Mark all notifications as read (POST)",
+        "/api/delete-notification": "Delete a notification (POST)",
+        "/api/dismiss-all-notifications": "Dismiss all notifications (POST)",
+        "/api/mark-notification-read": "Mark a notification as read/unread (POST)",
+        "/api/delete-all-notification-history": "Delete all notification history (POST)",
+        "/api/has-new-notifications": "Check for new notifications (POST)",
+        # === Health & Diagnostics ===
+        "/list-pdfs/<folder_id>": "List PDFs in a Google Drive folder (GET)",
+        "/api/cover-queue-health": "Get cover queue health (GET)",
+        "/api/server-health": "Check server health/DB connectivity (GET)",
+        "/api/health": "Health check for Render.com (GET)",
+        "/api/cover-diagnostics": "Diagnostics for cover images (GET)",
+        "/api/seed-drive-books": "Manually repopulate Book table from Drive (POST)",
+        "/api/simulate-cover-load": "Simulate concurrent cover requests (POST)",
+        "/api/test-send-scheduled-notifications": "Test scheduled notification emails (POST)",
+        # === Webhooks & Integrations ===
+        "/api/drive-webhook": "Google Drive webhook for file changes (POST)",
+        "/api/github-webhook": "GitHub webhook for app update notifications (POST)",
+        "/authorize": "Google service account authorization (GET)",
+        # === Static & Fallback ===
+        "/": "API Almanac (GET, this endpoint)",
+        "/<path:path>": "Serve React frontend or static files (GET)",
+    }
+    return jsonify({"endpoints": endpoints, "message": "Storyweave Chronicles Backend API Almanac"})
 
-@app.route('/api/user-voted-books', methods=['GET'])
-def user_voted_books():
-    username = request.args.get('username')
-    if not username:
-        return jsonify({'success': False, 'message': 'Username required.'}), 400
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-    # Get all votes by this user
-    votes = Vote.query.filter_by(username=username).all()
-    voted_books = []
-    for vote in votes:
-        book = Book.query.filter_by(drive_id=vote.book_id).first()
-        if book:
-            voted_books.append({
-                'book_id': book.drive_id,
-                'title': book.title,
-                'vote': vote.value,
-                'timestamp': vote.timestamp.strftime('%Y-%m-%d %H:%M'),
-                'external_story_id': book.external_story_id
-            })
-    return jsonify({'success': True, 'voted_books': voted_books})
-
-
-@app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
-    # If the request is for an API route, return JSON 404
+    # 1. API route fallback: JSON 404
     if path.startswith("api/"):
-        return jsonify({"success": False, "message": "API endpoint not found."}), 404
+        return jsonify({"success": False, "message": "API endpoint not found.", "hint": "See / for API Almanac."}), 404
 
-    # Serve favicon.ico from client/public (or vite.svg if that's your favicon)
+    # 2. Serve cover images from disk if requested
+    if path.startswith("covers/") and path.endswith(".jpg"):
+        cover_id = path.split("/")[-1].replace(".jpg", "")
+        cover_path = os.path.join(COVERS_DIR, f"{cover_id}.jpg")
+        if os.path.exists(cover_path):
+            return send_from_directory(COVERS_DIR, f"{cover_id}.jpg")
+        else:
+            return jsonify({"success": False, "message": f"Cover {cover_id}.jpg not found."}), 404
+
+    # 3. Serve favicon.ico from client/public (or vite.svg)
     if path == "favicon.ico":
         return send_from_directory("../client/public", "vite.svg")
 
-    # Serve other static files if needed (add more conditions here)
+    # 4. Serve static files (css, js, images) from client/public
+    static_extensions = [".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".json"]
+    if any(path.endswith(ext) for ext in static_extensions):
+        static_file_path = os.path.join("../client/public", path)
+        if os.path.exists(static_file_path):
+            return send_from_directory("../client/public", path)
+        else:
+            return jsonify({"success": False, "message": f"Static file {path} not found."}), 404
 
-    # Serve index.html for all other non-API routes
-    return send_from_directory("../client/public", "index.html")
+    # 5. Serve index.html for all other non-API routes (React SPA fallback)
+    try:
+        return send_from_directory("../client/public", "index.html")
+    except Exception as e:
+        # 6. Render.com fallback: return helpful JSON if index.html missing
+        return jsonify({"success": False, "message": "Frontend not found. This may be a Render.com deployment issue.", "error": str(e), "hint": "Check / for API Almanac."}), 404
 
+# === Main ===
 if __name__ == '__main__':
     # Register Google Drive webhook on startup
     try:
