@@ -1,3 +1,6 @@
+# =========================
+# 1. Imports
+# =========================
 # --- Standard Library Imports ---
 import os
 import io
@@ -17,6 +20,7 @@ import traceback
 import concurrent.futures
 import shutil
 import random
+import logging.handlers
 
 # --- Third-Party Imports ---
 import fitz  # PyMuPDF
@@ -48,15 +52,182 @@ except ImportError:
     # For local testing (when run as a script)
     from drive_webhook import setup_drive_webhook
 
+# =========================
+# 2. Environment & App Setup
+# =========================
+# --- Load environment variables ---
 load_dotenv()
-
+# --- Flask app creation ---
 app = Flask(__name__)
+# --- CORS, SQLAlchemy, Mail, and other extension initializations ---
+# --- App config variables (database URI, mail config, etc.) ---
+app.config['SQLALCHEMY_DATABASE_URI'] = (
+    f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
+    f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+db = SQLAlchemy(app)
+CORS(app, origins=["http://localhost:5173", "http://localhost:5000", "https://storyweavechronicles.onrender.com", "https://swcflaskbackend.onrender.com"])
+mail = Mail(app)
+
+service_account_info = {
+    "type": "service_account",
+    "project_id": os.getenv("GOOGLE_PROJECT_ID"),
+    "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
+    "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
+    "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
+    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+    "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
+    "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
+    "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_CERT_URI"),
+    "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL"),
+}
+
+# =========================
+# 3. Logging Setup
+# =========================
+# --- Logging formatter, file/console handlers, log file path ---
+
+#logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+# Log to both console and logs.txt
+LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), 'logs.txt')
+log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_formatter)
+root_logger.addHandler(console_handler)
+
+# File handler
+file_handler = logging.handlers.RotatingFileHandler(LOG_FILE_PATH, maxBytes=5*1024*1024, backupCount=2, encoding='utf-8')
+file_handler.setFormatter(log_formatter)
+root_logger.addHandler(file_handler)
+# --- uncomment logging and delete above variables when done ---
+# =========================
+# 4. Global Constants & Paths
+# =========================
+# --- Paths for covers, atlas, etc. ---
+# --- Any global constants (e.g., MAX_COVERS) ---
 
 # --- Cover Atlas Management ---
 COVERS_DIR = os.path.join(os.path.dirname(__file__), '..', 'client', 'public', 'covers')
 ATLAS_PATH = os.path.join(COVERS_DIR, 'atlas.json')
 MAX_COVERS = 30
 
+# Google Drive API scope
+SCOPES = [os.getenv('SCOPES', 'https://www.googleapis.com/auth/drive.readonly')]
+
+# Credential storage
+TOKEN_FILE = 'server/token.json'
+# Session heartbeat tracking
+session_last_seen = {}  # session_id: last_seen_timestamp
+SESSION_TIMEOUT = 60  # seconds
+
+cleanup_covers_lock = threading.Lock()  # Add this near your other locks
+
+atlas_initialized = False
+
+# --- Fair Queuing for Cover Requests ---
+cover_request_queue = deque()  # Each entry: {session_id, file_id, timestamp}
+cover_queue_lock = threading.Lock()
+cover_queue_active = None  # Currently processing: {session_id, file_id, timestamp}
+cover_queue_last_cleanup = 0
+
+# --- Fair Queuing for Text Requests ---
+text_request_queue = deque()  # Each entry: {session_id, file_id, page_num, timestamp}
+text_queue_lock = threading.Lock()
+text_queue_active = None  # Currently processing: {session_id, file_id, page_num, timestamp}
+text_queue_last_cleanup = 0
+# =========================
+# 5. Database Models
+# =========================
+# --- SQLAlchemy models: Book, User, Vote, Comment, Webhook ---
+
+# --- SQLAlchemy Book Model ---
+class Book(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    drive_id = db.Column(db.String(128), unique=True, nullable=False)  # Google Drive file ID
+    title = db.Column(db.String(256), nullable=False)
+    external_story_id = db.Column(db.String(128), nullable=True)  # e.g. 'goodreads 2504839'
+    version_history = db.Column(db.Text, nullable=True)  # JSON string of version info
+    created_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC), onupdate=lambda: datetime.datetime.now(datetime.UTC))
+
+    # Relationships
+    comments = db.relationship('Comment', backref='book', lazy=True, foreign_keys='Comment.book_id')
+    votes = db.relationship('Vote', backref='book', lazy=True, foreign_keys='Vote.book_id')
+
+# --- SQLAlchemy User Model ---
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=False, nullable=True)
+    password = db.Column(db.String(120), nullable=True)
+    bookmarks = db.Column(db.Text, nullable=True)  # JSON string
+    secondary_emails = db.Column(db.Text, nullable=True)  # JSON string
+    background_color = db.Column(db.String(16), nullable=True)
+    text_color = db.Column(db.String(16), nullable=True)
+    font = db.Column(db.String(64), nullable=True)
+    timezone = db.Column(db.String(64), nullable=True)
+    notification_prefs = db.Column(db.Text, nullable=True)  # JSON string
+    notification_history = db.Column(db.Text, nullable=True)  # JSON string
+    comments_page_size = db.Column(db.Integer, default=10)  # per-user comments page size
+    is_admin = db.Column(db.Boolean, default=False)  # admin privileges
+    banned = db.Column(db.Boolean, default=False)  # user ban status
+
+# --- SQLAlchemy Voting Model ---
+class Vote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), nullable=False)
+    book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
+    value = db.Column(db.Integer, nullable=False)  # 1-5 stars
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
+
+# --- SQLAlchemy Comment Model ---
+class Comment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
+    username = db.Column(db.String(80), nullable=False)
+    parent_id = db.Column(db.Integer, nullable=True)  # null for top-level
+    text = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
+    edited = db.Column(db.Boolean, default=False)
+    upvotes = db.Column(db.Integer, default=0)
+    downvotes = db.Column(db.Integer, default=0)
+    deleted = db.Column(db.Boolean, default=False)  # for moderation
+    background_color = db.Column(db.String(16), nullable=True)
+    text_color = db.Column(db.String(16), nullable=True)
+
+# --- SQLAlchemy Webhook Model ---
+class Webhook(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    channel_id = db.Column(db.String(128), unique=True, nullable=False)
+    expiration = db.Column(db.BigInteger, nullable=True)  # ms since epoch
+    registered_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
+
+# =========================
+# 6. Initialization Code
+# =========================
+# --- Table creation, service account info dict, other global initializations ---
+# Create tables if not exist
+with app.app_context():
+    db.create_all()
+
+tracemalloc.start()
+
+# =========================
+# 7. Utility Functions
+# =========================
+# --- Atlas & Cover Management ---
 def load_atlas():
     if not os.path.exists(ATLAS_PATH):
         return {}
@@ -81,8 +252,6 @@ def save_atlas(covers_map):
         logging.info(f"[Atlas][save] Atlas saved with {len(covers_map)} entries: {list(covers_map.keys())}")
     except Exception as e:
         logging.error(f"[Atlas] Failed to save atlas.json: {e}")
-
-cleanup_covers_lock = threading.Lock()  # Add this near your other locks
 
 def cleanup_unused_covers(valid_ids, needed_ids):
     covers_map = load_atlas()
@@ -127,10 +296,7 @@ def cleanup_unused_covers(valid_ids, needed_ids):
         logging.info(f"[Atlas] Cleaned up unused covers: {removed}")
     finally:
         cleanup_covers_lock.release()
-
-# --- First-load cover cache rebuild ---
-atlas_initialized = False
-
+    
 def get_landing_page_book_ids():
     """
     Return a list of book IDs for the landing page (carousel + top voted).
@@ -167,7 +333,6 @@ def get_landing_page_book_ids():
             seen.add(id_)
     return combined_ids[:MAX_COVERS]
 
-# --- Cover Extraction Utility ---
 def extract_cover_image_from_pdf(book_id):
     """
     Extract cover image for a given book_id from its PDF in Google Drive.
@@ -411,7 +576,6 @@ def rebuild_cover_cache(book_ids=None):
         return False, missing
     return True, []
 
-# --- Atlas Sync Utility ---
 def sync_atlas_with_covers():
     """
     Scan the covers folder and rebuild atlas.json to match the actual .jpg files on disk.
@@ -436,28 +600,44 @@ def sync_atlas_with_covers():
     logging.info(f"[Atlas][sync] Merged atlas: {list(merged.keys())}")
     return merged
 
-@app.before_request
-def check_atlas_init():
-    global atlas_initialized
-    if not atlas_initialized and request.path.startswith('/api/'):
-        try:
-            sync_atlas_with_covers()
-            rebuild_cover_cache()
-            atlas_initialized = True
-        except Exception as e:
-            logging.error(f"[Atlas] Error during first-load rebuild: {e}")
+#--- PDF/Image Utilities ---
 
-# --- Fair Queuing for Cover Requests ---
-cover_request_queue = deque()  # Each entry: {session_id, file_id, timestamp}
-cover_queue_lock = threading.Lock()
-cover_queue_active = None  # Currently processing: {session_id, file_id, timestamp}
-cover_queue_last_cleanup = 0
+def extract_story_id_from_pdf(file_content):
+    """
+    Given a PDF file (as bytes or BytesIO), extract the bottom-most line of text from page 1.
+    Returns the story ID string, or None if not found.
+    """
+    doc = fitz.open(stream=file_content, filetype="pdf")
+    page = doc.load_page(0)
+    blocks = page.get_text("blocks")  # (x0, y0, x1, y1, text, block_no, block_type)
+    # Filter out blocks with no text
+    text_blocks = [b for b in blocks if b[4] and b[4].strip()]
+    if not text_blocks:
+        return None
+    # Regex: site name, optional colon, separator (space, dash, underscore), then number (at least 4 digits)
+    pattern = re.compile(r'\b([a-zA-Z0-9_]+):?[\s\-_](\d{4,})\b')
+    for block in text_blocks:
+        text = block[4].strip()
+        match = pattern.search(text)
+        if match:
+            # Return the full matched string (site + separator + id)
+            return match.group(0)
+    return None
 
-# --- Fair Queuing for Text Requests ---
-text_request_queue = deque()  # Each entry: {session_id, file_id, page_num, timestamp}
-text_queue_lock = threading.Lock()
-text_queue_active = None  # Currently processing: {session_id, file_id, page_num, timestamp}
-text_queue_last_cleanup = 0
+def downscale_image(img_bytes, size=(80, 120), format="JPEG", quality=70):
+    """
+    Downscale and compress image bytes.
+    Returns BytesIO of the downscaled image.
+    """
+    img = Image.open(io.BytesIO(img_bytes))
+    img = img.convert("RGB")
+    img.thumbnail(size)
+    out = io.BytesIO()
+    img.save(out, format=format, quality=quality)
+    out.seek(0)
+    return out
+
+#--- Queue Management ---
 
 def cleanup_text_queue():
     try:
@@ -499,11 +679,6 @@ def get_text_queue_status():
         }
     finally:
         text_queue_lock.release()
-
-# Session heartbeat tracking
-
-session_last_seen = {}  # session_id: last_seen_timestamp
-SESSION_TIMEOUT = 60  # seconds
 
 def heartbeat(session_id):
     """Update the last seen timestamp for a session. Used to track active sessions and clean up timed-out requests."""
@@ -549,167 +724,182 @@ def get_queue_status():
     finally:
         cover_queue_lock.release()
 
+#--- Notification & Email ---
 
-app.config['SQLALCHEMY_DATABASE_URI'] = (
-    f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
-    f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
-)
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
-app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
-app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
-db = SQLAlchemy(app)
-CORS(app, origins=["http://localhost:5173", "http://localhost:5000", "https://storyweavechronicles.onrender.com", "https://swcflaskbackend.onrender.com"])
-mail = Mail(app)
-
-service_account_info = {
-    "type": "service_account",
-    "project_id": os.getenv("GOOGLE_PROJECT_ID"),
-    "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
-    "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
-    "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
-    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-    "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
-    "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
-    "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_CERT_URI"),
-    "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL"),
-}
-
-# --- logging setup ---
-#logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-import logging.handlers
-
-# Log to both console and logs.txt
-LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), 'logs.txt')
-log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
-
-# Console handler
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(log_formatter)
-root_logger.addHandler(console_handler)
-
-# File handler
-file_handler = logging.handlers.RotatingFileHandler(LOG_FILE_PATH, maxBytes=5*1024*1024, backupCount=2, encoding='utf-8')
-file_handler.setFormatter(log_formatter)
-root_logger.addHandler(file_handler)
-# --- uncomment logging and delete above variables when done ---
-
-# --- SQLAlchemy Book Model ---
-class Book(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    drive_id = db.Column(db.String(128), unique=True, nullable=False)  # Google Drive file ID
-    title = db.Column(db.String(256), nullable=False)
-    external_story_id = db.Column(db.String(128), nullable=True)  # e.g. 'goodreads 2504839'
-    version_history = db.Column(db.Text, nullable=True)  # JSON string of version info
-    created_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC), onupdate=lambda: datetime.datetime.now(datetime.UTC))
-
-    # Relationships
-    comments = db.relationship('Comment', backref='book', lazy=True, foreign_keys='Comment.book_id')
-    votes = db.relationship('Vote', backref='book', lazy=True, foreign_keys='Vote.book_id')
-
-# --- User Model ---
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=False, nullable=True)
-    password = db.Column(db.String(120), nullable=True)
-    bookmarks = db.Column(db.Text, nullable=True)  # JSON string
-    secondary_emails = db.Column(db.Text, nullable=True)  # JSON string
-    background_color = db.Column(db.String(16), nullable=True)
-    text_color = db.Column(db.String(16), nullable=True)
-    font = db.Column(db.String(64), nullable=True)
-    timezone = db.Column(db.String(64), nullable=True)
-    notification_prefs = db.Column(db.Text, nullable=True)  # JSON string
-    notification_history = db.Column(db.Text, nullable=True)  # JSON string
-    comments_page_size = db.Column(db.Integer, default=10)  # per-user comments page size
-    is_admin = db.Column(db.Boolean, default=False)  # admin privileges
-    banned = db.Column(db.Boolean, default=False)  # user ban status
-
-# --- Voting Model ---
-class Vote(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), nullable=False)
-    book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
-    value = db.Column(db.Integer, nullable=False)  # 1-5 stars
-    timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
-
-# --- Comment Model ---
-class Comment(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
-    username = db.Column(db.String(80), nullable=False)
-    parent_id = db.Column(db.Integer, nullable=True)  # null for top-level
-    text = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
-    edited = db.Column(db.Boolean, default=False)
-    upvotes = db.Column(db.Integer, default=0)
-    downvotes = db.Column(db.Integer, default=0)
-    deleted = db.Column(db.Boolean, default=False)  # for moderation
-    background_color = db.Column(db.String(16), nullable=True)
-    text_color = db.Column(db.String(16), nullable=True)
-
-# --- Webhook Model ---
-class Webhook(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    channel_id = db.Column(db.String(128), unique=True, nullable=False)
-    expiration = db.Column(db.BigInteger, nullable=True)  # ms since epoch
-    registered_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
-
-# Create tables if not exist
-with app.app_context():
-    db.create_all()
-
-# Google Drive API scope
-SCOPES = [os.getenv('SCOPES', 'https://www.googleapis.com/auth/drive.readonly')]
-
-
-# Credential storage
-TOKEN_FILE = 'server/token.json'
-
-# --- Story ID Extraction Utility ---
-def extract_story_id_from_pdf(file_content):
+def send_notification_email(user, subject, body):
+    if not user.email:
+        logging.warning(f"User {user.id} has no email address. Skipping email send.")
+        return False
+    msg = Message(subject, sender=app.config['MAIL_USERNAME'], recipients=[user.email])
+    msg.body = body
+    try:
+        mail.send(msg)
+        logging.info(f"Sent email to {user.email} with subject '{subject}'")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to send email to {user.email}: {e}")
+        return False
+    
+def send_scheduled_emails(subject, body, frequency='daily', batch_size=20, sleep_time=2):
     """
-    Given a PDF file (as bytes or BytesIO), extract the bottom-most line of text from page 1.
-    Returns the story ID string, or None if not found.
+    Send scheduled emails to users in batches to minimize RAM usage.
     """
-    doc = fitz.open(stream=file_content, filetype="pdf")
-    page = doc.load_page(0)
-    blocks = page.get_text("blocks")  # (x0, y0, x1, y1, text, block_no, block_type)
-    # Filter out blocks with no text
-    text_blocks = [b for b in blocks if b[4] and b[4].strip()]
-    if not text_blocks:
-        return None
-    # Regex: site name, optional colon, separator (space, dash, underscore), then number (at least 4 digits)
-    pattern = re.compile(r'\b([a-zA-Z0-9_]+):?[\s\-_](\d{4,})\b')
-    for block in text_blocks:
-        text = block[4].strip()
-        match = pattern.search(text)
-        if match:
-            # Return the full matched string (site + separator + id)
-            return match.group(0)
-    return None
+    with app.app_context():
+        users = User.query.filter_by(banned=False).all()
+        total = len(users)
+        logging.info(f"Starting scheduled email rollout: {total} users, batch_size={batch_size}, sleep_time={sleep_time}s")
+        for i in range(0, total, batch_size):
+            batch = users[i:i+batch_size]
+            for user in batch:
+                # You can add per-user frequency/prefs check here
+                send_notification_email(user, subject, body)
+            logging.info(f"Sent batch {i//batch_size+1} ({i+1}-{min(i+batch_size,total)})")
+            time.sleep(sleep_time)
+        logging.info("Scheduled email rollout complete.")
 
-def hash_password(password):
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+def add_notification(user, type_, title, body, link=None):
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    history = json.loads(user.notification_history) if user.notification_history else []
+    timestamp = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+    notification = {
+        'id': str(uuid.uuid4()),  # Always use a UUID for uniqueness
+        'type': type_,
+        'title': title,
+        'body': body,
+        'timestamp': timestamp,
+        'read': False,
+        'dismissed': False,
+        'link': link
+    }
+    # Prevent duplicates: check for same type, title, body, and link in history
+    if not any(
+            n.get('type') == notification['type'] and
+            n.get('title') == notification['title'] and
+            n.get('body') == notification['body'] and
+            n.get('link') == notification['link']
+            for n in history
+        ):
+            history.append(notification)
+            user.notification_history = json.dumps(history)
+            db.session.commit()
+            prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+            if prefs.get('emailFrequency', 'immediate') == 'immediate':
+                send_notification_email(user, title, body)
 
-def downscale_image(img_bytes, size=(80, 120), format="JPEG", quality=70):
-    """
-    Downscale and compress image bytes.
-    Returns BytesIO of the downscaled image.
-    """
-    img = Image.open(io.BytesIO(img_bytes))
-    img = img.convert("RGB")
-    img.thumbnail(size)
-    out = io.BytesIO()
-    img.save(out, format=format, quality=quality)
-    out.seek(0)
-    return out
+def call_seed_drive_books():
+    try:
+        url = os.getenv('VITE_HOST_URL', 'http://localhost:5000') + '/api/seed-drive-books'
+        response = requests.post(url)
+        logging.info(f"Scheduled seed-drive-books response: {response.status_code} {response.text}")
+    except Exception as e:
+        logging.error(f"Error calling seed-drive-books endpoint: {e}")
+
+# Start APScheduler for email notifications
+def send_scheduled_emails(frequency):
+        with app.app_context():
+            users = User.query.all()
+            for user in users:
+                prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+                if prefs.get('emailFrequency', 'immediate') == frequency and user.email:
+                    history = json.loads(user.notification_history) if user.notification_history else []
+                    # Only send unread notifications for this period
+                    unread = [n for n in history if not n.get('read')]
+                    if unread:
+                        subject = f"Your {frequency.capitalize()} Notification Summary"
+                        body_lines = [
+                            f"Hi {user.username or user.email},",
+                            "",
+                            f"Here are your recent notifications ({frequency}):",
+                            ""
+                        ]
+                        for n in unread:
+                            line = f"- [{n.get('type', 'Notification')}] {n.get('title', '')}: {n.get('body', '')}"
+                            if n.get('timestamp'):
+                                try:
+                                    ts_val = n.get('timestamp')
+                                    ts_str = datetime.datetime.fromtimestamp(ts_val / 1000).strftime('%Y-%m-%d %H:%M')
+                                    line += f" (at {ts_str})"
+                                except Exception:
+                                    line += f" (at {n['timestamp']})"
+                            if n.get('link'):
+                                line += f" [View]({n['link']})"
+                            body_lines.append(line)
+                        body_lines.append("")
+                        body_lines.append("Thank you for being part of StoryWeave Chronicles!")
+                        body = "\n".join(body_lines)
+                        send_notification_email(user, subject, body)
+                        logging.info(f"Sent {len(unread)} notifications to {user.email} for {frequency} summary.")
+                        # Optionally mark as read after sending
+                        for n in history:
+                            if not n.get('read'):
+                                n['read'] = True
+                        user.notification_history = json.dumps(history)
+                        db.session.commit()
+
+# --- Scheduled Job: Check for New Books and Notify Users ---
+def check_and_notify_new_books():
+    with app.app_context():
+        try:
+            # Set your Google Drive folder ID here (or load from env)
+            folder_id = os.getenv('DRIVE_BOOKS_FOLDER_ID')
+            if not folder_id:
+                logging.warning('No DRIVE_BOOKS_FOLDER_ID set in environment.')
+                return
+            service = get_drive_service()
+            query = f"'{folder_id}' in parents and mimeType='application/pdf'"
+            results = service.files().list(q=query, fields="files(id, name, createdTime)").execute()
+            files = results.get('files', [])
+            known_ids = set(b.drive_id for b in Book.query.all())
+            new_files = [f for f in files if f['id'] not in known_ids]
+            logging.info(f"Scheduled check: {len(new_files)} new PDFs detected.")
+            for f in new_files:
+                # Download PDF to extract external_story_id
+                try:
+                    request = service.files().get_media(fileId=f['id'])
+                    file_content = io.BytesIO(request.execute())
+                    story_id = extract_story_id_from_pdf(file_content)
+                except Exception:
+                    story_id = None
+                # Truncate external_story_id if too long
+                if story_id and isinstance(story_id, str) and len(story_id) > 128:
+                    story_id = ""
+                # Add to DB
+                try:
+                    book = Book(
+                        drive_id=f['id'],
+                        title=f.get('name', 'Untitled'),
+                        external_story_id=story_id,
+                        version_history=json.dumps([{'created': f.get('createdTime')}])
+                    )
+                    db.session.add(book)
+                    db.session.commit()
+                except Exception as db_exc:
+                    if "value too long for type character varying(128)" in str(db_exc):
+                        book = Book(
+                            drive_id=f['id'],
+                            title=f.get('name', 'Untitled'),
+                            external_story_id="",
+                            version_history=json.dumps([{'created': f.get('createdTime')}])
+                        )
+                        db.session.add(book)
+                        db.session.commit()
+                    else:
+                        logging.error(f"DB error adding new book: {db_exc}")
+                        continue
+                # Send notification to all users
+                users = User.query.all()
+                for user in users:
+                    prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+                    if not prefs.get('muteAll', False) and prefs.get('newBooks', True):
+                        body = f'A new book "{book.title}" is now available in the library.'
+                        if book.external_story_id:
+                            body += f' External ID: {book.external_story_id}'
+                        add_notification(user, 'newBook', 'New Book Added!', body, link=f'/read/{book.drive_id}')
+                logging.info(f"Notified users of new book: {book.title} ({book.drive_id})")
+        except Exception as e:
+            logging.error(f"Error in scheduled new book check: {e}")
+
+#--- Drive/Google API ---
 
 def get_drive_service():
     creds = None
@@ -762,75 +952,7 @@ def setup_drive_webhook(folder_id, webhook_url):
         else:
             logging.info(f"Existing webhook is still valid (expires at {webhook.expiration})")
 
-# --- Scheduled Email Rollout with Batching ---
-def send_notification_email(user, subject, body):
-    if not user.email:
-        logging.warning(f"User {user.id} has no email address. Skipping email send.")
-        return False
-    msg = Message(subject, sender=app.config['MAIL_USERNAME'], recipients=[user.email])
-    msg.body = body
-    try:
-        mail.send(msg)
-        logging.info(f"Sent email to {user.email} with subject '{subject}'")
-        return True
-    except Exception as e:
-        logging.error(f"Failed to send email to {user.email}: {e}")
-        return False
-    
-def send_scheduled_emails(subject, body, frequency='daily', batch_size=20, sleep_time=2):
-    """
-    Send scheduled emails to users in batches to minimize RAM usage.
-    """
-    with app.app_context():
-        users = User.query.filter_by(banned=False).all()
-        total = len(users)
-        logging.info(f"Starting scheduled email rollout: {total} users, batch_size={batch_size}, sleep_time={sleep_time}s")
-        for i in range(0, total, batch_size):
-            batch = users[i:i+batch_size]
-            for user in batch:
-                # You can add per-user frequency/prefs check here
-                send_notification_email(user, subject, body)
-            logging.info(f"Sent batch {i//batch_size+1} ({i+1}-{min(i+batch_size,total)})")
-            time.sleep(sleep_time)
-        logging.info("Scheduled email rollout complete.")
-
-# --- Notification Utility ---
-def add_notification(user, type_, title, body, link=None):
-    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-    history = json.loads(user.notification_history) if user.notification_history else []
-    timestamp = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
-    notification = {
-        'id': str(uuid.uuid4()),  # Always use a UUID for uniqueness
-        'type': type_,
-        'title': title,
-        'body': body,
-        'timestamp': timestamp,
-        'read': False,
-        'dismissed': False,
-        'link': link
-    }
-    # Prevent duplicates: check for same type, title, body, and link in history
-    if not any(
-            n.get('type') == notification['type'] and
-            n.get('title') == notification['title'] and
-            n.get('body') == notification['body'] and
-            n.get('link') == notification['link']
-            for n in history
-        ):
-            history.append(notification)
-            user.notification_history = json.dumps(history)
-            db.session.commit()
-            prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-            if prefs.get('emailFrequency', 'immediate') == 'immediate':
-                send_notification_email(user, title, body)
-
-def call_seed_drive_books():
-    try:
-        url = os.getenv('VITE_HOST_URL', 'http://localhost:5000') + '/api/seed-drive-books'
-        response = requests.post(url)
-        logging.info(f"Scheduled seed-drive-books response: {response.status_code} {response.text}")
-    except Exception as e:
-        logging.error(f"Error calling seed-drive-books endpoint: {e}")
+#--- Admin/Memory ---
 
 def cleanup_locals(locals_dict):
     # Helper to close/delete large objects
@@ -870,10 +992,27 @@ def cleanup_locals(locals_dict):
         gc.collect()
     logging.info("[cleanup_locals] Finished cleanup and GC.")
 
-# --- Admin Utility ---
 def is_admin(username):
     user = User.query.filter_by(username=username).first()
     return user and user.is_admin
+
+def hash_password(password):
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+# =========================
+# 8. App Hooks
+# =========================
+# --- @app.before_request hooks ---
+@app.before_request
+def check_atlas_init():
+    global atlas_initialized
+    if not atlas_initialized and request.path.startswith('/api/'):
+        try:
+            sync_atlas_with_covers()
+            rebuild_cover_cache()
+            atlas_initialized = True
+        except Exception as e:
+            logging.error(f"[Atlas] Error during first-load rebuild: {e}")
 
 #--- apis ---
 
@@ -3401,115 +3540,10 @@ if __name__ == '__main__':
         webhook_url = 'https://swcflaskbackend.onrender.com/api/drive-webhook'
         setup_drive_webhook(folder_id, webhook_url)
         logging.info("Google Drive webhook registered on startup.")
-        tracemalloc.start()
         logging.info("Tracemalloc started for memory tracking.")
     except Exception as e:
-
         logging.error(f"Failed to register Google Drive webhook: {e}")
-    # Start APScheduler for email notifications
-    def send_scheduled_emails(frequency):
-            with app.app_context():
-                users = User.query.all()
-                for user in users:
-                    prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-                    if prefs.get('emailFrequency', 'immediate') == frequency and user.email:
-                        history = json.loads(user.notification_history) if user.notification_history else []
-                        # Only send unread notifications for this period
-                        unread = [n for n in history if not n.get('read')]
-                        if unread:
-                            subject = f"Your {frequency.capitalize()} Notification Summary"
-                            body_lines = [
-                                f"Hi {user.username or user.email},",
-                                "",
-                                f"Here are your recent notifications ({frequency}):",
-                                ""
-                            ]
-                            for n in unread:
-                                line = f"- [{n.get('type', 'Notification')}] {n.get('title', '')}: {n.get('body', '')}"
-                                if n.get('timestamp'):
-                                    try:
-                                        ts_val = n.get('timestamp')
-                                        ts_str = datetime.datetime.fromtimestamp(ts_val / 1000).strftime('%Y-%m-%d %H:%M')
-                                        line += f" (at {ts_str})"
-                                    except Exception:
-                                        line += f" (at {n['timestamp']})"
-                                if n.get('link'):
-                                    line += f" [View]({n['link']})"
-                                body_lines.append(line)
-                            body_lines.append("")
-                            body_lines.append("Thank you for being part of StoryWeave Chronicles!")
-                            body = "\n".join(body_lines)
-                            send_notification_email(user, subject, body)
-                            logging.info(f"Sent {len(unread)} notifications to {user.email} for {frequency} summary.")
-                            # Optionally mark as read after sending
-                            for n in history:
-                                if not n.get('read'):
-                                    n['read'] = True
-                            user.notification_history = json.dumps(history)
-                            db.session.commit()
-
-    # --- Scheduled Job: Check for New Books and Notify Users ---
-    def check_and_notify_new_books():
-        with app.app_context():
-            try:
-                # Set your Google Drive folder ID here (or load from env)
-                folder_id = os.getenv('DRIVE_BOOKS_FOLDER_ID')
-                if not folder_id:
-                    logging.warning('No DRIVE_BOOKS_FOLDER_ID set in environment.')
-                    return
-                service = get_drive_service()
-                query = f"'{folder_id}' in parents and mimeType='application/pdf'"
-                results = service.files().list(q=query, fields="files(id, name, createdTime)").execute()
-                files = results.get('files', [])
-                known_ids = set(b.drive_id for b in Book.query.all())
-                new_files = [f for f in files if f['id'] not in known_ids]
-                logging.info(f"Scheduled check: {len(new_files)} new PDFs detected.")
-                for f in new_files:
-                    # Download PDF to extract external_story_id
-                    try:
-                        request = service.files().get_media(fileId=f['id'])
-                        file_content = io.BytesIO(request.execute())
-                        story_id = extract_story_id_from_pdf(file_content)
-                    except Exception:
-                        story_id = None
-                    # Truncate external_story_id if too long
-                    if story_id and isinstance(story_id, str) and len(story_id) > 128:
-                        story_id = ""
-                    # Add to DB
-                    try:
-                        book = Book(
-                            drive_id=f['id'],
-                            title=f.get('name', 'Untitled'),
-                            external_story_id=story_id,
-                            version_history=json.dumps([{'created': f.get('createdTime')}])
-                        )
-                        db.session.add(book)
-                        db.session.commit()
-                    except Exception as db_exc:
-                        if "value too long for type character varying(128)" in str(db_exc):
-                            book = Book(
-                                drive_id=f['id'],
-                                title=f.get('name', 'Untitled'),
-                                external_story_id="",
-                                version_history=json.dumps([{'created': f.get('createdTime')}])
-                            )
-                            db.session.add(book)
-                            db.session.commit()
-                        else:
-                            logging.error(f"DB error adding new book: {db_exc}")
-                            continue
-                    # Send notification to all users
-                    users = User.query.all()
-                    for user in users:
-                        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-                        if not prefs.get('muteAll', False) and prefs.get('newBooks', True):
-                            body = f'A new book "{book.title}" is now available in the library.'
-                            if book.external_story_id:
-                                body += f' External ID: {book.external_story_id}'
-                            add_notification(user, 'newBook', 'New Book Added!', body, link=f'/read/{book.drive_id}')
-                    logging.info(f"Notified users of new book: {book.title} ({book.drive_id})")
-            except Exception as e:
-                logging.error(f"Error in scheduled new book check: {e}")
+    # Schedule daily/weekly/monthly email notifications at 8am, and daily new book check at 9am
     scheduler = BackgroundScheduler()
     scheduler.add_job(lambda: send_scheduled_emails('daily'), 'cron', hour=8)
     scheduler.add_job(lambda: send_scheduled_emails('weekly'), 'cron', day_of_week='mon', hour=8)
