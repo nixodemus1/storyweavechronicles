@@ -10,105 +10,17 @@ const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 function useCachedCovers(pdfs) {
   const [covers, setCovers] = React.useState({});
   React.useEffect(() => {
-    let isMounted = true;
     const newCovers = {};
-    const fetchQueue = [];
     pdfs.forEach(pdf => {
       if (!pdf || !pdf.id) return;
-      const { url, expired } = getCoverFromCache(pdf.id);
-      newCovers[pdf.id] = url;
-      if (!url || expired) {
-        fetchQueue.push(pdf.id);
-      }
+      // Use public cover_url from API response
+      newCovers[pdf.id] = pdf.cover_url || '/no-cover.png';
     });
     setCovers(newCovers);
-
-    // Get sessionId from context or localStorage
-    let sessionId = null;
-    try {
-      sessionId = (window?.ThemeContext?.user?.sessionId) || localStorage.getItem('swc_session_id');
-    } catch {console.warn('Failed to access localStorage for session_id');}
-
-    // Batch fetch covers in groups of 3 with a 300ms delay
-    function batchFetchCovers(queue, batchSize = 3, delay = 300) {
-      let i = 0;
-      function fetchBatch() {
-        const batch = queue.slice(i, i + batchSize);
-        batch.forEach(bookId => {
-          let coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
-          if (sessionId) coverUrl += `?session_id=${encodeURIComponent(sessionId)}`;
-          fetch(coverUrl)
-            .then(res => res.ok ? res.blob() : null)
-            .then(blob => {
-              let url = null;
-              if (blob && blob instanceof Blob && blob.type.startsWith('image/')) {
-                url = URL.createObjectURL(blob);
-                setCoverInCache(bookId, url);
-                if (isMounted) setCovers(c => ({ ...c, [bookId]: url }));
-              } else {
-                setCoverInCache(bookId, null);
-                if (isMounted) setCovers(c => ({ ...c, [bookId]: null }));
-              }
-            })
-            .catch(() => {
-              setCoverInCache(bookId, null);
-              if (isMounted) setCovers(c => ({ ...c, [bookId]: null }));
-            });
-        });
-        i += batchSize;
-        if (i < queue.length) {
-          setTimeout(fetchBatch, delay);
-        }
-      }
-      fetchBatch();
-    }
-    if (fetchQueue.length > 0) batchFetchCovers(fetchQueue);
-
-    return () => {
-      Object.values(covers).forEach(url => {
-        if (url && url.startsWith('blob:')) {
-          URL.revokeObjectURL(url);
-        }
-      });
-      isMounted = false;
-    };
-    // DO NOT ADD covers TO DEPENDENCY ARRAY, IT CREATES AN INFINITE LOOP THAT WILL FREEZE YOUR BROWSER
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfs]);
   return covers;
 }
 
-function getCoverFromCache(bookId) {
-  try {
-    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
-    const entry = cache[bookId];
-    if (!entry) return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
-    if (typeof entry === 'string') {
-      return { url: entry, expired: false };
-    }
-    if (entry.url === '/no-cover.png') {
-      const now = Date.now();
-      const expired = !entry.ts || (now - entry.ts > 3600 * 1000);
-      return { url: '/no-cover.png', expired };
-    }
-    return { url: entry.url, expired: false };
-  } catch {
-    return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
-  }
-}
-function setCoverInCache(bookId, url) {
-  try {
-    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
-    if (url === '/no-cover.png') {
-      cache[bookId] = { url, ts: Date.now() };
-    } else {
-      cache[bookId] = { url };
-    }
-    localStorage.setItem('swc_cover_cache', JSON.stringify(cache));
-  } catch {
-    null;
-  }
-}
 
 const BookmarksTab = React.memo(function BookmarksTab({ user }) {
   const { textColor, backgroundColor, theme } = useContext(ThemeContext);
@@ -203,10 +115,7 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
                               alt={book.name}
                               style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                               onError={e => {
-                                if (e.target.src !== '/no-cover.svg') {
-                                  setCoverInCache(book.id, '/no-cover.png');
-                                  e.target.src = '/no-cover.svg';
-                                }
+                                e.target.src = '/no-cover.svg';
                               }}
                             />
                       ) : (
@@ -305,10 +214,7 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                           alt={book.name}
                           style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                           onError={e => {
-                            if (e.target.src !== '/no-cover.png') {
-                              setCoverInCache(book.id, '/no-cover.png');
-                              e.target.src = '/no-cover.png';
-                            }
+                            e.target.src = '/no-cover.png';
                           }}
                         />
                   ) : (
@@ -360,34 +266,7 @@ const UserCommentsSection = React.memo(function UserCommentsSection({ user }) {
       });
   }, []);
 
-  React.useEffect(() => {
-    comments.forEach(comment => {
-      const bookId = comment.book_id;
-      const { url, expired } = getCoverFromCache(bookId);
-      if (!url || expired || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
-        if (url !== '/no-cover.png' || expired) {
-          // Always attach session_id to cover fetch
-          let sessionId = (window?.ThemeContext?.user?.sessionId) || localStorage.getItem('swc_session_id');
-          let coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
-          if (sessionId) coverUrl += `?session_id=${encodeURIComponent(sessionId)}`;
-          fetch(coverUrl)
-            .then(res => res.ok ? res.blob() : null)
-            .then(blob => {
-              let coverUrl = null;
-              if (blob && blob instanceof Blob && blob.type.startsWith('image/')) {
-                coverUrl = URL.createObjectURL(blob);
-                setCoverInCache(bookId, coverUrl);
-              } else {
-                setCoverInCache(bookId, '/no-cover.png');
-              }
-            })
-            .catch(() => {
-              setCoverInCache(bookId, '/no-cover.png');
-            });
-        }
-      }
-    });
-  }, [comments]);
+  // No cover cache/fetch logic needed; covers are provided by API response
 
   function getBookTitle(bookId) {
     const book = books.find(b => b.id === bookId);

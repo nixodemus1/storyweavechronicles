@@ -13,41 +13,10 @@ function useCachedCovers(pdfs) {
     pdfs.forEach(pdf => {
       const bookId = pdf && (pdf.drive_id || pdf.id);
       if (!bookId) return;
-      const { url, expired } = getCoverFromCache(bookId);
-      // If cached value is a blob URL, ignore and re-fetch
-      const isBlobUrl = url && url.startsWith('blob:');
-      newCovers[bookId] = isBlobUrl ? undefined : url;
+      // Use public cover_url from API response
+      const coverUrl = pdf.cover_url || '/no-cover.png';
+      newCovers[bookId] = coverUrl;
       newLoading[bookId] = false;
-      if (!url || expired || isBlobUrl || (url.startsWith(API_BASE_URL) && url !== '/no-cover.png')) {
-        newLoading[bookId] = true;
-        let sessionId = (user && user.sessionId) || localStorage.getItem('swc_session_id');
-        let coverUrl = `${API_BASE_URL}/pdf-cover/${bookId}`;
-        if (sessionId) {
-          coverUrl += `?session_id=${encodeURIComponent(sessionId)}`;
-        }
-        fetch(coverUrl)
-          .then(res => {
-            if (!res.ok) return '/no-cover.png';
-            return res.blob();
-          })
-          .then(blob => {
-            let coverUrl = '/no-cover.png';
-            if (blob && blob instanceof Blob && blob.type.startsWith('image/')) {
-              coverUrl = URL.createObjectURL(blob);
-            }
-            // Do NOT cache blob URLs in localStorage
-            if (coverUrl === '/no-cover.png' || coverUrl.startsWith(API_BASE_URL)) {
-              setCoverInCache(bookId, coverUrl);
-            }
-            if (isMounted) setCovers(c => ({ ...c, [bookId]: coverUrl }));
-            if (isMounted) setLoadingCovers(l => ({ ...l, [bookId]: false }));
-          })
-          .catch(() => {
-            setCoverInCache(bookId, '/no-cover.png');
-            if (isMounted) setCovers(c => ({ ...c, [bookId]: '/no-cover.png' }));
-            if (isMounted) setLoadingCovers(l => ({ ...l, [bookId]: false }));
-          });
-      }
     });
     if (isMounted) setCovers(newCovers);
     if (isMounted) setLoadingCovers(newLoading);
@@ -60,24 +29,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
-function getCoverFromCache(bookId) {
-  try {
-    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
-    const entry = cache[bookId];
-    if (!entry) return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
-    if (typeof entry === 'string') {
-      return { url: entry, expired: false };
-    }
-    if (entry.url === '/no-cover.png') {
-      const now = Date.now();
-      const expired = !entry.ts || (now - entry.ts > 3600 * 1000);
-      return { url: '/no-cover.png', expired };
-    }
-    return { url: entry.url, expired: false };
-  } catch {
-    return { url: `${API_BASE_URL}/pdf-cover/${bookId}`, expired: false };
-  }
-}
 function setCoverInCache(bookId, url) {
   try {
     const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');

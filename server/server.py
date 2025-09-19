@@ -233,6 +233,13 @@ tracemalloc.start()
 # 7. Utility Functions
 # =========================
 # --- Atlas & Cover Management ---
+def get_cover_url(file_id):
+    """
+    Returns the public URL for a cover image, using FRONTEND_BASE_URL from .env.
+    """
+    base_url = os.getenv('FRONTEND_BASE_URL', 'http://localhost:5173')
+    return f"{base_url}/covers/{file_id}.jpg"
+
 def load_atlas():
     if not os.path.exists(ATLAS_PATH):
         return {}
@@ -1640,6 +1647,7 @@ def get_books_by_ids():
             'external_story_id': book.external_story_id,
             'created_at': book.created_at.isoformat() if book.created_at else None,
             'updated_at': book.updated_at.isoformat() if book.updated_at else None,
+            'cover_url': get_cover_url(book.drive_id),
             # ...other fields...
         })
     # Add stubs for missing books
@@ -1664,7 +1672,8 @@ def all_books():
                 'title': book.title,
                 'external_story_id': book.external_story_id,
                 'created_at': book.created_at.isoformat() if book.created_at else None,
-                'updated_at': book.updated_at.isoformat() if book.updated_at else None
+                'updated_at': book.updated_at.isoformat() if book.updated_at else None,
+                'cover_url': get_cover_url(book.drive_id)
             })
         response = jsonify(success=True, books=result)
 
@@ -2390,7 +2399,7 @@ def user_top_voted_books():
         result.append({
             'id': book.drive_id,
             'title': book.title,
-            'cover_url': f'/pdf-cover/{book.drive_id}',
+            'cover_url': get_cover_url(book.drive_id),
             'votes': vote.value if vote else None
         })
     # Sort by vote value descending, then by title
@@ -2425,6 +2434,9 @@ def get_bookmarks():
             # Update each bookmark with actual last updated time
             for bm in bookmarks:
                 bm['last_updated'] = file_update_map.get(bm['id'], bm.get('last_updated'))
+        # Ensure every bookmark has a cover_url
+        for bm in bookmarks:
+            bm['cover_url'] = get_cover_url(bm['id'])
     except Exception as e:
         pass  # If Drive fails, fallback to stored last_updated
     response = jsonify({'success': True, 'bookmarks': bookmarks})
@@ -2442,10 +2454,11 @@ def add_bookmark():
         return jsonify({'success': False, 'message': 'User not found.'}), 404
     bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
     for bm in bookmarks:
+        bm['cover_url'] = get_cover_url(bm['id'])
         if bm['id'] == book_id:
             return jsonify({'success': True, 'message': 'Already bookmarked.', 'bookmarks': bookmarks})
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-    bookmarks.append({'id': book_id, 'last_page': 1, 'last_updated': now, 'unread': False})
+    bookmarks.append({'id': book_id, 'last_page': 1, 'last_updated': now, 'unread': False, 'cover_url': get_cover_url(book_id)})
     user.bookmarks = json.dumps(bookmarks)
     db.session.commit()
     return jsonify({'success': True, 'message': 'Bookmarked.', 'bookmarks': bookmarks})
@@ -2464,6 +2477,9 @@ def remove_bookmark():
     before = len(bookmarks)
     bookmarks = [bm for bm in bookmarks if bm['id'] != book_id]
     after = len(bookmarks)
+    # Ensure every bookmark has a cover_url
+    for bm in bookmarks:
+        bm['cover_url'] = get_cover_url(bm['id'])
     user.bookmarks = json.dumps(bookmarks)
     db.session.commit()
     if before == after:
@@ -2492,6 +2508,9 @@ def update_bookmark_meta():
                 bm['unread'] = unread
             bm['last_updated'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
             updated = True
+    # Ensure every bookmark has a cover_url
+    for bm in bookmarks:
+        bm['cover_url'] = get_cover_url(bm['id'])
     if not updated:
         return jsonify({'success': False, 'message': 'Bookmark not found.'}), 404
     user.bookmarks = json.dumps(bookmarks)
