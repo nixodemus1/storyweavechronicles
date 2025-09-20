@@ -10,8 +10,6 @@ import { waitForServerHealth } from "../utils/serviceHealth";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
-
-
 // useCoverLoadState: tracks per-cover image load state
 // useCoverLoadState: tracks per-cover image load and loading state
 function useCoverLoadState() {
@@ -524,7 +522,7 @@ export default function LandingPage() {
         const sessionId = user?.session_id || localStorage.getItem('session_id');
         for (const bookId of missingIds) {
           // Set cover_url to loading-cover.svg immediately so spinner is shown and auto-refresh works
-          const loadingCoverUrl = `/loading-cover.svg`;
+          const loadingCoverUrl = `${API_BASE_URL}/loading-cover.svg`;
           console.log(`[LandingPage] Setting cover_url to ${loadingCoverUrl} for bookId: ${bookId}`);
           setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: loadingCoverUrl } : b));
           setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: loadingCoverUrl } : b));
@@ -572,7 +570,7 @@ export default function LandingPage() {
             if (checkData.exists) {
               // Cover now exists, update cover_url to real image with cache-busting timestamp
               const timestamp = Date.now();
-              const publicCoverUrl = `/covers/${bookId}.jpg?t=${timestamp}`;
+              const publicCoverUrl = `${API_BASE_URL}/covers/${bookId}.jpg?t=${timestamp}`;
               console.log(`[LandingPage] Cover for bookId: ${bookId} is now available. Updating cover_url with cache-busting: ${publicCoverUrl}`);
               setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
               setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
@@ -581,9 +579,10 @@ export default function LandingPage() {
               // Only set no-cover.svg if backendPermanentFailure is true
               if (backendPermanentFailure) {
                 console.log(`[LandingPage] Final failure: Setting cover_url to /no-cover.svg for bookId: ${bookId}`);
-                setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.svg' } : b));
-                setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.svg' } : b));
-                setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.svg' } : b));
+                const noCoverUrl = `${API_BASE_URL}/no-cover.svg`;
+                setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: noCoverUrl } : b));
+                setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: noCoverUrl } : b));
+                setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: noCoverUrl } : b));
               } else {
                 // Still waiting or temporary error, keep spinner (loading-cover.svg)
                 console.log(`[LandingPage] Cover for bookId: ${bookId} still missing, keeping spinner.`);

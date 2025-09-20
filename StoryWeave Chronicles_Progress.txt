@@ -9,6 +9,7 @@
 - RAM usage optimized (open to further improvements)
 - Made a new cover system for the sake of being super optimized. (way faster and using way less memory if you can get over the first dry launch)
 - managed to finally clean up and organize my back end. (will do the same for the front end once its completely stable)
+- finally i can consider covers done on render. the download and everything works like a dream. i think it can handle 100 users no problem. 
 
 ---
 
@@ -21,7 +22,6 @@
 - Minor bugs: address issues found during stress testing
 - Front end keeps polling after all covers are done downloading
 - churn is back. it fixed itself for a bit and now its back.
-- render doesn't know where to put/ where to look for the on disc covers. (might be because we are building in production on render rather than running as dev)
 
 ---
 
