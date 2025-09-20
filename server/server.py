@@ -1827,7 +1827,7 @@ def serve_cover(cover_id):
     if os.path.exists(cover_path):
         logging.info(f"[ServeCover] Sending image for {cover_id}")
         return send_from_directory(COVERS_DIR, filename)
-    fallback_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'public', 'no-cover.png')
+    fallback_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'public', 'no-cover.svg')
     try:
         stat_info = os.stat(fallback_path)
         logging.info(f"[ServeCover][Fallback][DIAG] stat for {fallback_path}: {stat_info}")
@@ -1851,7 +1851,7 @@ def serve_cover(cover_id):
     logging.info(f"[ServeCover][Fallback][DIAG] Atlas entry for {cover_id}: {atlas.get(cover_id)}")
     if os.path.exists(fallback_path):
         logging.info(f"[ServeCover] Sending fallback image for {cover_id}")
-        return send_file(fallback_path, mimetype='image/png')
+        return send_file(fallback_path, mimetype='image/svg+xml')
     logging.error(f"[ServeCover] No cover or fallback found for {cover_id}")
     return jsonify({'success': False, 'message': 'Cover not found.'}), 404
 
@@ -1988,16 +1988,30 @@ def pdf_cover(file_id):
                 cover_request_queue.popleft()
             return response
         else:
-            # Extraction failed, do not retry
+            # Extraction failed, serve SVG fallback
             logging.error(f"[pdf-cover] FAILURE: extract_cover_image_from_pdf returned None for file_id={file_id}")
-            logging.error(f"[pdf-cover] FAILURE: Could not extract cover for {file_id}. Will send fallback.")
+            logging.error(f"[pdf-cover] FAILURE: Could not extract cover for {file_id}. Will send fallback SVG.")
             for _ in range(3):
                 gc.collect()
             mem = process.memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] POST-FALLBACK GC: RAM={mem:.2f} MB")
+            fallback_svg_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'public', 'no-cover.svg')
             with cover_queue_lock:
                 cover_request_queue.popleft()
-            return make_response(jsonify({'error': 'No cover available', 'file_id': file_id}), 404)
+            if os.path.exists(fallback_svg_path):
+                response = make_response(send_file(fallback_svg_path, mimetype='image/svg+xml'))
+                origin = request.headers.get('Origin')
+                allowed = [
+                    "http://localhost:5173",
+                    "http://localhost:5000",
+                    "https://storyweavechronicles.onrender.com",
+                    "https://swcflaskbackend.onrender.com"
+                ]
+                response.headers["Access-Control-Allow-Origin"] = origin if origin in allowed else "https://storyweavechronicles.onrender.com"
+                return response
+            else:
+                logging.error(f"[pdf-cover] Fallback SVG not found at {fallback_svg_path}")
+                return make_response(jsonify({'error': 'No cover available', 'file_id': file_id}), 404)
 
 @app.route('/api/pdf-text/<file_id>', methods=['GET'])
 def pdf_text(file_id):

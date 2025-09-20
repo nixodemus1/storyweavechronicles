@@ -234,8 +234,8 @@ function CarouselSection({
                       ? <div className="book-cover book-missing">Missing Book</div>
                       : pdf.cover_url === '/no-cover.png'
                         ? (coverErrorCount >= 2
-                            ? <img className="book-cover book-nocover" src="/no-cover.svg" alt="No Cover" />
-                            : <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" />
+                            ? (() => { console.log(`[CarouselSection] Rendering NO-COVER SVG for bookId: ${bookId}`); return <img className="book-cover book-nocover" src="/no-cover.svg" alt="No Cover" /> })()
+                            : (() => { console.log(`[CarouselSection] Rendering LOADING SVG for bookId: ${bookId}`); return <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" /> })()
                           )
                         : pdf.cover_url
                           ? <div style={{ position: 'relative' }}>
@@ -251,15 +251,10 @@ function CarouselSection({
                                 }}
                               />
                               {!loaded[bookId] && loading[bookId] && (
-                                <img
-                                  className="book-cover book-loading"
-                                  src="/loading-cover.svg"
-                                  alt="Loading Cover"
-                                  style={{ position: 'absolute', top: 0, left: 0 }}
-                                />
+                                (() => { console.log(`[CarouselSection] Rendering LOADING SVG overlay for bookId: ${bookId}`); return <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" style={{ position: 'absolute', top: 0, left: 0 }} /> })()
                               )}
                             </div>
-                          : <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" />
+                          : (() => { console.log(`[CarouselSection] Rendering LOADING SVG (no cover_url) for bookId: ${bookId}`); return <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" /> })()
                   ) : (
                     <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
                   )}
@@ -328,57 +323,47 @@ function TopListsSection({
           <ol>
             {topNewest.map((pdf) => {
               const bookId = pdf.drive_id;
-                  // Determine loading state for this book
-                  if (pdf.cover_url === '/no-cover.png') {
-                    if (!loadingNewest[bookId]) startLoadingNewest(bookId);
-                  }
-                  // If errorCount >= 2, show permanent fallback
-                  const coverErrorCount = (typeof loadedNewest === 'object' && loadedNewest.errorCount && loadedNewest.errorCount[bookId]) || 0;
-                  return (
-                    <li key={bookId || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {bookId ? (
-                        pdf.cover_url === '/no-cover.png'
-                          ? (coverErrorCount >= 2
-                              ? <img className="book-cover book-nocover" src="/no-cover.svg" alt="No Cover" />
-                              : <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" />
-                            )
-                          : pdf.cover_url
-                            ? <div style={{ position: 'relative' }}>
-                                <img
-                                  src={pdf.cover_url}
-                                  alt={pdf.title}
-                                  className="book-cover"
-                                  style={{ opacity: loadedNewest[bookId] ? 1 : 0 }}
-                                  onLoad={() => handleLoadNewest(bookId)}
-                                  onError={e => {
-                                    handleErrorNewest(bookId);
-                                    console.error(`[LandingPage] Error loading cover image for book ${bookId}:`, e);
-                                  }}
-                                />
-                                {!loadedNewest[bookId] && loadingNewest[bookId] && (
-                                  <img
-                                    className="book-cover book-loading"
-                                    src="/loading-cover.svg"
-                                    alt="Loading Cover"
-                                    style={{ position: 'absolute', top: 0, left: 0 }}
-                                  />
-                                )}
-                              </div>
-                            : <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" />
-                      ) : (
-                        <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
-                      )}
-                      <SteppedContainer depth={depth + 2} style={{ display: 'inline-block', borderRadius: 4, background: undefined }}>
-                        <button
-                          className="top-list-link"
-                          style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer' }}
-                          onClick={() => bookId && navigate(`/read/${bookId}`)}
-                        >
-                          {pdf.title}
-                        </button>
-                      </SteppedContainer>
-                    </li>
-                  );
+              if (pdf.cover_url === '/no-cover.png') {
+                if (!loadingNewest[bookId]) startLoadingNewest(bookId);
+              }
+              const coverErrorCount = (typeof loadedNewest === 'object' && loadedNewest.errorCount && loadedNewest.errorCount[bookId]) || 0;
+                // PATCH: Never render COVER with opacity 0. If not loaded, show spinner or fallback.
+                return (
+                  <li key={bookId || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {bookId ? (
+                      pdf.cover_url === '/no-cover.png'
+                        ? (coverErrorCount >= 2
+                            ? (() => { console.log(`[TopListsSection] Rendering NO-COVER SVG for bookId: ${bookId}`); return <img className="book-cover book-nocover" src="/no-cover.svg" alt="No Cover" /> })()
+                            : (() => { console.log(`[TopListsSection] Rendering LOADING SVG for bookId: ${bookId}`); return <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" /> })()
+                          )
+                        : pdf.cover_url
+                          ? loadedNewest[bookId]
+                            ? (() => { console.log(`[TopListsSection] Rendering COVER for bookId: ${bookId}`); return <img src={pdf.cover_url} alt={pdf.title} className="book-cover" style={{ opacity: 1 }} onLoad={() => handleLoadNewest(bookId)} onError={e => { handleErrorNewest(bookId); console.error(`[LandingPage] Error loading cover image for book ${bookId}:`, e); }} /> })()
+                            : (() => {
+                                // Instead of opacity 0, show spinner overlay or fallback
+                                console.log(`[TopListsSection] Rendering LOADING SVG overlay for bookId: ${bookId}`);
+                                return (
+                                  <div style={{ position: 'relative' }}>
+                                    <img src={pdf.cover_url} alt={pdf.title} className="book-cover" style={{ opacity: 0.3 }} onLoad={() => handleLoadNewest(bookId)} onError={e => { handleErrorNewest(bookId); console.error(`[LandingPage] Error loading cover image for book ${bookId}:`, e); }} />
+                                    <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" style={{ position: 'absolute', top: 0, left: 0 }} />
+                                  </div>
+                                );
+                              })()
+                          : (() => { console.log(`[TopListsSection] Rendering LOADING SVG (no cover_url) for bookId: ${bookId}`); return <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" /> })()
+                    ) : (
+                      <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
+                    )}
+                    <SteppedContainer depth={depth + 2} style={{ display: 'inline-block', borderRadius: 4, background: undefined }}>
+                      <button
+                        className="top-list-link"
+                        style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer' }}
+                        onClick={() => bookId && navigate(`/read/${bookId}`)}
+                      >
+                        {pdf.title}
+                      </button>
+                    </SteppedContainer>
+                  </li>
+                );
             })}
           </ol>
         </SteppedContainer>
@@ -398,8 +383,8 @@ function TopListsSection({
                       {bookId ? (
                         pdf.cover_url === '/no-cover.png'
                           ? (coverErrorCount >= 2
-                              ? <img className="book-cover book-nocover" src="/no-cover.svg" alt="No Cover" />
-                              : <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" />
+                              ? (() => { console.log(`[TopListsSection] Rendering NO-COVER SVG for bookId: ${bookId}`); return <img className="book-cover book-nocover" src="/no-cover.svg" alt="No Cover" /> })()
+                              : (() => { console.log(`[TopListsSection] Rendering LOADING SVG for bookId: ${bookId}`); return <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" /> })()
                             )
                           : pdf.cover_url
                             ? <div style={{ position: 'relative' }}>
@@ -415,15 +400,10 @@ function TopListsSection({
                                   }}
                                 />
                                 {!loadedVoted[bookId] && loadingVoted[bookId] && (
-                                  <img
-                                    className="book-cover book-loading"
-                                    src="/loading-cover.svg"
-                                    alt="Loading Cover"
-                                    style={{ position: 'absolute', top: 0, left: 0 }}
-                                  />
+                                  (() => { console.log(`[TopListsSection] Rendering LOADING SVG overlay for bookId: ${bookId}`); return <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" style={{ position: 'absolute', top: 0, left: 0 }} /> })()
                                 )}
                               </div>
-                            : <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" />
+                            : (() => { console.log(`[TopListsSection] Rendering LOADING SVG (no cover_url) for bookId: ${bookId}`); return <img className="book-cover book-loading" src="/loading-cover.svg" alt="Loading Cover" /> })()
                       ) : (
                         <span style={{ color: '#c00', fontSize: 12 }}>[No valid book id]</span>
                       )}
@@ -545,6 +525,7 @@ export default function LandingPage() {
         for (const bookId of missingIds) {
           // Set cover_url to public path immediately so loading spinner is shown and auto-refresh works
           const publicCoverUrl = `/covers/${bookId}.jpg`;
+          console.log(`[LandingPage] Setting cover_url to ${publicCoverUrl} for bookId: ${bookId}`);
           setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
           setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
           setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
@@ -555,6 +536,7 @@ export default function LandingPage() {
             continue;
           }
           coversWaitingRef.current.add(bookId);
+          let backendPermanentFailure = false;
           try {
             const resp = await fetch(`${API_BASE_URL}/pdf-cover/${encodeURIComponent(bookId)}?session_id=${encodeURIComponent(sessionId)}`, {
               method: 'GET'
@@ -565,23 +547,51 @@ export default function LandingPage() {
             } else {
               const data = await resp.json().catch(() => ({}));
               if (resp.status === 409 && data.error === 'duplicate') {
-                // Log duplicate and do not retry
+                // Backend says duplicate: keep spinner, do not set no-cover, wait for next refresh
                 console.log(`[LandingPage] Backend reported duplicate cover request for book ${bookId}. Waiting for original to finish.`);
-                // Keep bookId in coversWaitingRef until next refresh
                 continue;
               }
-              // Backend failed, set cover_url to '/no-cover.png' for this book (show loading spinner)
-              setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
-              setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
-              setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
+              // If backend returns a permanent failure (e.g. 500, or custom error), set permanent failure
+              if (resp.status === 500 || data.error === 'permanent_failure') {
+                backendPermanentFailure = true;
+              } else {
+                // Temporary error: keep spinner
+              }
               coversWaitingRef.current.delete(bookId);
             }
           } catch (err) {
-            setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
-            setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
-            setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
+            // Network or unexpected error: treat as temporary, keep spinner
             coversWaitingRef.current.delete(bookId);
             console.error(`[LandingPage] Error requesting cover for book ${bookId}:`, err);
+          }
+          // After backend finishes, always re-check if cover exists and update UI
+          await waitForServerHealth();
+          try {
+            const checkResp = await fetch(`${API_BASE_URL}/api/cover-exists/${encodeURIComponent(bookId)}`);
+            const checkData = await checkResp.json();
+            if (checkData.exists) {
+              // Cover now exists, update cover_url to real image with cache-busting timestamp
+              const timestamp = Date.now();
+              const publicCoverUrl = `/covers/${bookId}.jpg?t=${timestamp}`;
+              console.log(`[LandingPage] Cover for bookId: ${bookId} is now available. Updating cover_url with cache-busting: ${publicCoverUrl}`);
+              setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
+              setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
+              setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
+            } else {
+              // Only set no-cover if backendPermanentFailure is true
+              if (backendPermanentFailure) {
+                console.log(`[LandingPage] Final failure: Setting cover_url to /no-cover.png for bookId: ${bookId}`);
+                setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
+                setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
+                setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
+              } else {
+                // Still waiting or temporary error, keep spinner
+                console.log(`[LandingPage] Cover for bookId: ${bookId} still missing, keeping spinner.`);
+              }
+            }
+          } catch (err) {
+            // On error, keep spinner
+            console.error(`[LandingPage] Error re-checking cover for book ${bookId}:`, err);
           }
         }
       }
