@@ -523,12 +523,12 @@ export default function LandingPage() {
       if (missingIds.length > 0) {
         const sessionId = user?.session_id || localStorage.getItem('session_id');
         for (const bookId of missingIds) {
-          // Set cover_url to public path immediately so loading spinner is shown and auto-refresh works
-          const publicCoverUrl = `/covers/${bookId}.jpg`;
-          console.log(`[LandingPage] Setting cover_url to ${publicCoverUrl} for bookId: ${bookId}`);
-          setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
-          setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
-          setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
+          // Set cover_url to loading-cover.svg immediately so spinner is shown and auto-refresh works
+          const loadingCoverUrl = `/loading-cover.svg`;
+          console.log(`[LandingPage] Setting cover_url to ${loadingCoverUrl} for bookId: ${bookId}`);
+          setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: loadingCoverUrl } : b));
+          setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: loadingCoverUrl } : b));
+          setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: loadingCoverUrl } : b));
           await waitForServerHealth();
           // Prevent duplicate requests for covers already waiting
           if (coversWaitingRef.current.has(bookId)) {
@@ -578,14 +578,14 @@ export default function LandingPage() {
               setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
               setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
             } else {
-              // Only set no-cover if backendPermanentFailure is true
+              // Only set no-cover.svg if backendPermanentFailure is true
               if (backendPermanentFailure) {
-                console.log(`[LandingPage] Final failure: Setting cover_url to /no-cover.png for bookId: ${bookId}`);
-                setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
-                setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
-                setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
+                console.log(`[LandingPage] Final failure: Setting cover_url to /no-cover.svg for bookId: ${bookId}`);
+                setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.svg' } : b));
+                setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.svg' } : b));
+                setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.svg' } : b));
               } else {
-                // Still waiting or temporary error, keep spinner
+                // Still waiting or temporary error, keep spinner (loading-cover.svg)
                 console.log(`[LandingPage] Cover for bookId: ${bookId} still missing, keeping spinner.`);
               }
             }
@@ -610,11 +610,11 @@ export default function LandingPage() {
 
   // Retry failed covers handler
   const handleRetryFailedCovers = async () => {
-    // Find all books with no cover
+    // Find all books with permanent failure (no-cover.svg)
     const failedIds = [
-      ...pdfs.filter(b => b.cover_url === '/no-cover.png').map(b => b.drive_id),
-      ...topNewest.filter(b => b.cover_url === '/no-cover.png').map(b => b.drive_id),
-      ...topVoted.filter(b => b.cover_url === '/no-cover.png').map(b => b.drive_id)
+      ...pdfs.filter(b => b.cover_url === '/no-cover.svg').map(b => b.drive_id),
+      ...topNewest.filter(b => b.cover_url === '/no-cover.svg').map(b => b.drive_id),
+      ...topVoted.filter(b => b.cover_url === '/no-cover.svg').map(b => b.drive_id)
     ];
     // Deduplicate
     const uniqueFailedIds = Array.from(new Set(failedIds));
