@@ -35,7 +35,7 @@ from flask import (
     make_response, request, after_this_request
 )
 from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 from flask_mail import Mail, Message
 from sqlalchemy import desc, func, text
 from google.oauth2.credentials import Credentials
@@ -117,6 +117,7 @@ file_handler = logging.handlers.RotatingFileHandler(LOG_FILE_PATH, maxBytes=5*10
 file_handler.setFormatter(log_formatter)
 root_logger.addHandler(file_handler)
 # --- uncomment logging and delete above variables when done ---
+
 # =========================
 # 4. Global Constants & Paths
 # =========================
@@ -142,10 +143,8 @@ cleanup_covers_lock = threading.Lock()  # Add this near your other locks
 atlas_initialized = False
 
 # --- Fair Queuing for Cover Requests ---
-cover_request_queue = deque()  # Each entry: {session_id, file_id, timestamp}
+cover_request_queue = deque()  # Each entry: file_id (str)
 cover_queue_lock = threading.Lock()
-cover_queue_active = None  # Currently processing: {session_id, file_id, timestamp}
-cover_queue_last_cleanup = 0
 
 # --- Fair Queuing for Text Requests ---
 text_request_queue = deque()  # Each entry: {session_id, file_id, page_num, timestamp}
@@ -697,44 +696,17 @@ def heartbeat(session_id):
     session_last_seen[session_id] = time.time()
 
 def cleanup_cover_queue():
-    try:
-        now = time.time()
-        to_remove = set()
-        for entry in list(cover_request_queue):
-            sid = entry['session_id']
-            if sid not in session_last_seen or now - session_last_seen[sid] > SESSION_TIMEOUT:
-                to_remove.add(sid)
-        before_len = len(cover_request_queue)
-        filtered = [e for e in cover_request_queue if e['session_id'] not in to_remove]
+    with cover_queue_lock:
         cover_request_queue.clear()
-        cover_request_queue.extend(filtered)
-        global cover_queue_active
-        if cover_queue_active and cover_queue_active['session_id'] in to_remove:
-            cover_queue_active = None
-        if to_remove:
-            logging.info(f"[cleanup_cover_queue] Removed {len(to_remove)} stale sessions from queue.")
-    except Exception as e:
-        logging.error(f"[cleanup_cover_queue] Error: {e}")
+    logging.info("[cleanup_cover_queue] Cover queue cleared.")
 
 def get_queue_status():
-    acquired = cover_queue_lock.acquire(timeout=5)
-    if not acquired:
-        logging.error("[get_queue_status] Could not acquire cover_queue_lock after 5 seconds! Possible deadlock.")
+    with cover_queue_lock:
         return {
-            'active': None,
-            'queue': [],
-            'queue_length': 0,
-            'sessions': []
-        }
-    try:
-        return {
-            'active': cover_queue_active,
+            'active': cover_request_queue[0] if cover_request_queue else None,
             'queue': list(cover_request_queue),
-            'queue_length': len(cover_request_queue),
-            'sessions': list(session_last_seen.keys()),
+            'queue_length': len(cover_request_queue)
         }
-    finally:
-        cover_queue_lock.release()
 
 #--- Notification & Email ---
 
@@ -1922,69 +1894,49 @@ def cancel_session():
 
 @app.route('/pdf-cover/<file_id>', methods=['GET'])
 def pdf_cover(file_id):
-    global cover_queue_active
+    """
+    Queue a cover extraction for file_id (FIFO, dedup). If already queued, do nothing. If at front, process immediately.
+    """
     process = psutil.Process()
     mem = process.memory_info().rss / (1024 * 1024)
     cpu = process.cpu_percent(interval=0.1)
     MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
     MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
     logging.info(f"[pdf-cover] ENTRY: file_id={file_id}, RAM={mem:.2f} MB, CPU={cpu:.2f}%")
-    session_id = request.args.get('session_id') or request.headers.get('X-Session-Id')
-    if not session_id:
-        return jsonify({'success': False, 'error': 'Missing session_id'}), 400
-    heartbeat(session_id)
-    entry = {'session_id': session_id, 'file_id': file_id, 'timestamp': time.time()}
     cover_path = os.path.join(COVERS_DIR, f"{file_id}.jpg")
     covers_map = load_atlas()
-
-    # --- Queue logic: add to queue if not present ---
-    acquired = cover_queue_lock.acquire(timeout=5)
-    if not acquired:
-        logging.error("[pdf-cover] Could not acquire cover_queue_lock after 5 seconds! Possible deadlock.")
-        return jsonify({'success': False, 'error': 'Server busy, try again later.'}), 503
-    try:
-        # Deduplicate: only add if not already present
-        already_in_queue = any(e['session_id'] == entry['session_id'] and e['file_id'] == entry['file_id'] for e in cover_request_queue)
-        if already_in_queue:
-            logging.info(f"[pdf-cover] duplicate entry detected, not appending: {entry}")
-            # Return a JSON response to indicate duplicate
-            return jsonify({'success': False, 'error': 'Duplicate cover request in queue', 'file_id': file_id}), 429
-        else:
-            cover_request_queue.append(entry)
-            logging.info(f"[pdf-cover] appended to queue: {entry}. Queue length now: {len(cover_request_queue)}")
-        logging.info(f"[pdf-cover] Queue length after append: {len(cover_request_queue)}")
-    finally:
-        cover_queue_lock.release()
-
-    # --- Wait until this request is at the front of the queue and no active request ---
-    logging.info(f"[pdf-cover] Entering waiting loop: Queue length in wait loop: {len(cover_request_queue)}")
+    # --- Deduplication only ---
+    import time
+    POLL_INTERVAL = 0.1    # seconds
+    # Wait until at front of queue (no timeout while waiting)
     while True:
-        acquired = cover_queue_lock.acquire(timeout=5)
-        if not acquired:
-            logging.error("[pdf-cover] Could not acquire cover_queue_lock after 5 seconds! Possible deadlock in queue wait loop.")
-            cleanup_cover_queue()
-            break
-        try:
-            cleanup_cover_queue()
-            if cover_request_queue and cover_request_queue[0] == entry and (cover_queue_active is None or cover_queue_active == entry):
-                cover_queue_active = entry
+        with cover_queue_lock:
+            if file_id not in cover_request_queue:
+                cover_request_queue.append(file_id)
+                logging.info(f"[pdf-cover] Queued cover for {file_id}. Queue length: {len(cover_request_queue)}")
+            if cover_request_queue[0] == file_id:
+                # At front, process now
                 break
-        finally:
-            cover_queue_lock.release()
-        time.sleep(0.05)
-
-    # --- Helper for fallback ---
-    def send_fallback():
-        logging.error(f"[pdf-cover] Fallback image used for file_id={file_id}")
-        mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[pdf-cover] Memory usage after fallback: {mem:.2f} MB")
-        if 'tracemalloc' in globals() and hasattr(tracemalloc, 'is_tracing') and tracemalloc.is_tracing():
-            logging.info(tracemalloc.take_snapshot().statistics('filename'))
-        else:
-            logging.info("[pdf-cover] tracemalloc is not tracing; skipping snapshot.")
-        for _ in range(3):
-            gc.collect()
-        response = make_response(jsonify({'error': 'No cover available', 'file_id': file_id}), 404)
+        time.sleep(POLL_INTERVAL)
+    # Now at front of queue, start timeout for processing
+    LONGPOLL_TIMEOUT = 30  # seconds
+    process_start = time.time()
+    # Aggressive GC before processing
+    for _ in range(3):
+        gc.collect()
+    mem = process.memory_info().rss / (1024 * 1024)
+    cpu = process.cpu_percent(interval=0.1)
+    logging.info(f"[pdf-cover] PRE-PROCESS GC: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
+    if mem > MEMORY_LOW_THRESHOLD_MB:
+        logging.warning(f"[pdf-cover] WARNING: Memory usage {mem:.2f} MB exceeds LOW threshold of {MEMORY_LOW_THRESHOLD_MB} MB!")
+    if mem > MEMORY_HIGH_THRESHOLD_MB:
+        logging.error(f"[pdf-cover] ERROR: Memory usage {mem:.2f} MB exceeds HIGH threshold of {MEMORY_HIGH_THRESHOLD_MB} MB! Consider spinning down or restarting the server.")
+    # 1. Serve from disk if present
+    if os.path.exists(cover_path):
+        covers_map[file_id] = f"{file_id}.jpg"
+        save_atlas(covers_map)
+        logging.info(f"[pdf-cover] Served cover from disk for {file_id}, mapping updated.")
+        response = make_response(send_file(cover_path, mimetype='image/jpeg'))
         origin = request.headers.get('Origin')
         allowed = [
             "http://localhost:5173",
@@ -1993,42 +1945,20 @@ def pdf_cover(file_id):
             "https://swcflaskbackend.onrender.com"
         ]
         response.headers["Access-Control-Allow-Origin"] = origin if origin in allowed else "https://storyweavechronicles.onrender.com"
-        return response
-
-    # --- Now at front of queue, process the cover request ---
-    try:
-        # Aggressive GC before processing
         for _ in range(3):
             gc.collect()
         mem = process.memory_info().rss / (1024 * 1024)
-        cpu = process.cpu_percent(interval=0.1)
-        logging.info(f"[pdf-cover] PRE-PROCESS GC: RAM={mem:.2f} MB, CPU={cpu:.2f}%")
-        if mem > MEMORY_LOW_THRESHOLD_MB:
-            logging.warning(f"[pdf-cover] WARNING: Memory usage {mem:.2f} MB exceeds LOW threshold of {MEMORY_LOW_THRESHOLD_MB} MB!")
-        if mem > MEMORY_HIGH_THRESHOLD_MB:
-            logging.error(f"[pdf-cover] ERROR: Memory usage {mem:.2f} MB exceeds HIGH threshold of {MEMORY_HIGH_THRESHOLD_MB} MB! Consider spinning down or restarting the server.")
-
-        # 1. Serve from disk if present
-        if os.path.exists(cover_path):
-            covers_map[file_id] = f"{file_id}.jpg"
-            save_atlas(covers_map)
-            logging.info(f"[pdf-cover] Served cover from disk for {file_id}, mapping updated.")
-            response = make_response(send_file(cover_path, mimetype='image/jpeg'))
-            origin = request.headers.get('Origin')
-            allowed = [
-                "http://localhost:5173",
-                "http://localhost:5000",
-                "https://storyweavechronicles.onrender.com",
-                "https://swcflaskbackend.onrender.com"
-            ]
-            response.headers["Access-Control-Allow-Origin"] = origin if origin in allowed else "https://storyweavechronicles.onrender.com"
-            for _ in range(3):
-                gc.collect()
-            mem = process.memory_info().rss / (1024 * 1024)
-            logging.info(f"[pdf-cover] POST-SERVE GC: RAM={mem:.2f} MB")
-            return response
-
-        # 2. Extract and cache cover (queue-safe)
+        logging.info(f"[pdf-cover] POST-SERVE GC: RAM={mem:.2f} MB")
+        with cover_queue_lock:
+            cover_request_queue.popleft()
+        return response
+    # 2. Extract and cache cover (with timeout)
+    while True:
+        if time.time() - process_start > LONGPOLL_TIMEOUT:
+            logging.error(f"[pdf-cover] TIMEOUT: Extraction for {file_id} exceeded {LONGPOLL_TIMEOUT}s at front of queue.")
+            with cover_queue_lock:
+                cover_request_queue.popleft()
+            return make_response(jsonify({'error': 'Cover extraction timed out', 'file_id': file_id, 'timeout': True}), 504)
         img = extract_cover_image_from_pdf(file_id)
         if img is not None:
             img.save(cover_path, format='JPEG', quality=70)
@@ -2051,50 +1981,20 @@ def pdf_cover(file_id):
                 gc.collect()
             mem = process.memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] POST-EXTRACT GC: RAM={mem:.2f} MB")
+            with cover_queue_lock:
+                cover_request_queue.popleft()
             return response
         else:
+            # Extraction failed, do not retry
             logging.error(f"[pdf-cover] FAILURE: extract_cover_image_from_pdf returned None for file_id={file_id}")
-            logging.error(f"[pdf-cover] FAILURE: Could not extract cover for file_id={file_id}. Will send fallback.")
+            logging.error(f"[pdf-cover] FAILURE: Could not extract cover for {file_id}. Will send fallback.")
             for _ in range(3):
                 gc.collect()
             mem = process.memory_info().rss / (1024 * 1024)
             logging.info(f"[pdf-cover] POST-FALLBACK GC: RAM={mem:.2f} MB")
-            return send_fallback()
-    except Exception as e:
-        logging.error(f"[pdf-cover] EXCEPTION: Error extracting cover for file_id={file_id}: {e}")
-        logging.error(f"[pdf-cover] EXCEPTION TRACEBACK: {traceback.format_exc()}")
-        for _ in range(3):
-            gc.collect()
-        mem = process.memory_info().rss / (1024 * 1024)
-        logging.info(f"[pdf-cover] POST-ERROR GC: RAM={mem:.2f} MB")
-        return send_fallback()
-    finally:
-        acquired = cover_queue_lock.acquire(timeout=5)
-        if not acquired:
-            logging.error("ERROR: Could not acquire cover_queue_lock in pdf_cover finally block after 5 seconds! Possible deadlock.")
-        else:
-            if cover_request_queue and cover_request_queue[0] == entry:
+            with cover_queue_lock:
                 cover_request_queue.popleft()
-                logging.info(f"[pdf-cover] Queue length after popleft: {len(cover_request_queue)}")
-            if cover_queue_active == entry:
-                cover_queue_active = None
-            cover_queue_lock.release()
-        for _ in range(5):
-            gc.collect()
-        mem = process.memory_info().rss / (1024 * 1024)
-        MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
-        MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
-        if mem > MEMORY_HIGH_THRESHOLD_MB:
-            logging.warning(f"[pdf-cover] Waiting for RAM to drop below HIGH threshold after GC. Current: {mem:.2f} MB")
-            wait_start = time.time()
-            max_wait = 10  # seconds
-            while mem > MEMORY_LOW_THRESHOLD_MB and time.time() - wait_start < max_wait:
-                for _ in range(2):
-                    gc.collect()
-                time.sleep(0.2)
-                mem = process.memory_info().rss / (1024 * 1024)
-            logging.info(f"[pdf-cover] RAM after GC wait: {mem:.2f} MB (waited {time.time() - wait_start:.2f}s)")
-        logging.info(f"[pdf-cover] Finished processing for {file_id}")
+            return make_response(jsonify({'error': 'No cover available', 'file_id': file_id}), 404)
 
 @app.route('/api/pdf-text/<file_id>', methods=['GET'])
 def pdf_text(file_id):
@@ -2958,6 +2858,7 @@ def delete_all_notification_history():
 
 # Endpoint to check for new notifications for polling
 @app.route('/api/has-new-notifications', methods=['POST'])
+@cross_origin()
 def has_new_notifications():
     data = request.get_json(force=True)
     username = data.get('username')
