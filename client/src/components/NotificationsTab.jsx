@@ -259,7 +259,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
   const [page, setPage] = useState(1);
   const pageSize = 50;
   const [totalPages, setTotalPages] = useState(1);
-  const [setRefreshFlag] = useState(0);
+  const [refreshFlag, setRefreshFlag] = useState(0);
 
   // Always use the correct response key and force re-fetch after actions
   const fetchNotifications = React.useCallback(() => {
@@ -284,7 +284,7 @@ const NotificationHistoryTab = React.memo(function NotificationHistoryTab({ user
 
   React.useEffect(() => {
     fetchNotifications();
-  }, [fetchNotifications]);
+  }, [fetchNotifications, refreshFlag]);
 
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
   const historyBg = stepColor(cssBg, theme, 2, -1); // step down for history items

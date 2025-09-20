@@ -291,7 +291,8 @@ function TopListsSection({
   loadingVoted,
   startLoadingVoted,
   handleLoadVoted,
-  handleErrorVoted
+  handleErrorVoted,
+  textColor
 }) {
   // All state and handlers are now passed as props from parent
 
@@ -317,7 +318,7 @@ function TopListsSection({
       </div>
       <div className="top-lists-container">
         <SteppedContainer depth={depth + 1} className="top-list" style={{ marginBottom: 16 }}>
-          <h3>Top 10 Newest</h3>
+          <h3 style={{ color: textColor }}>Top 10 Newest</h3>
           <ol>
             {topNewest.map((pdf) => {
               const bookId = pdf.drive_id;
@@ -366,7 +367,7 @@ function TopListsSection({
           </ol>
         </SteppedContainer>
         <SteppedContainer depth={depth + 1} className="top-list">
-          <h3>Top 10 by Votes</h3>
+          <h3 style={{ color: textColor }}>Top 10 by Votes</h3>
           <ol>
             {topVoted.map((pdf) => {
               const bookId = pdf.drive_id;
@@ -672,6 +673,7 @@ export default function LandingPage() {
             startLoadingVoted={votedCoverState.startLoading}
             handleLoadVoted={votedCoverState.handleCoverLoad}
             handleErrorVoted={votedCoverState.handleCoverError}
+            textColor={textColor}
           />
           <div style={{ textAlign: 'center', margin: '24px 0' }}>
             <button onClick={handleRetryFailedCovers} style={{ padding: '10px 24px', borderRadius: 8, border: '1.5px solid #333', background: '#ccc', color: '#333', fontWeight: 700, fontSize: 18, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', transition: 'background 0.15s, color 0.15s' }}>
