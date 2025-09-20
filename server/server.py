@@ -3041,6 +3041,13 @@ def seed_drive_books():
         new_books = []
         updated_books = []
         logging.info(f"[Seed] Total files returned from Drive: {len(files)}")
+        # --- Batching and RAM throttling ---
+        import psutil, gc, time
+        process = psutil.Process()
+        BATCH_SIZE = int(os.getenv('SEED_BATCH_SIZE', '10'))
+        MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
+        MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
+        batch = []
         for idx, f in enumerate(files):
             drive_id = f.get('id')
             title = f.get('name')
@@ -3056,6 +3063,8 @@ def seed_drive_books():
                         file_request = service.files().get_media(fileId=drive_id)
                         file_content = file_request.execute()
                         external_story_id = extract_story_id_from_pdf(file_content)
+                        del file_content
+                        gc.collect()
                     except Exception as e:
                         logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
                         external_story_id = None
@@ -3091,6 +3100,8 @@ def seed_drive_books():
                             file_request = service.files().get_media(fileId=drive_id)
                             file_content = file_request.execute()
                             external_story_id = extract_story_id_from_pdf(file_content)
+                            del file_content
+                            gc.collect()
                             if external_story_id:
                                 book.external_story_id = external_story_id
                                 external_id_updates += 1
@@ -3102,11 +3113,34 @@ def seed_drive_books():
                         updated_count += 1
                         updated_books.append({'id': drive_id, 'title': title})
                         logging.info(f"[Seed] Updated book: drive_id={drive_id}, title={title}")
+                # --- RAM Throttling ---
+                mem = process.memory_info().rss / (1024 * 1024)
+                if mem > MEMORY_HIGH_THRESHOLD_MB:
+                    logging.warning(f"[Seed][THROTTLE] RAM {mem:.2f} MB > {MEMORY_HIGH_THRESHOLD_MB} MB. Sleeping 2s and running GC.")
+                    time.sleep(2)
+                    gc.collect()
+                elif mem > MEMORY_LOW_THRESHOLD_MB:
+                    logging.info(f"[Seed][THROTTLE] RAM {mem:.2f} MB > {MEMORY_LOW_THRESHOLD_MB} MB. Running GC.")
+                    gc.collect()
+                # --- Batch commit ---
+                batch.append(book)
+                if len(batch) >= BATCH_SIZE:
+                    db.session.commit()
+                    batch.clear()
+                    gc.collect()
+                    logging.info(f"[Seed][BATCH] Committed batch of {BATCH_SIZE} books. RAM: {mem:.2f} MB")
             except Exception as e:
                 skipped_count += 1
                 errors.append(f"Error processing file {title} ({drive_id}): {e}")
                 logging.error(f"[Seed] Skipped file due to error: drive_id={drive_id}, title={title}, error={e}")
-        db.session.commit()
+        # Final commit for any remaining books
+        if batch:
+            db.session.commit()
+            batch.clear()
+            gc.collect()
+            mem = process.memory_info().rss / (1024 * 1024)
+            logging.info(f"[Seed][FINAL BATCH] Committed final batch. RAM: {mem:.2f} MB")
+    # ...existing code...
         # Use notification utility endpoints for new and updated books
         for book_info in new_books:
             try:
@@ -3120,27 +3154,27 @@ def seed_drive_books():
                 errors.append(f"Error notifying book update {book_info['title']}: {e}")
 
         # --- Cache covers for newest 20 and top voted books only ---
-        # Get newest 20 books with their updated_at
+        # Throttle and batch cover extraction
         newest_books_full = Book.query.order_by(desc(Book.updated_at)).limit(20).all()
         logging.info("[Atlas] Newest books for cover cache:")
         for b in newest_books_full:
             logging.info(f"  drive_id={b.drive_id}, title={b.title}, updated_at={b.updated_at}")
         newest_books = [b.drive_id for b in newest_books_full]
 
-        # Get voted books (top 10)
         voted_books_full = Book.query.join(Vote, Book.drive_id == Vote.book_id).group_by(Book.id).order_by(func.count(Vote.id).desc()).limit(10).all()
         logging.info("[Atlas] Top voted books for cover cache:")
         for b in voted_books_full:
             logging.info(f"  drive_id={b.drive_id}, title={b.title}, updated_at={b.updated_at}")
         voted_books = [b.drive_id for b in voted_books_full]
 
-        cover_ids = set(newest_books + voted_books)
-        logging.info(f"[Atlas] Final cover_ids for cache: {list(cover_ids)} (total: {len(cover_ids)})")
-                # Rebuild cover cache for correct set
+        cover_ids = list(set(newest_books + voted_books))
+        logging.info(f"[Atlas] Final cover_ids for cache: {cover_ids} (total: {len(cover_ids)})")
         logging.info(f"[Atlas][seed_drive_books] Starting batch cover cache for {len(cover_ids)} books.")
         try:
             cleanup_unused_covers(cover_ids)
-            for book_id in cover_ids:
+            COVER_BATCH_SIZE = int(os.getenv('COVER_BATCH_SIZE', '5'))
+            cover_batch = []
+            for idx, book_id in enumerate(cover_ids):
                 logging.info(f"[Atlas][seed_drive_books] Processing cover for book_id={book_id}")
                 filename = f"{book_id}.jpg"
                 cover_path = os.path.join(COVERS_DIR, filename)
@@ -3167,6 +3201,14 @@ def seed_drive_books():
                         covers_map[book_id] = filename
                         save_atlas(covers_map)
                         logging.info(f"[Atlas][seed_drive_books] Extracted and cached cover for {book_id}")
+                        # Explicit cleanup
+                        if img:
+                            try:
+                                img.close()
+                            except Exception:
+                                pass
+                        del img
+                        gc.collect()
                     else:
                         logging.warning(f"[Atlas][seed_drive_books] Failed to extract cover for {book_id}")
                 else:
@@ -3174,7 +3216,25 @@ def seed_drive_books():
                     covers_map[book_id] = filename
                     save_atlas(covers_map)
                     logging.info(f"[Atlas][seed_drive_books] Mapping updated for {book_id}")
-            logging.info(f"[Atlas][seed_drive_books] Finished batch cover cache for {len(cover_ids)} books.")
+                # --- RAM Throttling for covers ---
+                mem = process.memory_info().rss / (1024 * 1024)
+                if mem > MEMORY_HIGH_THRESHOLD_MB:
+                    logging.warning(f"[Atlas][THROTTLE] RAM {mem:.2f} MB > {MEMORY_HIGH_THRESHOLD_MB} MB. Sleeping 2s and running GC.")
+                    time.sleep(2)
+                    gc.collect()
+                elif mem > MEMORY_LOW_THRESHOLD_MB:
+                    logging.info(f"[Atlas][THROTTLE] RAM {mem:.2f} MB > {MEMORY_LOW_THRESHOLD_MB} MB. Running GC.")
+                    gc.collect()
+                cover_batch.append(book_id)
+                if len(cover_batch) >= COVER_BATCH_SIZE:
+                    gc.collect()
+                    logging.info(f"[Atlas][BATCH] Processed batch of {COVER_BATCH_SIZE} covers. RAM: {mem:.2f} MB")
+                    cover_batch.clear()
+            # Final batch cleanup
+            if cover_batch:
+                gc.collect()
+                mem = process.memory_info().rss / (1024 * 1024)
+                logging.info(f"[Atlas][FINAL BATCH] Processed final batch of covers. RAM: {mem:.2f} MB")
         except Exception as e:
             errors.append(f"Error rebuilding cover cache: {e}")
 
