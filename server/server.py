@@ -1905,15 +1905,18 @@ def pdf_cover(file_id):
     logging.info(f"[pdf-cover] ENTRY: file_id={file_id}, RAM={mem:.2f} MB, CPU={cpu:.2f}%")
     cover_path = os.path.join(COVERS_DIR, f"{file_id}.jpg")
     covers_map = load_atlas()
-    # --- Deduplication only ---
+    # --- Deduplication: fail immediately if already queued ---
     import time
-    POLL_INTERVAL = 0.1    # seconds
+    with cover_queue_lock:
+        if file_id in cover_request_queue:
+            logging.warning(f"[pdf-cover] DUPLICATE: file_id {file_id} is already in cover_request_queue. Failing immediately.")
+            return make_response(jsonify({'error': 'duplicate', 'file_id': file_id}), 409)
+        cover_request_queue.append(file_id)
+        logging.info(f"[pdf-cover] Queued cover for {file_id}. Queue length: {len(cover_request_queue)}")
     # Wait until at front of queue (no timeout while waiting)
+    POLL_INTERVAL = 0.1    # seconds
     while True:
         with cover_queue_lock:
-            if file_id not in cover_request_queue:
-                cover_request_queue.append(file_id)
-                logging.info(f"[pdf-cover] Queued cover for {file_id}. Queue length: {len(cover_request_queue)}")
             if cover_request_queue[0] == file_id:
                 # At front, process now
                 break
@@ -3466,6 +3469,14 @@ def serve_react(path):
     except Exception as e:
         # 6. Render.com fallback: return helpful JSON if index.html missing
         return jsonify({"success": False, "message": "Frontend not found. This may be a Render.com deployment issue.", "error": str(e), "hint": "Check / for API Almanac."}), 404
+
+@app.route('/<filename>')
+def serve_static_file(filename):
+    static_dir = os.path.join(os.path.dirname(__file__), '..', 'client', 'public')
+    file_path = os.path.join(static_dir, filename)
+    if os.path.exists(file_path):
+        return send_from_directory(static_dir, filename)
+    return jsonify({"message": f"Static file {filename} not found.", "success": False}), 404
 
 # === Main ===
 if __name__ == '__main__':

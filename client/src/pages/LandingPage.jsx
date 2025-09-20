@@ -491,6 +491,9 @@ export default function LandingPage() {
   };
 
   // Centralized cover sync effect: fetch book lists and trigger backend cover downloads ONCE
+  // Track covers currently waiting for backend response to avoid duplicate requests
+  const coversWaitingRef = useRef(new Set());
+
   useEffect(() => {
     let allBookIds = [];
     let isMounted = true;
@@ -520,43 +523,64 @@ export default function LandingPage() {
       // For each book, check if cover exists on disk
       if (allBookIds.length === 0) return;
       await waitForServerHealth();
-        // Check each cover individually
-        const missingIds = [];
-        for (const bookId of allBookIds) {
-          try {
-            const resp = await fetch(`${API_BASE_URL}/api/cover-exists/${encodeURIComponent(bookId)}`);
-            const data = await resp.json();
-            if (!data.exists) {
-              missingIds.push(bookId);
-            }
-          } catch (err) {
-            // If error, assume missing
+      // Check each cover individually
+      const missingIds = [];
+      for (const bookId of allBookIds) {
+        try {
+          const resp = await fetch(`${API_BASE_URL}/api/cover-exists/${encodeURIComponent(bookId)}`);
+          const data = await resp.json();
+          if (!data.exists) {
             missingIds.push(bookId);
-            console.log(`[LandingPage] Assuming the cover is missing., ignore the following error:`);
-            console.log(`[LandingPage] Error checking cover for book ${bookId}:`, err);
           }
+        } catch (err) {
+          // If error, assume missing
+          missingIds.push(bookId);
+          console.log(`[LandingPage] Assuming the cover is missing., ignore the following error:`);
+          console.log(`[LandingPage] Error checking cover for book ${bookId}:`, err);
         }
+      }
       // For missing covers, request backend to generate (long-poll)
       if (missingIds.length > 0) {
         const sessionId = user?.session_id || localStorage.getItem('session_id');
         for (const bookId of missingIds) {
+          // Set cover_url to public path immediately so loading spinner is shown and auto-refresh works
+          const publicCoverUrl = `/covers/${bookId}.jpg`;
+          setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
+          setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
+          setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
           await waitForServerHealth();
+          // Prevent duplicate requests for covers already waiting
+          if (coversWaitingRef.current.has(bookId)) {
+            console.log(`[LandingPage] Duplicate cover request for book ${bookId} ignored: already waiting for backend response.`);
+            continue;
+          }
+          coversWaitingRef.current.add(bookId);
           try {
             const resp = await fetch(`${API_BASE_URL}/pdf-cover/${encodeURIComponent(bookId)}?session_id=${encodeURIComponent(sessionId)}`, {
               method: 'GET'
             });
             if (resp.ok) {
               // Cover generated, will be picked up by image load event
+              coversWaitingRef.current.delete(bookId);
             } else {
-              // Backend failed, set cover_url to '/no-cover.png' for this book
+              const data = await resp.json().catch(() => ({}));
+              if (resp.status === 409 && data.error === 'duplicate') {
+                // Log duplicate and do not retry
+                console.log(`[LandingPage] Backend reported duplicate cover request for book ${bookId}. Waiting for original to finish.`);
+                // Keep bookId in coversWaitingRef until next refresh
+                continue;
+              }
+              // Backend failed, set cover_url to '/no-cover.png' for this book (show loading spinner)
               setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
               setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
               setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
+              coversWaitingRef.current.delete(bookId);
             }
           } catch (err) {
             setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
             setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
             setTopVoted(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: '/no-cover.png' } : b));
+            coversWaitingRef.current.delete(bookId);
             console.error(`[LandingPage] Error requesting cover for book ${bookId}:`, err);
           }
         }
@@ -565,7 +589,7 @@ export default function LandingPage() {
     fetchAllBookData().catch(err => {
       console.error('Error in initial book data fetch:', err);
     });
-    return () => { isMounted = false; };
+    return () => { isMounted = false; coversWaitingRef.current.clear(); };
   }, [user]);
 
 
