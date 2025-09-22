@@ -42,6 +42,7 @@ from flask import (
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS, cross_origin
 from flask_mail import Mail, Message
+from flask_restx import Api
 from sqlalchemy import desc, func, text
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -64,6 +65,7 @@ except ImportError:
 load_dotenv()
 # --- Flask app creation ---
 app = Flask(__name__)
+api = Api(app, title="Storyweave Chronicles API", version="1.0", description="API documentation for Storyweave Chronicles")
 # --- CORS, SQLAlchemy, Mail, and other extension initializations ---
 # --- App config variables (database URI, mail config, etc.) ---
 app.config['SQLALCHEMY_DATABASE_URI'] = (
