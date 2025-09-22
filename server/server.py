@@ -241,6 +241,10 @@ def get_cover_url(file_id):
     return f"{base_url}/covers/{file_id}.jpg"
 
 def load_atlas():
+    """
+    Load the atlas.json file and return the covers mapping.
+    Retries up to 3 times on error.
+    """
     if not os.path.exists(ATLAS_PATH):
         return {}
     for attempt in range(3):
@@ -248,12 +252,15 @@ def load_atlas():
             with open(ATLAS_PATH, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 return data.get('covers', {})
-        except Exception as e:
+        except (json.JSONDecodeError, FileNotFoundError, OSError) as e:
             logging.error(f"[Atlas] Failed to load atlas.json (attempt {attempt+1}): {e}")
             time.sleep(0.05)
     return {}
 
 def save_atlas(covers_map):
+    """
+    Save the covers mapping to atlas.json atomically.
+    """
     try:
         # Write to a temp file first, then atomically replace atlas.json
         dir_name = os.path.dirname(ATLAS_PATH)
@@ -261,20 +268,24 @@ def save_atlas(covers_map):
             json.dump({'covers': covers_map}, tf, indent=2)
             tempname = tf.name
         shutil.move(tempname, ATLAS_PATH)
-        logging.info(f"[Atlas][save] Atlas saved with {len(covers_map)} entries: {list(covers_map.keys())}")
-    except Exception as e:
-        logging.error(f"[Atlas] Failed to save atlas.json: {e}")
+        logging.info("[Atlas][save] Atlas saved with %d entries: %s", len(covers_map), list(covers_map.keys()))
+    except (OSError, IOError) as e:
+        logging.error("[Atlas] Failed to save atlas.json: %s", e)
 
 def cleanup_unused_covers(valid_ids, needed_ids):
+    """
+    Remove unused cover images from disk and update atlas.json.
+    Only keeps covers that are both valid and needed.
+    """
     covers_map = load_atlas()
     covers_dir_files = os.listdir(COVERS_DIR)
-    logging.info(f"[DIAGNOSTIC][COVERS] [cleanup_unused_covers] Covers folder BEFORE: {covers_dir_files}")
+    logging.info("[DIAGNOSTIC][COVERS] [cleanup_unused_covers] Covers folder BEFORE: %s", covers_dir_files)
     # Build set of actual cover IDs on disk
     disk_cover_ids = set()
     for fname in covers_dir_files:
         if fname.endswith('.jpg'):
             disk_cover_ids.add(fname[:-4])
-    logging.info(f"[Atlas][cleanup_unused_covers] Disk cover IDs: {disk_cover_ids}")
+    logging.info("[Atlas][cleanup_unused_covers] Disk cover IDs: %s", disk_cover_ids)
     if not cleanup_covers_lock.acquire(blocking=False):
         logging.warning("[Atlas][cleanup_unused_covers] Cleanup already running, skipping duplicate call.")
         return []
@@ -282,30 +293,30 @@ def cleanup_unused_covers(valid_ids, needed_ids):
         removed = []
         valid_ids = set(str(i).strip() for i in valid_ids) if valid_ids else set()
         needed_ids = set(str(i).strip() for i in needed_ids) if needed_ids else set()
-        logging.info(f"[Atlas][cleanup_unused_covers] Incoming valid_ids: {valid_ids}")
-        logging.info(f"[Atlas][cleanup_unused_covers] Incoming needed_ids: {needed_ids}")
+        logging.info("[Atlas][cleanup_unused_covers] Incoming valid_ids: %s", valid_ids)
+        logging.info("[Atlas][cleanup_unused_covers] Incoming needed_ids: %s", needed_ids)
         # Only remove covers that are not needed
         to_remove = disk_cover_ids - needed_ids
-        logging.info(f"[Atlas][cleanup_unused_covers] Covers to remove (not needed): {to_remove}")
+        logging.info("[Atlas][cleanup_unused_covers] Covers to remove (not needed): %s", to_remove)
         for book_id in to_remove:
             cover_path = os.path.join(COVERS_DIR, f"{book_id}.jpg")
             try:
-                logging.info(f"[DIAGNOSTIC][DELETE] Attempting to delete cover file: {cover_path} (book_id={book_id})")
+                logging.info("[DIAGNOSTIC][DELETE] Attempting to delete cover file: %s (book_id=%s)", cover_path, book_id)
                 if os.path.exists(cover_path):
                     os.remove(cover_path)
                     removed.append(book_id)
-                    logging.info(f"[DIAGNOSTIC][DELETE] Deleted unused cover: {cover_path}")
+                    logging.info("[DIAGNOSTIC][DELETE] Deleted unused cover: %s", cover_path)
                 else:
-                    logging.warning(f"[DIAGNOSTIC][DELETE] Tried to delete missing cover file: {cover_path}")
-            except Exception as e:
-                logging.error(f"[DIAGNOSTIC][DELETE] Error deleting cover file {cover_path}: {e}")
+                    logging.warning("[DIAGNOSTIC][DELETE] Tried to delete missing cover file: %s", cover_path)
+            except OSError as e:
+                logging.error("[DIAGNOSTIC][DELETE] Error deleting cover file %s: %s", cover_path, e)
         # Update atlas: keep only valid and needed covers
         covers_map = {bid: fname for bid, fname in covers_map.items() if bid in valid_ids and bid in needed_ids}
         save_atlas(covers_map)
         covers_dir_files_after = os.listdir(COVERS_DIR)
-        logging.info(f"[DIAGNOSTIC][COVERS] [cleanup_unused_covers] Covers folder AFTER: {covers_dir_files_after}")
-        logging.info(f"[Atlas][cleanup_unused_covers] Final covers_map after deletion: {covers_map}")
-        logging.info(f"[Atlas] Cleaned up unused covers: {removed}")
+        logging.info("[DIAGNOSTIC][COVERS] [cleanup_unused_covers] Covers folder AFTER: %s", covers_dir_files_after)
+        logging.info("[Atlas][cleanup_unused_covers] Final covers_map after deletion: %s", covers_map)
+        logging.info("[Atlas] Cleaned up unused covers: %s", removed)
     finally:
         cleanup_covers_lock.release()
     
@@ -348,12 +359,13 @@ def get_landing_page_book_ids():
 def extract_cover_image_from_pdf(book_id):
     """
     Extract cover image for a given book_id from its PDF in Google Drive.
+    Returns PIL Image or None. Ensures image is not closed/deleted before caller saves/maps it.
+    """
+    """
+    Extract cover image for a given book_id from its PDF in Google Drive.
     Returns PIL Image or None.
     Ensures image is not closed/deleted before caller saves/maps it.
     """
-    import gc
-    import psutil
-    import tracemalloc
 
     process = psutil.Process()
     MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
@@ -365,10 +377,7 @@ def extract_cover_image_from_pdf(book_id):
     cpu_start = process.cpu_percent(interval=0.1)
     logging.info(f"[extract_cover_image_from_pdf] GC BEFORE: book_id={book_id}, RAM={mem_start:.2f} MB, CPU={cpu_start:.2f}%")
 
-    img = None
-    doc = None
-    page = None
-    pix = None
+    # Removed unused variable initializations (img, doc, page, pix)
     try:
         service = get_drive_service()
         book = Book.query.filter_by(drive_id=book_id).first()
@@ -411,7 +420,7 @@ def extract_cover_image_from_pdf(book_id):
             for _ in range(3):
                 gc.collect()
             return img
-        except Exception as e:
+        except Exception as e:  # Rendering can fail for many reasons (PyMuPDF, PIL, etc.)
             logging.error(f"[extract_cover_image_from_pdf] Page render failed for {book_id}: {e}")
 
         # Fallback: try to extract first embedded image
@@ -442,7 +451,7 @@ def extract_cover_image_from_pdf(book_id):
                 for _ in range(3):
                     gc.collect()
                 return img
-            except Exception as e:
+            except Exception as e:  # Embedded image extraction can fail for many reasons
                 logging.error(f"[extract_cover_image_from_pdf] Embedded image extraction failed for {book_id}: {e}")
 
         logging.info(f"[extract_cover_image_from_pdf] Extraction failed for book_id={book_id}")
@@ -457,7 +466,7 @@ def extract_cover_image_from_pdf(book_id):
             gc.collect()
         return None
 
-    except Exception as e:
+    except Exception as e:  # Catch-all for PDF/image extraction errors
         logging.error(f"[extract_cover_image_from_pdf] Failed for {book_id}: {e}")
         mem_err = process.memory_info().rss / (1024 * 1024)
         cpu_err = process.cpu_percent(interval=0.1)
@@ -491,8 +500,8 @@ def rebuild_cover_cache(book_ids=None):
         logging.info(f"[Atlas][rebuild_cover_cache] Starting rebuild for book_ids: {book_ids}")
     covers_map_before = load_atlas()
     covers_dir_files_before = os.listdir(COVERS_DIR)
-    logging.info(f"[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder BEFORE: {covers_dir_files_before}")
-    logging.info(f"[Atlas][rebuild_cover_cache] covers_map BEFORE cleanup: {covers_map_before}")
+    logging.info("[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder BEFORE: %s", covers_dir_files_before)
+    logging.info("[Atlas][rebuild_cover_cache] covers_map BEFORE cleanup: %s", covers_map_before)
     # Validate covers before cleanup
     valid_ids = set()
     for book_id in book_ids:
@@ -525,8 +534,8 @@ def rebuild_cover_cache(book_ids=None):
         cleanup_unused_covers(valid_needed, needed_ids)
     covers_map_after_cleanup = load_atlas()
     covers_dir_files_after_cleanup = os.listdir(COVERS_DIR)
-    logging.info(f"[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder AFTER cleanup: {covers_dir_files_after_cleanup}")
-    logging.info(f"[Atlas][rebuild_cover_cache] covers_map AFTER cleanup: {covers_map_after_cleanup}")
+    logging.info("[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder AFTER cleanup: %s", covers_dir_files_after_cleanup)
+    logging.info("[Atlas][rebuild_cover_cache] covers_map AFTER cleanup: %s", covers_map_after_cleanup)
     # Now process missing/invalid covers
     missing = []
     for book_id in book_ids:
@@ -554,10 +563,10 @@ def rebuild_cover_cache(book_ids=None):
             logging.info(f"[Atlas][validate][final] {book_id}: Marked as invalid or missing.")
     covers_map_final = load_atlas()
     covers_dir_files_final = os.listdir(COVERS_DIR)
-    logging.info(f"[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder FINAL: {covers_dir_files_final}")
-    logging.info(f"[Atlas][rebuild_cover_cache] covers_map FINAL: {covers_map_final}")
-    logging.info(f"[Atlas][rebuild_cover_cache] Covers in cache after rebuild: {list(covers_map_final.keys())}")
-    logging.info(f"[Atlas][rebuild_cover_cache] Rebuilt cover cache for {len(book_ids)} books.")
+    logging.info("[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder FINAL: %s", covers_dir_files_final)
+    logging.info("[Atlas][rebuild_cover_cache] covers_map FINAL: %s", covers_map_final)
+    logging.info("[Atlas][rebuild_cover_cache] Covers in cache after rebuild: %s", list(covers_map_final.keys()))
+    logging.info("[Atlas][rebuild_cover_cache] Rebuilt cover cache for %d books.", len(book_ids))
 
     # Enforce cache size limit
     covers_map = load_atlas()
@@ -580,7 +589,7 @@ def rebuild_cover_cache(book_ids=None):
         covers_map = {bid: fname for bid, fname in covers_map.items() if bid not in [x[0] for x in to_remove]}
         save_atlas(covers_map)
         covers_dir_files_after_limit = os.listdir(COVERS_DIR)
-        logging.info(f"[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder AFTER cache size limit: {covers_dir_files_after_limit}")
+        logging.info("[DIAGNOSTIC][COVERS] [rebuild_cover_cache] Covers folder AFTER cache size limit: %s", covers_dir_files_after_limit)
 
     # Return tuple: (success, missing_ids)
     if missing:
@@ -1827,7 +1836,7 @@ def serve_cover(cover_id):
     logging.info(f"[ServeCover][Normal][DIAG] Atlas entry for {cover_id}: {atlas.get(cover_id)}")
     if os.path.exists(cover_path):
         logging.info(f"[ServeCover] Sending image for {cover_id}")
-        return send_from_directory(COVERS_DIR, filename)
+        return send_from_directory(COVERS_DIR, f"{cover_id}.jpg")
     fallback_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'public', 'no-cover.svg')
     try:
         stat_info = os.stat(fallback_path)
@@ -1907,7 +1916,6 @@ def pdf_cover(file_id):
     cover_path = os.path.join(COVERS_DIR, f"{file_id}.jpg")
     covers_map = load_atlas()
     # --- Deduplication: fail immediately if already queued ---
-    import time
     with cover_queue_lock:
         if file_id in cover_request_queue:
             logging.warning(f"[pdf-cover] DUPLICATE: file_id {file_id} is already in cover_request_queue. Failing immediately.")
@@ -2908,23 +2916,27 @@ def list_pdfs(folder_id):
             page_size = 200  # Prevent excessive memory usage
         offset = (page - 1) * page_size
 
+        # Avoid redefined-outer-name: use drive_folder_id internally
+        drive_folder_id = folder_id
         # Fetch PDFs from Google Drive folder
         service = get_drive_service()
-        query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
+        query = f"'{drive_folder_id}' in parents and mimeType='application/pdf' and trashed=false"
         drive_files = []
         page_token = None
-        while True:
-            response = service.files().list(
-                q=query,
-                fields="nextPageToken, files(id, name, createdTime, modifiedTime)",
-                pageSize=1000,
-                pageToken=page_token
-            ).execute()
-            drive_files.extend(response.get('files', []))
-            page_token = response.get('nextPageToken', None)
-            if not page_token:
-                break
-
+        try:
+            while True:
+                response = service.files().list(
+                    q=query,
+                    spaces='drive',
+                    fields='nextPageToken, files(id, name, createdTime, modifiedTime)',
+                    pageToken=page_token
+                ).execute()
+                drive_files.extend(response.get('files', []))
+                page_token = response.get('nextPageToken', None)
+                if not page_token:
+                    break
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'Error listing files from Drive: {e}'}), 500
         # Only list PDFs from Drive, do not sync to DB
         existing_books = {b.drive_id: b for b in Book.query.filter(Book.drive_id.in_([f['id'] for f in drive_files])).all()}
 
@@ -2942,7 +2954,7 @@ def list_pdfs(folder_id):
                 'modifiedTime': modified_time
             })
         mem = psutil.Process().memory_info().rss / (1024 * 1024)
-        logging.info(f"[list-pdfs] Memory usage: {mem:.2f} MB for folder_id={folder_id}")
+        logging.info(f"[list-pdfs] Memory usage: {mem:.2f} MB for folder_id={drive_folder_id}")
         return jsonify({
             'pdfs': pdf_list,
             'page': page,
@@ -3050,7 +3062,6 @@ def seed_drive_books():
     updated_books = []
     logging.info(f"[Seed] Total files returned from Drive: {len(files)}")
     # --- Batching and RAM throttling ---
-    import psutil, gc, time
     process = psutil.Process()
     BATCH_SIZE = int(os.getenv('SEED_BATCH_SIZE', '10'))
     MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
@@ -3242,6 +3253,8 @@ def simulate_cover_load():
         # Remove simulation handler and restore previous handlers
         logging.getLogger().removeHandler(sim_handler)
         sim_handler.close()
+        for h in old_handlers:
+            logging.getLogger().addHandler(h)
     # --- Write simulation results to logs.txt (append) ---
     with open(log_path, 'a', encoding='utf-8') as f:
         f.write(f"Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB\n")
@@ -3367,8 +3380,8 @@ def api_almanac():
         "/api/admin/unban-user": "Unban a user (POST, admin-only)",
         "/api/moderate-comment": "Moderate a comment (POST, admin-only)",
         # === Book & PDF Management ===
-        "/api/update-external-id": "Update external story ID for a book (POST)",
-        "/api/rebuild-cover-cache": "Rebuild cover cache for books (POST)",
+        "/api/update-external-id": "Update a book's external_story_id if a new PDF version contains a valid external ID and the current value is missing or blank. (POST)",
+        "/api/rebuild-cover-cache": "Rebuild atlas and cache covers for provided book_ids (landing page), or fallback to DB if not provided. (POST)",
         "/api/books": "Get books by drive_id (GET)",
         "/api/all-books": "Get metadata for all books (GET)",
         "/api/cover-exists/<file_id>": "Check if cover exists for file_id (GET)",
