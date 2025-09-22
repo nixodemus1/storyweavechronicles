@@ -15,6 +15,7 @@ import logging
 import tempfile
 import threading
 import datetime
+from datetime import timezone
 from collections import deque
 import traceback
 import concurrent.futures
@@ -163,8 +164,8 @@ class Book(db.Model):
     title = db.Column(db.String(256), nullable=False)
     external_story_id = db.Column(db.String(128), nullable=True)  # e.g. 'goodreads 2504839'
     version_history = db.Column(db.Text, nullable=True)  # JSON string of version info
-    created_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC), onupdate=lambda: datetime.datetime.now(datetime.UTC))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(timezone.utc), onupdate=lambda: datetime.datetime.now(timezone.utc))
 
     # Relationships
     comments = db.relationship('Comment', backref='book', lazy=True, foreign_keys='Comment.book_id')
@@ -194,7 +195,7 @@ class Vote(db.Model):
     username = db.Column(db.String(80), nullable=False)
     book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
     value = db.Column(db.Integer, nullable=False)  # 1-5 stars
-    timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(timezone.utc))
 
 # --- SQLAlchemy Comment Model ---
 class Comment(db.Model):
@@ -203,7 +204,7 @@ class Comment(db.Model):
     username = db.Column(db.String(80), nullable=False)
     parent_id = db.Column(db.Integer, nullable=True)  # null for top-level
     text = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(timezone.utc))
     edited = db.Column(db.Boolean, default=False)
     upvotes = db.Column(db.Integer, default=0)
     downvotes = db.Column(db.Integer, default=0)
@@ -216,7 +217,7 @@ class Webhook(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     channel_id = db.Column(db.String(128), unique=True, nullable=False)
     expiration = db.Column(db.BigInteger, nullable=True)  # ms since epoch
-    registered_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
+    registered_at = db.Column(db.DateTime, default=lambda: datetime.datetime.now(timezone.utc))
 
 # =========================
 # 6. Initialization Code

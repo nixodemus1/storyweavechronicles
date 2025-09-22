@@ -1,0 +1,37 @@
+2025-09-21 23:26:06,284 INFO  * Detected change in 'C:\\Users\\nchow\\source\\repos\\storyweavechronicles\\server\\server.py', reloading
+2025-09-21 23:26:06,652 INFO  * Restarting with stat
+2025-09-21 23:26:09,242 INFO file_cache is only supported with oauth2client<4.0.0
+2025-09-21 23:26:10,810 INFO Webhook registered: {'kind': 'api#channel', 'id': 'storyweave-drive-channel', 'resourceId': 'lseJ3q1ojjwn9Ie3l1TLf_Rv8JA', 'resourceUri': 'https://www.googleapis.com/drive/v3/files/1n7PZ7SoUT3ClYuSQSleZpYabmL1yTReK?alt=json', 'expiration': '1758515209000'}
+2025-09-21 23:26:10,811 INFO Google Drive webhook registered on startup.
+2025-09-21 23:26:10,812 INFO Tracemalloc started for memory tracking.
+2025-09-21 23:26:10,836 INFO Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-09-21 23:26:10,838 INFO Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-09-21 23:26:10,839 INFO Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-09-21 23:26:10,839 INFO Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-09-21 23:26:10,841 INFO Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-09-21 23:26:10,844 INFO Added job "<lambda>" to job store "default"
+2025-09-21 23:26:10,845 INFO Added job "<lambda>" to job store "default"
+2025-09-21 23:26:10,846 INFO Added job "<lambda>" to job store "default"
+2025-09-21 23:26:10,847 INFO Added job "check_and_notify_new_books" to job store "default"
+2025-09-21 23:26:10,847 INFO Added job "call_seed_drive_books" to job store "default"
+2025-09-21 23:26:10,847 INFO Scheduler started
+2025-09-21 23:26:10,873 WARNING  * Debugger is active!
+2025-09-21 23:26:10,880 INFO  * Debugger PIN: 841-161-201
+2025-09-21 23:27:30,200 INFO  * Detected change in 'C:\\Users\\nchow\\source\\repos\\storyweavechronicles\\server\\server.py', reloading
+2025-09-21 23:27:30,402 INFO  * Restarting with stat
+2025-09-21 23:27:32,789 INFO Existing webhook is still valid (expires at 1758515209000)
+2025-09-21 23:27:32,824 INFO Google Drive webhook registered on startup.
+2025-09-21 23:27:32,825 INFO Tracemalloc started for memory tracking.
+2025-09-21 23:27:32,850 INFO Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-09-21 23:27:32,852 INFO Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-09-21 23:27:32,853 INFO Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-09-21 23:27:32,854 INFO Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-09-21 23:27:32,855 INFO Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2025-09-21 23:27:32,858 INFO Added job "<lambda>" to job store "default"
+2025-09-21 23:27:32,859 INFO Added job "<lambda>" to job store "default"
+2025-09-21 23:27:32,860 INFO Added job "<lambda>" to job store "default"
+2025-09-21 23:27:32,860 INFO Added job "check_and_notify_new_books" to job store "default"
+2025-09-21 23:27:32,861 INFO Added job "call_seed_drive_books" to job store "default"
+2025-09-21 23:27:32,862 INFO Scheduler started
+2025-09-21 23:27:32,887 WARNING  * Debugger is active!
+2025-09-21 23:27:32,894 INFO  * Debugger PIN: 841-161-201
