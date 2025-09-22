@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    test: {
+      environment: 'jsdom'
+    },
     server: {
       proxy: {
         // --- Synced with backend endpoints ---
