@@ -11,7 +11,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     test: {
-      environment: 'jsdom'
+      environment: 'jsdom',
+      setupFiles: './src/vitest.setup.js'
     },
     server: {
       proxy: {
