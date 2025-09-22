@@ -319,7 +319,7 @@ def cleanup_unused_covers(valid_ids, needed_ids):
         logging.info("[Atlas] Cleaned up unused covers: %s", removed)
     finally:
         cleanup_covers_lock.release()
-    
+
 def get_landing_page_book_ids():
     """
     Return a list of book IDs for the landing page (carousel + top voted).
@@ -733,7 +733,7 @@ def send_notification_email(user, subject, body):
     except Exception as e:
         logging.error(f"Failed to send email to {user.email}: {e}")
         return False
-    
+
 def send_scheduled_emails(subject, body, frequency='daily', batch_size=20, sleep_time=2):
     """
     Send scheduled emails to users in batches to minimize RAM usage.
@@ -767,18 +767,18 @@ def add_notification(user, type_, title, body, link=None):
     }
     # Prevent duplicates: check for same type, title, body, and link in history
     if not any(
-            n.get('type') == notification['type'] and
-            n.get('title') == notification['title'] and
-            n.get('body') == notification['body'] and
-            n.get('link') == notification['link']
-            for n in history
-        ):
-            history.append(notification)
-            user.notification_history = json.dumps(history)
-            db.session.commit()
-            prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-            if prefs.get('emailFrequency', 'immediate') == 'immediate':
-                send_notification_email(user, title, body)
+        n.get('type') == notification['type'] and
+        n.get('title') == notification['title'] and
+        n.get('body') == notification['body'] and
+        n.get('link') == notification['link']
+        for n in history
+    ):
+        history.append(notification)
+        user.notification_history = json.dumps(history)
+        db.session.commit()
+        prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+        if prefs.get('emailFrequency', 'immediate') == 'immediate':
+            send_notification_email(user, title, body)
 
 def call_seed_drive_books():
     try:
@@ -790,45 +790,45 @@ def call_seed_drive_books():
 
 # Start APScheduler for email notifications
 def send_scheduled_emails(frequency):
-        with app.app_context():
-            users = User.query.all()
-            for user in users:
-                prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-                if prefs.get('emailFrequency', 'immediate') == frequency and user.email:
-                    history = json.loads(user.notification_history) if user.notification_history else []
-                    # Only send unread notifications for this period
-                    unread = [n for n in history if not n.get('read')]
-                    if unread:
-                        subject = f"Your {frequency.capitalize()} Notification Summary"
-                        body_lines = [
-                            f"Hi {user.username or user.email},",
-                            "",
-                            f"Here are your recent notifications ({frequency}):",
-                            ""
-                        ]
-                        for n in unread:
-                            line = f"- [{n.get('type', 'Notification')}] {n.get('title', '')}: {n.get('body', '')}"
-                            if n.get('timestamp'):
-                                try:
-                                    ts_val = n.get('timestamp')
-                                    ts_str = datetime.datetime.fromtimestamp(ts_val / 1000).strftime('%Y-%m-%d %H:%M')
-                                    line += f" (at {ts_str})"
-                                except Exception:
-                                    line += f" (at {n['timestamp']})"
-                            if n.get('link'):
-                                line += f" [View]({n['link']})"
-                            body_lines.append(line)
-                        body_lines.append("")
-                        body_lines.append("Thank you for being part of StoryWeave Chronicles!")
-                        body = "\n".join(body_lines)
-                        send_notification_email(user, subject, body)
-                        logging.info(f"Sent {len(unread)} notifications to {user.email} for {frequency} summary.")
-                        # Optionally mark as read after sending
-                        for n in history:
-                            if not n.get('read'):
-                                n['read'] = True
-                        user.notification_history = json.dumps(history)
-                        db.session.commit()
+    with app.app_context():
+        users = User.query.all()
+        for user in users:
+            prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+            if prefs.get('emailFrequency', 'immediate') == frequency and user.email:
+                history = json.loads(user.notification_history) if user.notification_history else []
+                # Only send unread notifications for this period
+                unread = [n for n in history if not n.get('read')]
+                if unread:
+                    subject = f"Your {frequency.capitalize()} Notification Summary"
+                    body_lines = [
+                        f"Hi {user.username or user.email},",
+                        "",
+                        f"Here are your recent notifications ({frequency}):",
+                        ""
+                    ]
+                    for n in unread:
+                        line = f"- [{n.get('type', 'Notification')}] {n.get('title', '')}: {n.get('body', '')}"
+                        if n.get('timestamp'):
+                            try:
+                                ts_val = n.get('timestamp')
+                                ts_str = datetime.datetime.fromtimestamp(ts_val / 1000).strftime('%Y-%m-%d %H:%M')
+                                line += f" (at {ts_str})"
+                            except Exception:
+                                line += f" (at {n['timestamp']})"
+                        if n.get('link'):
+                            line += f" [View]({n['link']})"
+                        body_lines.append(line)
+                    body_lines.append("")
+                    body_lines.append("Thank you for being part of StoryWeave Chronicles!")
+                    body = "\n".join(body_lines)
+                    send_notification_email(user, subject, body)
+                    logging.info(f"Sent {len(unread)} notifications to {user.email} for {frequency} summary.")
+                    # Optionally mark as read after sending
+                    for n in history:
+                        if not n.get('read'):
+                            n['read'] = True
+                    user.notification_history = json.dumps(history)
+                    db.session.commit()
 
 # --- Scheduled Job: Check for New Books and Notify Users ---
 def check_and_notify_new_books():
