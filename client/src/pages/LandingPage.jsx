@@ -599,7 +599,8 @@ export default function LandingPage() {
     fetchAllBookData().catch(err => {
       console.error('Error in initial book data fetch:', err);
     });
-    return () => { isMounted = false; coversWaitingRef.current.clear(); };
+    const coversWaitingSet = coversWaitingRef.current;
+    return () => { isMounted = false; coversWaitingSet.clear(); };
   }, [user]);
 
 

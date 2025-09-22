@@ -3005,6 +3005,7 @@ def cover_diagnostics():
         'extra_on_disk': extra_on_disk,
         'atlas': atlas,
     })
+
 # --- Manual Seed Endpoint ---
 @app.route('/api/seed-drive-books', methods=['POST'])
 def seed_drive_books():
@@ -3012,16 +3013,20 @@ def seed_drive_books():
     Manually repopulate the Book table from all PDFs in the configured Google Drive folder.
     Returns: {success, added_count, skipped_count, errors}
     """
+    # Patch: ensure all exceptions are caught and logged, never abort the endpoint for a single bad PDF
+    data = request.get_json(silent=True) or {}
+    folder_id = data.get('folder_id') or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
+    if not folder_id:
+        return jsonify({'success': False, 'message': 'GOOGLE_DRIVE_FOLDER_ID not set.'}), 500
     try:
-        data = request.get_json(silent=True) or {}
-        folder_id = data.get('folder_id') or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
-        if not folder_id:
-            return jsonify({'success': False, 'message': 'GOOGLE_DRIVE_FOLDER_ID not set.'}), 500
         service = get_drive_service()
-        # List all PDFs in the folder
-        query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed = false"
-        files = []
-        page_token = None
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error initializing Google Drive service: {e}'}), 500
+    # List all PDFs in the folder
+    query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed = false"
+    files = []
+    page_token = None
+    try:
         while True:
             response = service.files().list(
                 q=query,
@@ -3033,41 +3038,45 @@ def seed_drive_books():
             page_token = response.get('nextPageToken', None)
             if not page_token:
                 break
-        added_count = 0
-        updated_count = 0
-        external_id_updates = 0
-        skipped_count = 0
-        errors = []
-        new_books = []
-        updated_books = []
-        logging.info(f"[Seed] Total files returned from Drive: {len(files)}")
-        # --- Batching and RAM throttling ---
-        import psutil, gc, time
-        process = psutil.Process()
-        BATCH_SIZE = int(os.getenv('SEED_BATCH_SIZE', '10'))
-        MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
-        MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
-        batch = []
-        for idx, f in enumerate(files):
-            drive_id = f.get('id')
-            title = f.get('name')
-            created_time = f.get('createdTime')
-            modified_time = f.get('modifiedTime')
-            logging.info(f"[Seed] Processing file {idx+1}/{len(files)}: drive_id={drive_id}, title={title}, created_time={created_time}, modified_time={modified_time}")
-            try:
-                book = Book.query.filter_by(drive_id=drive_id).first()
-                if not book:
-                    # New book: extract external_story_id
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error listing files from Drive: {e}'}), 500
+    added_count = 0
+    updated_count = 0
+    external_id_updates = 0
+    skipped_count = 0
+    errors = []
+    new_books = []
+    updated_books = []
+    logging.info(f"[Seed] Total files returned from Drive: {len(files)}")
+    # --- Batching and RAM throttling ---
+    import psutil, gc, time
+    process = psutil.Process()
+    BATCH_SIZE = int(os.getenv('SEED_BATCH_SIZE', '10'))
+    MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
+    MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
+    batch = []
+    for idx, f in enumerate(files):
+        drive_id = f.get('id')
+        title = f.get('name')
+        created_time = f.get('createdTime')
+        modified_time = f.get('modifiedTime')
+        logging.info(f"[Seed] Processing file {idx+1}/{len(files)}: drive_id={drive_id}, title={title}, created_time={created_time}, modified_time={modified_time}")
+        try:
+            book = Book.query.filter_by(drive_id=drive_id).first()
+            if not book:
+                # New book: extract external_story_id
+                external_story_id = None
+                try:
+                    file_request = service.files().get_media(fileId=drive_id)
+                    file_content = file_request.execute()
+                    external_story_id = extract_story_id_from_pdf(file_content)
+                    del file_content
+                    gc.collect()
+                except Exception as e:
+                    logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
+                    errors.append(f"Error extracting story ID for {title}: {e}")
                     external_story_id = None
-                    try:
-                        file_request = service.files().get_media(fileId=drive_id)
-                        file_content = file_request.execute()
-                        external_story_id = extract_story_id_from_pdf(file_content)
-                        del file_content
-                        gc.collect()
-                    except Exception as e:
-                        logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
-                        external_story_id = None
+                try:
                     book = Book(
                         drive_id=drive_id,
                         title=title,
@@ -3080,9 +3089,15 @@ def seed_drive_books():
                     added_count += 1
                     new_books.append({'id': drive_id, 'title': title})
                     logging.info(f"[Seed] Added new book: drive_id={drive_id}, title={title}")
-                else:
-                    # Existing book: update metadata if changed
-                    updated = False
+                except Exception as e:
+                    skipped_count += 1
+                    errors.append(f"Error creating new Book for {title} ({drive_id}): {e}")
+                    logging.error(f"[Seed] Skipped file due to error creating Book: drive_id={drive_id}, title={title}, error={e}")
+                    continue
+            else:
+                # Existing book: update metadata if changed
+                updated = False
+                try:
                     if book.title != title:
                         book.title = title
                         updated = True
@@ -3113,59 +3128,69 @@ def seed_drive_books():
                         updated_count += 1
                         updated_books.append({'id': drive_id, 'title': title})
                         logging.info(f"[Seed] Updated book: drive_id={drive_id}, title={title}")
-                # --- RAM Throttling ---
-                mem = process.memory_info().rss / (1024 * 1024)
-                if mem > MEMORY_HIGH_THRESHOLD_MB:
-                    logging.warning(f"[Seed][THROTTLE] RAM {mem:.2f} MB > {MEMORY_HIGH_THRESHOLD_MB} MB. Sleeping 2s and running GC.")
-                    time.sleep(2)
-                    gc.collect()
-                elif mem > MEMORY_LOW_THRESHOLD_MB:
-                    logging.info(f"[Seed][THROTTLE] RAM {mem:.2f} MB > {MEMORY_LOW_THRESHOLD_MB} MB. Running GC.")
-                    gc.collect()
-                # --- Batch commit ---
-                batch.append(book)
-                if len(batch) >= BATCH_SIZE:
+                except Exception as e:
+                    skipped_count += 1
+                    errors.append(f"Error updating Book for {title} ({drive_id}): {e}")
+                    logging.error(f"[Seed] Skipped file due to error updating Book: drive_id={drive_id}, title={title}, error={e}")
+                    continue
+            # --- RAM Throttling ---
+            mem = process.memory_info().rss / (1024 * 1024)
+            if mem > MEMORY_HIGH_THRESHOLD_MB:
+                logging.warning(f"[Seed][THROTTLE] RAM {mem:.2f} MB > {MEMORY_HIGH_THRESHOLD_MB} MB. Sleeping 2s and running GC.")
+                time.sleep(2)
+                gc.collect()
+            elif mem > MEMORY_LOW_THRESHOLD_MB:
+                logging.info(f"[Seed][THROTTLE] RAM {mem:.2f} MB > {MEMORY_LOW_THRESHOLD_MB} MB. Running GC.")
+                gc.collect()
+            # --- Batch commit ---
+            batch.append(book)
+            if len(batch) >= BATCH_SIZE:
+                try:
                     db.session.commit()
                     batch.clear()
                     gc.collect()
                     logging.info(f"[Seed][BATCH] Committed batch of {BATCH_SIZE} books. RAM: {mem:.2f} MB")
-            except Exception as e:
-                skipped_count += 1
-                errors.append(f"Error processing file {title} ({drive_id}): {e}")
-                logging.error(f"[Seed] Skipped file due to error: drive_id={drive_id}, title={title}, error={e}")
-        # Final commit for any remaining books
-        if batch:
+                except Exception as e:
+                    errors.append(f"Error committing batch at file {title} ({drive_id}): {e}")
+                    logging.error(f"[Seed] Error committing batch: {e}")
+        except Exception as e:
+            skipped_count += 1
+            errors.append(f"Error processing file {title} ({drive_id}): {e}")
+            logging.error(f"[Seed] Skipped file due to error: drive_id={drive_id}, title={title}, error={e}")
+            continue
+    # Final commit for any remaining books
+    if batch:
+        try:
             db.session.commit()
             batch.clear()
             gc.collect()
             mem = process.memory_info().rss / (1024 * 1024)
             logging.info(f"[Seed][FINAL BATCH] Committed final batch. RAM: {mem:.2f} MB")
+        except Exception as e:
+            errors.append(f"Error committing final batch: {e}")
+            logging.error(f"[Seed] Error committing final batch: {e}")
     # ...existing code...
-        # Use notification utility endpoints for new and updated books
-        for book_info in new_books:
-            try:
-                notify_new_book(book_info['id'], book_info['title'])
-            except Exception as e:
-                errors.append(f"Error notifying new book {book_info['title']}: {e}")
-        for book_info in updated_books:
-            try:
-                notify_book_update(book_info['id'], book_info['title'])
-            except Exception as e:
-                errors.append(f"Error notifying book update {book_info['title']}: {e}")
-
-        # ...existing code...
-
-        return jsonify({
-            'success': True,
-            'added_count': added_count,
-            'updated_count': updated_count,
-            'external_id_updates': external_id_updates,
-            'skipped_count': skipped_count,
-            'errors': errors,
-            'message': f"Seeded {added_count} new books, updated {updated_count} existing books, {external_id_updates} external IDs set."
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+    # Use notification utility endpoints for new and updated books
+    for book_info in new_books:
+        try:
+            notify_new_book(book_info['id'], book_info['title'])
+        except Exception as e:
+            errors.append(f"Error notifying new book {book_info['title']}: {e}")
+    for book_info in updated_books:
+        try:
+            notify_book_update(book_info['id'], book_info['title'])
+        except Exception as e:
+            errors.append(f"Error notifying book update {book_info['title']}: {e}")
+    # ...existing code...
+    return jsonify({
+        'success': True,
+        'added_count': added_count,
+        'updated_count': updated_count,
+        'external_id_updates': external_id_updates,
+        'skipped_count': skipped_count,
+        'errors': errors,
+        'message': f"Seeded {added_count} new books, updated {updated_count} existing books, {external_id_updates} external IDs set."
+    })
 
 @app.route('/api/simulate-cover-load', methods=['POST'])
 def simulate_cover_load():

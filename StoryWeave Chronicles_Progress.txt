@@ -9,19 +9,18 @@
 - RAM usage optimized (open to further improvements)
 - Made a new cover system for the sake of being super optimized. (way faster and using way less memory if you can get over the first dry launch)
 - managed to finally clean up and organize my back end. (will do the same for the front end once its completely stable)
-- finally i can consider covers done on render. the download and everything works like a dream. i think it can handle 100 users no problem. 
+- finally i can consider covers done on render. the download and everything works like a dream. i think it can handle 100 users no problem.
+- fixed infinite polling with yet ANOTHER cover system. but this one is not only working, but is the most stable and the most optimized.
+- FINALLY fixed the routing issue. no more!
 
 ---
 
 ## ☐ Remaining Bugs & Improvements
-- Routing/refresh error: attempted fix, still unresolved (production, Render.com)
 - Carousel UI: polish for desktop and mobile
 - for advertising: propellerads, adsterra, and revenuehits are the ones i want to look at the most.
-- for OAuth and login credentials: firebase and clerk
+- for OAuth and login credentials: firebase and clerk (might not do this one, i think our current setup might be fine. we'll see if i regret that decision)
 - for new Mail provider: sendgrid or mailgun (can integrate with flaskmail)
-- Minor bugs: address issues found during stress testing
-- Front end keeps polling after all covers are done downloading
-- churn is back. it fixed itself for a bit and now its back.
+- churn is back. it fixed itself for a bit and now its back. (doesn't do TOO much damage, but still anoying)
 
 ---
 
@@ -44,7 +43,7 @@
   - PostgreSQL: 1GB, expires every 30 days (moved to neon, no need to worry about this).
 ---
 
-**Summary:**  
+**Summary:**
 Most major features and optimizations are complete. Focus now shifts to bug fixes, UI polish, admin tools, and ongoing performance improvements. Let me know which item you want to tackle next!
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
