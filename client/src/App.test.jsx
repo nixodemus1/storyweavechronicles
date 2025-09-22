@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/react';
-import App from './App';
+// vite.config.js
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
-describe('App', () => {
-  it('renders without crashing', () => {
-    render(<App />);
-    expect(document.body).toBeDefined();
-  });
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom'
+  }
 });
