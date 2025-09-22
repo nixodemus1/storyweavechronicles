@@ -1,7 +1,12 @@
+"""
+Storyweave Chronicles Backend API
+Main server module.
+"""
 # =========================
 # 1. Imports
 # =========================
 # --- Standard Library Imports ---
+import tracemalloc
 import os
 import io
 import gc
@@ -27,13 +32,12 @@ import logging.handlers
 import fitz  # PyMuPDF
 import psutil
 import requests
-import tracemalloc
 from PIL import Image
 from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import (
     Flask, jsonify, send_file, redirect, send_from_directory,
-    make_response, request, after_this_request
+    make_response, request
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS, cross_origin
@@ -141,7 +145,7 @@ SESSION_TIMEOUT = 60  # seconds
 
 cleanup_covers_lock = threading.Lock()  # Add this near your other locks
 
-atlas_initialized = False
+ATLAS_INITIALIZED = False  # C0103: UPPER_CASE naming style
 
 # --- Fair Queuing for Cover Requests ---
 cover_request_queue = deque()  # Each entry: file_id (str)
@@ -150,15 +154,15 @@ cover_queue_lock = threading.Lock()
 # --- Fair Queuing for Text Requests ---
 text_request_queue = deque()  # Each entry: {session_id, file_id, page_num, timestamp}
 text_queue_lock = threading.Lock()
-text_queue_active = None  # Currently processing: {session_id, file_id, page_num, timestamp}
-text_queue_last_cleanup = 0
+TEXT_QUEUE_ACTIVE = None  # C0103: UPPER_CASE naming style
+TEXT_QUEUE_LAST_CLEANUP = 0
 # =========================
 # 5. Database Models
 # =========================
 # --- SQLAlchemy models: Book, User, Vote, Comment, Webhook ---
 
-# --- SQLAlchemy Book Model ---
 class Book(db.Model):
+    """SQLAlchemy Book Model"""
     id = db.Column(db.Integer, primary_key=True)
     drive_id = db.Column(db.String(128), unique=True, nullable=False)  # Google Drive file ID
     title = db.Column(db.String(256), nullable=False)
@@ -171,8 +175,8 @@ class Book(db.Model):
     comments = db.relationship('Comment', backref='book', lazy=True, foreign_keys='Comment.book_id')
     votes = db.relationship('Vote', backref='book', lazy=True, foreign_keys='Vote.book_id')
 
-# --- SQLAlchemy User Model ---
 class User(db.Model):
+    """SQLAlchemy User Model"""
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=False, nullable=True)
@@ -189,16 +193,16 @@ class User(db.Model):
     is_admin = db.Column(db.Boolean, default=False)  # admin privileges
     banned = db.Column(db.Boolean, default=False)  # user ban status
 
-# --- SQLAlchemy Voting Model ---
 class Vote(db.Model):
+    """SQLAlchemy Voting Model"""
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), nullable=False)
     book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
     value = db.Column(db.Integer, nullable=False)  # 1-5 stars
     timestamp = db.Column(db.DateTime, default=lambda: datetime.datetime.now(timezone.utc))
 
-# --- SQLAlchemy Comment Model ---
 class Comment(db.Model):
+    """SQLAlchemy Comment Model"""
     id = db.Column(db.Integer, primary_key=True)
     book_id = db.Column(db.String(128), db.ForeignKey('book.drive_id'), nullable=False)
     username = db.Column(db.String(80), nullable=False)
@@ -212,8 +216,8 @@ class Comment(db.Model):
     background_color = db.Column(db.String(16), nullable=True)
     text_color = db.Column(db.String(16), nullable=True)
 
-# --- SQLAlchemy Webhook Model ---
 class Webhook(db.Model):
+    """SQLAlchemy Webhook Model"""
     id = db.Column(db.Integer, primary_key=True)
     channel_id = db.Column(db.String(128), unique=True, nullable=False)
     expiration = db.Column(db.BigInteger, nullable=True)  # ms since epoch
@@ -232,19 +236,13 @@ tracemalloc.start()
 # =========================
 # 7. Utility Functions
 # =========================
-# --- Atlas & Cover Management ---
 def get_cover_url(file_id):
-    """
-    Returns the public URL for a cover image, using FRONTEND_BASE_URL from .env.
-    """
+    """Returns the public URL for a cover image, using FRONTEND_BASE_URL from .env."""
     base_url = os.getenv('FRONTEND_BASE_URL', 'http://localhost:5173')
     return f"{base_url}/covers/{file_id}.jpg"
 
 def load_atlas():
-    """
-    Load the atlas.json file and return the covers mapping.
-    Retries up to 3 times on error.
-    """
+    """Load the atlas.json file and return the covers mapping. Retries up to 3 times on error."""
     if not os.path.exists(ATLAS_PATH):
         return {}
     for attempt in range(3):
@@ -258,9 +256,7 @@ def load_atlas():
     return {}
 
 def save_atlas(covers_map):
-    """
-    Save the covers mapping to atlas.json atomically.
-    """
+    """Save the covers mapping to atlas.json atomically."""
     try:
         # Write to a temp file first, then atomically replace atlas.json
         dir_name = os.path.dirname(ATLAS_PATH)
@@ -273,10 +269,7 @@ def save_atlas(covers_map):
         logging.error("[Atlas] Failed to save atlas.json: %s", e)
 
 def cleanup_unused_covers(valid_ids, needed_ids):
-    """
-    Remove unused cover images from disk and update atlas.json.
-    Only keeps covers that are both valid and needed.
-    """
+    """Remove unused cover images from disk and update atlas.json."""
     covers_map = load_atlas()
     covers_dir_files = os.listdir(COVERS_DIR)
     logging.info("[DIAGNOSTIC][COVERS] [cleanup_unused_covers] Covers folder BEFORE: %s", covers_dir_files)
@@ -321,9 +314,7 @@ def cleanup_unused_covers(valid_ids, needed_ids):
         cleanup_covers_lock.release()
 
 def get_landing_page_book_ids():
-    """
-    Return a list of book IDs for the landing page (carousel + top voted).
-    """
+    """Return a list of book IDs for the landing page (carousel + top voted)."""
     # Top 20 newest (by created_at)
     newest_books = Book.query.order_by(desc(Book.created_at)).limit(20).all()
     newest_ids = [b.drive_id for b in newest_books if b.drive_id]
@@ -357,15 +348,7 @@ def get_landing_page_book_ids():
     return combined_ids[:MAX_COVERS]
 
 def extract_cover_image_from_pdf(book_id):
-    """
-    Extract cover image for a given book_id from its PDF in Google Drive.
-    Returns PIL Image or None. Ensures image is not closed/deleted before caller saves/maps it.
-    """
-    """
-    Extract cover image for a given book_id from its PDF in Google Drive.
-    Returns PIL Image or None.
-    Ensures image is not closed/deleted before caller saves/maps it.
-    """
+    """Extract cover image for a given book_id from its PDF in Google Drive."""
 
     process = psutil.Process()
     MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
@@ -490,11 +473,9 @@ def extract_cover_image_from_pdf(book_id):
             gc.collect()
         mem_final = process.memory_info().rss / (1024 * 1024)
         logging.info(f"[extract_cover_image_from_pdf] FINAL GC: book_id={book_id}, RAM={mem_final:.2f} MB")
-        
+
 def rebuild_cover_cache(book_ids=None):
-    """
-    Rebuild atlas and cache covers for provided book_ids (landing page), or fallback to DB if not provided.
-    """
+    """Rebuild atlas and cache covers for provided book_ids (landing page), or fallback to DB if not provided."""
     if book_ids is None:
         book_ids = get_landing_page_book_ids()
         logging.info(f"[Atlas][rebuild_cover_cache] Starting rebuild for book_ids: {book_ids}")
@@ -598,9 +579,7 @@ def rebuild_cover_cache(book_ids=None):
     return True, []
 
 def sync_atlas_with_covers():
-    """
-    Scan the covers folder and rebuild atlas.json to match the actual .jpg files on disk.
-    """
+    """Scan the covers folder and rebuild atlas.json to match the actual .jpg files on disk."""
     covers_dir_files = os.listdir(COVERS_DIR)
     logging.info(f"[DIAGNOSTIC][COVERS] [sync_atlas_with_covers] Covers folder BEFORE: {covers_dir_files}")
     disk_covers = {fname.replace('.jpg', ''): fname for fname in covers_dir_files if fname.endswith('.jpg')}
@@ -661,6 +640,7 @@ def downscale_image(img_bytes, size=(80, 120), format="JPEG", quality=70):
 #--- Queue Management ---
 
 def cleanup_text_queue():
+    """Clean up stale sessions from the text request queue."""
     try:
         now = time.time()
         to_remove = set()
@@ -672,9 +652,9 @@ def cleanup_text_queue():
         filtered = [e for e in text_request_queue if e['session_id'] not in to_remove]
         text_request_queue.clear()
         text_request_queue.extend(filtered)
-        global text_queue_active
-        if text_queue_active and text_queue_active['session_id'] in to_remove:
-            text_queue_active = None
+        global TEXT_QUEUE_ACTIVE
+        if TEXT_QUEUE_ACTIVE and TEXT_QUEUE_ACTIVE['session_id'] in to_remove:
+            TEXT_QUEUE_ACTIVE = None
         # Only log if something was removed
         if to_remove:
             logging.info(f"[cleanup_text_queue] Removed {len(to_remove)} stale sessions from queue.")
@@ -682,6 +662,7 @@ def cleanup_text_queue():
         logging.error(f"[cleanup_text_queue] Error: {e}")
 
 def get_text_queue_status():
+    """Get status of the text queue."""
     acquired = text_queue_lock.acquire(timeout=5)
     if not acquired:
         logging.error("[get_text_queue_status] Could not acquire text_queue_lock after 5 seconds! Possible deadlock.")
@@ -693,7 +674,7 @@ def get_text_queue_status():
         }
     try:
         return {
-            'active': text_queue_active,
+            'active': TEXT_QUEUE_ACTIVE,
             'queue': list(text_request_queue),
             'queue_length': len(text_request_queue),
             'sessions': list(session_last_seen.keys()),
@@ -702,15 +683,17 @@ def get_text_queue_status():
         text_queue_lock.release()
 
 def heartbeat(session_id):
-    """Update the last seen timestamp for a session. Used to track active sessions and clean up timed-out requests."""
+    """Update the last seen timestamp for a session."""
     session_last_seen[session_id] = time.time()
 
 def cleanup_cover_queue():
+    """Clear the cover request queue."""
     with cover_queue_lock:
         cover_request_queue.clear()
     logging.info("[cleanup_cover_queue] Cover queue cleared.")
 
 def get_queue_status():
+    """Get status of the cover queue."""
     with cover_queue_lock:
         return {
             'active': cover_request_queue[0] if cover_request_queue else None,
@@ -721,6 +704,7 @@ def get_queue_status():
 #--- Notification & Email ---
 
 def send_notification_email(user, subject, body):
+    """Send notification email to a user."""
     if not user.email:
         logging.warning(f"User {user.id} has no email address. Skipping email send.")
         return False
@@ -735,9 +719,7 @@ def send_notification_email(user, subject, body):
         return False
 
 def send_scheduled_emails(subject, body, frequency='daily', batch_size=20, sleep_time=2):
-    """
-    Send scheduled emails to users in batches to minimize RAM usage.
-    """
+    """Send scheduled emails to users in batches to minimize RAM usage."""
     with app.app_context():
         users = User.query.filter_by(banned=False).all()
         total = len(users)
@@ -752,6 +734,7 @@ def send_scheduled_emails(subject, body, frequency='daily', batch_size=20, sleep
         logging.info("Scheduled email rollout complete.")
 
 def add_notification(user, type_, title, body, link=None):
+    """Add a notification to a user."""
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     history = json.loads(user.notification_history) if user.notification_history else []
     timestamp = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
@@ -781,15 +764,16 @@ def add_notification(user, type_, title, body, link=None):
             send_notification_email(user, title, body)
 
 def call_seed_drive_books():
+    """Call the seed-drive-books endpoint."""
     try:
         url = os.getenv('VITE_HOST_URL', 'http://localhost:5000') + '/api/seed-drive-books'
-        response = requests.post(url)
-        logging.info(f"Scheduled seed-drive-books response: {response.status_code} {response.text}")
+        response = requests.post(url, timeout=10)  # W3101: Add timeout
+        logging.info("Scheduled seed-drive-books response: %s %s", response.status_code, response.text)
     except Exception as e:
-        logging.error(f"Error calling seed-drive-books endpoint: {e}")
+        logging.error("Error calling seed-drive-books endpoint: %s", e)
 
-# Start APScheduler for email notifications
 def send_scheduled_emails(frequency):
+    """Send scheduled emails for a given frequency."""
     with app.app_context():
         users = User.query.all()
         for user in users:
@@ -830,8 +814,8 @@ def send_scheduled_emails(frequency):
                     user.notification_history = json.dumps(history)
                     db.session.commit()
 
-# --- Scheduled Job: Check for New Books and Notify Users ---
 def check_and_notify_new_books():
+    """Check for new books and notify users."""
     with app.app_context():
         try:
             # Set your Google Drive folder ID here (or load from env)
@@ -893,9 +877,10 @@ def check_and_notify_new_books():
         except Exception as e:
             logging.error(f"Error in scheduled new book check: {e}")
 
-#--- Drive/Google API ---
+# --- Google Drive API ---
 
 def get_drive_service():
+    """Get Google Drive service."""
     creds = None
     # Build credentials from .env
     client_id = os.getenv('GOOGLE_CLIENT_ID')
@@ -917,6 +902,7 @@ def get_drive_service():
     return build('drive', 'v3', credentials=creds)
 
 def setup_drive_webhook(folder_id, webhook_url):
+    """Setup Google Drive webhook."""
     with app.app_context():
         webhook = Webhook.query.first()
         now_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
@@ -946,10 +932,10 @@ def setup_drive_webhook(folder_id, webhook_url):
         else:
             logging.info(f"Existing webhook is still valid (expires at {webhook.expiration})")
 
-#--- Admin/Memory ---
+# --- Admin/Memory ---
 
 def cleanup_locals(locals_dict):
-    # Helper to close/delete large objects
+    """Helper to close/delete large objects."""
     for varname in ['doc', 'img_bytes', 'out', 'pix', 'page']:
         obj = locals_dict.get(varname)
         if obj is not None:
@@ -987,28 +973,28 @@ def cleanup_locals(locals_dict):
     logging.info("[cleanup_locals] Finished cleanup and GC.")
 
 def is_admin(username):
+    """Check if a user is admin."""
     user = User.query.filter_by(username=username).first()
     return user and user.is_admin
 
 def hash_password(password):
+    """Hash a password using SHA256."""
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 # =========================
 # 8. App Hooks
 # =========================
-# --- @app.before_request hooks ---
 @app.before_request
 def check_atlas_init():
-    global atlas_initialized
-    if not atlas_initialized and request.path.startswith('/api/'):
+    """Initialize atlas on first API request."""
+    global ATLAS_INITIALIZED
+    if not ATLAS_INITIALIZED and request.path.startswith('/api/'):
         try:
             sync_atlas_with_covers()
             rebuild_cover_cache()
-            atlas_initialized = True
+            ATLAS_INITIALIZED = True
         except Exception as e:
-            logging.error(f"[Atlas] Error during first-load rebuild: {e}")
-
-#--- apis ---
+            logging.error("[Atlas] Error during first-load rebuild: %s", e)
 
 # === Authentication & User Management ===
 # Update font and timezone for user
@@ -1596,6 +1582,7 @@ def update_external_id():
 
 @app.route('/api/rebuild-cover-cache', methods=['POST'])
 def api_rebuild_cover_cache():
+    """Rebuild atlas and cache covers for provided book_ids (landing page), or fallback to DB if not provided."""
     try:
         # Optionally accept book_ids from frontend, else use default
         data = request.get_json(silent=True)
@@ -1610,7 +1597,7 @@ def api_rebuild_cover_cache():
     except Exception as e:
         logging.error(f"[API][rebuild-cover-cache] Error: {e}")
         return jsonify({'success': False, 'error': str(e), 'missing_ids': []}), 500
-    
+
 # Optimized book fetch endpoint: returns only requested books by drive_id
 @app.route('/api/books', methods=['GET'])
 def get_books_by_ids():
@@ -2029,7 +2016,7 @@ def pdf_text(file_id):
     Query params: page (1-based), session_id (optional)
     Returns: {"success": True, "page": n, "text": ..., "images": [...]} or error JSON.
     """
-    global text_queue_active
+    global TEXT_QUEUE_ACTIVE
     global text_queue_lock
     # --- Profiling: log CPU and RAM usage at entry ---
     process = psutil.Process()
@@ -2090,8 +2077,8 @@ def pdf_text(file_id):
                 break
             try:
                 cleanup_text_queue()
-                if text_request_queue and text_request_queue[0] == entry and (text_queue_active is None or text_queue_active == entry):
-                    text_queue_active = entry
+                if text_request_queue and text_request_queue[0] == entry and (TEXT_QUEUE_ACTIVE is None or TEXT_QUEUE_ACTIVE == entry):
+                    TEXT_QUEUE_ACTIVE = entry
                     break
             finally:
                 text_queue_lock.release()
@@ -2144,8 +2131,8 @@ def pdf_text(file_id):
                     try:
                         if text_request_queue and text_request_queue[0] == entry:
                             text_request_queue.popleft()
-                        if text_queue_active == entry:
-                            text_queue_active = None
+                        if TEXT_QUEUE_ACTIVE == entry:
+                            TEXT_QUEUE_ACTIVE = None
                     finally:
                         text_queue_lock.release()
                 else:
@@ -2196,8 +2183,8 @@ def pdf_text(file_id):
                 if text_request_queue and text_request_queue[0] == entry:
                     text_request_queue.popleft()
                     logging.info(f"[pdf-text] Queue length after popleft: {len(text_request_queue)}")
-                if text_queue_active == entry:
-                    text_queue_active = None
+                if TEXT_QUEUE_ACTIVE == entry:
+                    TEXT_QUEUE_ACTIVE = None
             finally:
                 text_queue_lock.release()
         else:
@@ -2214,8 +2201,8 @@ def pdf_text(file_id):
                 try:
                     if text_request_queue and text_request_queue[0] == entry:
                         text_request_queue.popleft()
-                    if text_queue_active == entry:
-                        text_queue_active = None
+                    if TEXT_QUEUE_ACTIVE == entry:
+                        TEXT_QUEUE_ACTIVE = None
                 finally:
                     text_queue_lock.release()
             else:
@@ -3086,6 +3073,7 @@ def seed_drive_books():
                     gc.collect()
                 except Exception as e:
                     logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
+
                     errors.append(f"Error extracting story ID for {title}: {e}")
                     external_story_id = None
                 try:
