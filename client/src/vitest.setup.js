@@ -62,8 +62,12 @@ if (!window.document) {
     getElementsByTagName: () => [],
     getElementById: () => null,
     body: {},
+    get: () => {}, // Added mock for document.get
   };
 }
 if (!window.document.body) {
   window.document.body = {};
+}
+if (!window.document.get) {
+  window.document.get = () => {};
 }
