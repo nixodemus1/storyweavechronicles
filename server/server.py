@@ -113,8 +113,6 @@ service_account_info = {
 # =========================
 # --- Logging formatter, file/console handlers, log file path ---
 
-#logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-
 # Log to both console and logs.txt
 LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), 'logs.txt')
 log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
@@ -127,11 +125,13 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 root_logger.addHandler(console_handler)
 
-# File handler
-file_handler = logging.handlers.RotatingFileHandler(LOG_FILE_PATH, maxBytes=5*1024*1024, backupCount=2, encoding='utf-8')
-file_handler.setFormatter(log_formatter)
-root_logger.addHandler(file_handler)
-# --- uncomment logging and delete above variables when done ---
+# File logging toggle based on .env/config
+ENABLE_FILE_LOGGING = os.getenv('ENABLE_FILE_LOGGING', 'True') == 'True'
+DEBUG_MODE = os.getenv('DEBUG', 'True') == 'True'
+if ENABLE_FILE_LOGGING and DEBUG_MODE:
+    file_handler = logging.handlers.RotatingFileHandler(LOG_FILE_PATH, maxBytes=5*1024*1024, backupCount=2, encoding='utf-8')
+    file_handler.setFormatter(log_formatter)
+    root_logger.addHandler(file_handler)
 
 # =========================
 # 4. Global Constants & Paths
@@ -2880,7 +2880,10 @@ class DismissAllNotifications(Resource):
                 n['id'] = n.get('timestamp')
         user.notification_history = json.dumps(history)
         db.session.commit()
-        logging.info(f"[DISMISS ALL] All notifications set to dismissed. History count: {len(history)}")
+        logging.info(f"[DISMISS ALL] History AFTER: {user.notification_history}")
+        user_check = User.query.filter_by(username=username).first()
+        logging.info(f"[DISMISS ALL] History AFTER COMMIT (reloaded): {user_check.notification_history}")
+        logging.info(f"[DISMISS ALL] Notification history cleared for user: {username}")
         return jsonify({'success': True, 'message': 'All notifications dismissed.', 'history': history})
 
 # Mark a single notification as read/unread
@@ -3221,9 +3224,9 @@ class SeedDriveBooks(Resource):
                     'book_title': book_info['title']
                 })
                 if resp.status_code != 200:
-                    errors.append(f"Error notifying new book {book_info['title']}: {resp.text}")
+                    errors.append(f"Error notifying new book: {resp.text}")
             except Exception as e:
-                errors.append(f"Error notifying new book {book_info['title']}: {e}")
+                errors.append(f"Error notifying new book: {e}")
         for book_info in updated_books:
             try:
                 resp = requests.post(f'{os.getenv("VITE_HOST_URL", "http://localhost")}:{os.getenv("PORT", 5000)}/api/notify-book-update', json={
@@ -3231,9 +3234,9 @@ class SeedDriveBooks(Resource):
                     'book_title': book_info['title']
                 })
                 if resp.status_code != 200:
-                    errors.append(f"Error notifying book update {book_info['title']}: {resp.text}")
+                    errors.append(f"Error notifying book update: {resp.text}")
             except Exception as e:
-                errors.append(f"Error notifying book update {book_info['title']}: {e}")
+                errors.append(f"Error notifying book update: {e}")
         return jsonify({
             'success': True,
             'added_count': added_count,
@@ -3248,7 +3251,7 @@ class SeedDriveBooks(Resource):
 class SimulateCoverLoad(Resource):
     def post(self):
         """
-        Simulate multiple users requesting covers at the same time for stress testing.
+        Simulate many users requesting static cover images concurrently for stress testing.
         POST data: {"file_ids": ["id1", "id2", ...], "num_users": 200, "concurrency": 20}
         """
         data = request.get_json(force=True)
@@ -3258,6 +3261,8 @@ class SimulateCoverLoad(Resource):
         if not file_ids:
             return jsonify({'success': False, 'message': 'file_ids required'}), 400
         results = []
+        errors = 0
+        total_time = 0.0
         start_time = time.time()
         log_path = os.path.join(os.path.dirname(__file__), 'logs.txt')
         sim_handler = logging.FileHandler(log_path, mode='w', encoding='utf-8')
@@ -3268,30 +3273,41 @@ class SimulateCoverLoad(Resource):
         old_handlers = [h for h in logging.getLogger().handlers if h is not sim_handler]
         try:
             def simulate_user(user_idx):
-                session_id = f"simuser-{user_idx}-{uuid.uuid4()}"
-                file_id = random.choice(file_ids)
-                url = f"{os.getenv('VITE_HOST_URL', 'http://localhost')}:{os.getenv('PORT', 5000)}/pdf-cover/{file_id}?session_id={session_id}"
+                cover_id = random.choice(file_ids)
+                url = f"{os.getenv('VITE_HOST_URL', 'http://localhost')}:{os.getenv('PORT', 5000)}/covers/{cover_id}.jpg"
+                t0 = time.time()
                 try:
-                    resp = requests.get(url, timeout=30)
+                    resp = requests.get(url, timeout=10)
+                    t1 = time.time()
+                    elapsed = t1 - t0
                     status = resp.status_code
-                    log_msg = f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} status={status}"
+                    ok = status == 200
+                    log_msg = f"[SIM] User {user_idx} cover_id={cover_id} status={status} time={elapsed:.3f}s"
                     logging.info(log_msg)
-                    return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'status': status}
+                    return {'user': user_idx, 'cover_id': cover_id, 'status': status, 'elapsed': elapsed, 'ok': ok}
                 except Exception as e:
-                    logging.error(f"[SIM] User {user_idx} session_id={session_id} file_id={file_id} ERROR: {e}")
-                    return {'user': user_idx, 'session_id': session_id, 'file_id': file_id, 'error': str(e)}
+                    t1 = time.time()
+                    elapsed = t1 - t0
+                    logging.error(f"[SIM] User {user_idx} cover_id={cover_id} ERROR: {e}")
+                    return {'user': user_idx, 'cover_id': cover_id, 'error': str(e), 'elapsed': elapsed, 'ok': False}
             with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
                 futures = [executor.submit(simulate_user, i) for i in range(num_users)]
                 for future in concurrent.futures.as_completed(futures):
-                    results.append(future.result())
+                    result = future.result()
+                    results.append(result)
+                    total_time += result.get('elapsed', 0)
+                    if not result.get('ok', False):
+                        errors += 1
             duration = time.time() - start_time
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
-            logging.info(f"[SIM] Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB")
+            logging.info(f"[SIM] Simulated {num_users} static cover requests in {duration:.2f}s. Memory usage: {mem:.2f} MB. Errors: {errors}")
         finally:
             logging.getLogger().removeHandler(sim_handler)
             sim_handler.close()
             for h in old_handlers:
                 logging.getLogger().addHandler(h)
+        avg_time = total_time / max(1, len(results))
+        throughput = num_users / max(1, duration)
         with open(log_path, 'a', encoding='utf-8') as f:
             f.write(f"Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB\n")
         return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
