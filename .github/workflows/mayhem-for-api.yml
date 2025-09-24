@@ -46,7 +46,7 @@ jobs:
       # mode & send stacktraces back on "500 Internal Server Error" responses
       # (don't do this in production though!)
       - name: Start your API
-        run: ./server/server.py
+        run: ./server/start_backend.sh
 
       - name: Mayhem for API
         uses: ForAllSecure/mapi-action@v1
