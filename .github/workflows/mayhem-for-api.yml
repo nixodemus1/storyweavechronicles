@@ -33,6 +33,7 @@ jobs:
   mayhem-for-api:
     name: Mayhem for API
     runs-on: ubuntu-latest
+    environment: development.env
     env:
       # Environment Secrets
       GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
@@ -53,8 +54,13 @@ jobs:
       MEMORY_LOW_THRESHOLD_MB: 250
       PORT: 5000
       SCOPES: https://www.googleapis.com/auth/drive.readonly
+      # repository-specific variables
+      mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Make backend start script executable
+        run: chmod +x ./server/start_backend.sh
 
       - name: Debug Environment Variables
         run: |
@@ -62,9 +68,7 @@ jobs:
           echo "DB_NAME=${DB_NAME}"
           echo "DB_USER=${DB_USER}"
           echo "DB_PASSWORD=${DB_PASSWORD}"
-
-      - name: Make backend start script executable
-        run: chmod +x ./server/start_backend.sh
+          echo "MAYHEM_TOKEN=${mayhem-token}"
 
       - name: Start your API
         run: ./server/start_backend.sh
@@ -73,7 +77,6 @@ jobs:
         uses: ForAllSecure/mapi-action@v1
         continue-on-error: true
         with:
-          mayhem-token: ${{ vars.MAYHEM_TOKEN }}
           api-url: https://dev-swc-backend-1v2c.onrender.com/
           api-spec: https://dev-swc-backend-1v2c.onrender.com/swagger.json
           duration: 60
