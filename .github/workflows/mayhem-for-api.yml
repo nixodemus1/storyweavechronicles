@@ -62,6 +62,13 @@ jobs:
       - name: Start your API
         run: ./server/start_backend.sh
 
+      - name: Debug Environment Variables
+        run: |
+          echo "DB_HOST=${DB_HOST}"
+          echo "DB_NAME=${DB_NAME}"
+          echo "DB_USER=${DB_USER}"
+          echo "DB_PASSWORD=${DB_PASSWORD}"
+
       - name: Mayhem for API
         uses: ForAllSecure/mapi-action@v1
         continue-on-error: true
