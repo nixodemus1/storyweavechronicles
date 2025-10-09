@@ -56,18 +56,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Make backend start script executable
-        run: chmod +x ./server/start_backend.sh
-
-      - name: Start your API
-        run: ./server/start_backend.sh
-
       - name: Debug Environment Variables
         run: |
           echo "DB_HOST=${DB_HOST}"
           echo "DB_NAME=${DB_NAME}"
           echo "DB_USER=${DB_USER}"
           echo "DB_PASSWORD=${DB_PASSWORD}"
+
+      - name: Make backend start script executable
+        run: chmod +x ./server/start_backend.sh
+
+      - name: Start your API
+        run: ./server/start_backend.sh
 
       - name: Mayhem for API
         uses: ForAllSecure/mapi-action@v1
