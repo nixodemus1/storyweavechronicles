@@ -33,51 +33,30 @@ jobs:
   mayhem-for-api:
     name: Mayhem for API
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
+    env:
+      # Environment Secrets
+      GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+      DB_HOST: ${{ secrets.DB_HOST }}
+      DB_NAME: ${{ secrets.DB_NAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_USER: ${{ secrets.DB_USER }}
+      # Environment Variables
+      DB_PORT: ${{ vars.DB_PORT }}
+      DEBUG: ${{ vars.DEBUG }}
+      ENABLE_FILE_LOGGING: ${{ vars.ENABLE_FILE_LOGGING }}
+      FRONTEND_BASE_URL: ${{ vars.FRONTEND_BASE_URL }}
+      FRONTEND_STATIC_DIR: ${{ vars.FRONTEND_STATIC_DIR }}
+      MAIL_PORT: ${{ vars.MAIL_PORT }}
+      MAIL_SERVER: ${{ vars.MAIL_SERVER }}
+      MAIL_USE_TLS: ${{ vars.MAIL_USE_TLS }}
+      MEMORY_HIGH_THRESHOLD_MB: ${{ vars.MEMORY_HIGH_THRESHOLD_MB }}
+      MEMORY_LOW_THRESHOLD_MB: ${{ vars.MEMORY_LOW_THRESHOLD_MB }}
+      PORT: ${{ vars.PORT }}
+      SCOPES: ${{ vars.SCOPES }}
+      # Repository Variables
+      MAYHEM_TOKEN: ${{ vars.MAYHEM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up environment variables
-        run: |
-          # Environment Secrets
-          export DB_HOST=${{ secrets.DB_HOST }}
-          export DB_NAME=${{ secrets.DB_NAME }}
-          export DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-          export DB_USER=${{ secrets.DB_USER }}
-          export GOOGLE_AUTH_CERT_URI=${{ secrets.GOOGLE_AUTH_CERT_URI }}
-          export GOOGLE_AUTH_URI=${{ secrets.GOOGLE_AUTH_URI }}
-          export GOOGLE_CLIENT_EMAIL=${{ secrets.GOOGLE_CLIENT_EMAIL }}
-          export GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
-          export GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
-          export GOOGLE_CLIENT_X509_CERT_URL=${{ secrets.GOOGLE_CLIENT_X509_CERT_URL }}
-          export GOOGLE_DRIVE_FOLDER_ID=${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-          export GOOGLE_PRIVATE_KEY=${{ secrets.GOOGLE_PRIVATE_KEY }}
-          export GOOGLE_PRIVATE_KEY_ID=${{ secrets.GOOGLE_PRIVATE_KEY_ID }}
-          export GOOGLE_PROJECT_ID=${{ secrets.GOOGLE_PROJECT_ID }}
-          export GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}
-          export GOOGLE_TOKEN_URI=${{ secrets.GOOGLE_TOKEN_URI }}
-          export MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
-          export MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
-
-          # Environment Variables
-          export DB_PORT=${{ vars.DB_PORT }}
-          export DEBUG=${{ vars.DEBUG }}
-          export ENABLE_FILE_LOGGING=${{ vars.ENABLE_FILE_LOGGING }}
-          export FRONTEND_BASE_URL=${{ vars.FRONTEND_BASE_URL }}
-          export FRONTEND_STATIC_DIR=${{ vars.FRONTEND_STATIC_DIR }}
-          export MAIL_PORT=${{ vars.MAIL_PORT }}
-          export MAIL_SERVER=${{ vars.MAIL_SERVER }}
-          export MAIL_USE_TLS=${{ vars.MAIL_USE_TLS }}
-          export MEMORY_HIGH_THRESHOLD_MB=${{ vars.MEMORY_HIGH_THRESHOLD_MB }}
-          export MEMORY_LOW_THRESHOLD_MB=${{ vars.MEMORY_LOW_THRESHOLD_MB }}
-          export PORT=${{ vars.PORT }}
-          export SCOPES=${{ vars.SCOPES }}
-
-          # Repository Variables
-          export MAYHEM_TOKEN=${{ vars.MAYHEM_TOKEN }}
 
       - name: Make backend start script executable
         run: chmod +x ./server/start_backend.sh
@@ -89,7 +68,7 @@ jobs:
         uses: ForAllSecure/mapi-action@v1
         continue-on-error: true
         with:
-          mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
+          mayhem-token: ${{ vars.MAYHEM_TOKEN }}
           api-url: https://dev-swc-backend-1v2c.onrender.com/
           api-spec: https://dev-swc-backend-1v2c.onrender.com/swagger.json
           duration: 60
