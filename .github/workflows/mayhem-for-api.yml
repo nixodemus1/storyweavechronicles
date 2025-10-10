@@ -85,13 +85,6 @@ jobs:
           ./server/start_backend.sh > backend.log 2>&1 &
           echo "BACKEND_PID=$!" >> $GITHUB_ENV
 
-      - name: Stop Backend (Post-Run)
-        if: always()
-        run: |
-          if [ -n "${{ env.BACKEND_PID }}" ]; then
-            kill ${{ env.BACKEND_PID }} || echo "Backend process already stopped."
-          fi
-
       - name: Mayhem for API
         uses: ForAllSecure/mapi-action@v1
         continue-on-error: true
@@ -106,3 +99,10 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: mapi.sarif
+
+      - name: Stop Backend (Post-Run)
+        if: always()
+        run: |
+          if [ -n "${{ env.BACKEND_PID }}" ]; then
+            kill ${{ env.BACKEND_PID }} || echo "Backend process already stopped."
+          fi
