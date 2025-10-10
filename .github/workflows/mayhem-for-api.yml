@@ -112,6 +112,12 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: mapi.sarif
+      
+      - name: Upload SARIF as Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: sarif-report
+          path: ./mapi.sarif
 
       - name: Stop Backend (Post-Run)
         if: always()
