@@ -36,26 +36,42 @@ jobs:
     environment: development.env
     env:
       # Environment Secrets
-      GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
       DB_HOST: ${{ secrets.DB_HOST }}
       DB_NAME: ${{ secrets.DB_NAME }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       DB_USER: ${{ secrets.DB_USER }}
-      # Environment Variables with Explicit Fallbacks (Aligned with .env)
-      DB_PORT: 5432
-      DEBUG: true
-      ENABLE_FILE_LOGGING: false
-      FRONTEND_BASE_URL: http://localhost:5000
-      FRONTEND_STATIC_DIR: ./client/public
-      MAIL_PORT: 587
-      MAIL_SERVER: smtp.gmail.com
-      MAIL_USE_TLS: True
-      MEMORY_HIGH_THRESHOLD_MB: 350
-      MEMORY_LOW_THRESHOLD_MB: 250
-      PORT: 5000
-      SCOPES: https://www.googleapis.com/auth/drive.readonly
-      # repository-specific variables
-      mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
+      GOOGLE_AUTH_CERT_URI: ${{ secrets.GOOGLE_AUTH_CERT_URI }}
+      GOOGLE_AUTH_URI: ${{ secrets.GOOGLE_AUTH_URI }}
+      GOOGLE_CLIENT_EMAIL: ${{ secrets.GOOGLE_CLIENT_EMAIL }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_CLIENT_X509_CERT_URL: ${{ secrets.GOOGLE_CLIENT_X509_CERT_URL }}
+      GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+      GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+      GOOGLE_PRIVATE_KEY_ID: ${{ secrets.GOOGLE_PRIVATE_KEY_ID }}
+      GOOGLE_PROJECT_ID: ${{ secrets.GOOGLE_PROJECT_ID }}
+      GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+      GOOGLE_TOKEN_URI: ${{ secrets.GOOGLE_TOKEN_URI }}
+      MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+      MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+
+      # Environment Variables
+      DB_PORT: ${{ vars.DB_PORT }}
+      DEBUG: ${{ vars.DEBUG }}
+      ENABLE_FILE_LOGGING: ${{ vars.ENABLE_FILE_LOGGING }}
+      FRONTEND_BASE_URL: ${{ vars.FRONTEND_BASE_URL }}
+      FRONTEND_STATIC_DIR: ${{ vars.FRONTEND_STATIC_DIR }}
+      MAIL_PORT: ${{ vars.MAIL_PORT }}
+      MAIL_SERVER: ${{ vars.MAIL_SERVER }}
+      MAIL_USE_TLS: ${{ vars.MAIL_USE_TLS }}
+      MEMORY_HIGH_THRESHOLD_MB: ${{ vars.MEMORY_HIGH_THRESHOLD_MB }}
+      MEMORY_LOW_THRESHOLD_MB: ${{ vars.MEMORY_LOW_THRESHOLD_MB }}
+      PORT: ${{ vars.PORT }}
+      SCOPES: ${{ vars.SCOPES }}
+
+      # Repository Secrets
+      MAYHEM_TOKEN: ${{ secrets.MAYHEM_TOKEN }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -70,6 +86,15 @@ jobs:
           echo "DB_PASSWORD=${DB_PASSWORD}"
           echo "MAYHEM_TOKEN=${mayhem-token}"
 
+      - name: Verify MAYHEM_TOKEN
+        run: |
+          if [ -z "${{ secrets.MAYHEM_TOKEN }}" ]; then
+            echo "MAYHEM_TOKEN is not set or is empty."
+            exit 1
+          else
+            echo "MAYHEM_TOKEN is set and retrieved successfully."
+          fi
+
       - name: Start your API
         run: ./server/start_backend.sh
 
@@ -77,6 +102,7 @@ jobs:
         uses: ForAllSecure/mapi-action@v1
         continue-on-error: true
         with:
+          mayhem-token: ${{ env.MAYHEM_TOKEN }}
           api-url: https://dev-swc-backend-1v2c.onrender.com/
           api-spec: https://dev-swc-backend-1v2c.onrender.com/swagger.json
           duration: 60
