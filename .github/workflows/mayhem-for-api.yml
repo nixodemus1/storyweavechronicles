@@ -96,10 +96,17 @@ jobs:
           api-url: https://dev-swc-backend-1v2c.onrender.com/
           api-spec: https://dev-swc-backend-1v2c.onrender.com/swagger.json
           duration: 60
-          sarif-report: mapi.sarif
+          sarif-report: ./mapi.sarif
       
-      - name: Debug SARIF File
-        run: ls -al
+      - name: Verify SARIF File
+        run: |
+          if [ -f ./mapi.sarif ]; then
+            echo "SARIF file generated successfully."
+            cat ./mapi.sarif
+          else
+            echo "SARIF file not found!"
+            exit 1
+          fi
 
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@v3
@@ -110,5 +117,6 @@ jobs:
         if: always()
         run: |
           if [ -n "${{ env.BACKEND_PID }}" ]; then
+            echo "Stopping backend process with PID ${{ env.BACKEND_PID }}"
             kill ${{ env.BACKEND_PID }} || echo "Backend process already stopped."
           fi
