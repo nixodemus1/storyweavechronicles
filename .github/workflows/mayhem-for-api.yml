@@ -29,6 +29,9 @@ on:
   pull_request:
     branches: [ "dev" ]
 
+permissions:
+  security-events: write
+
 jobs:
   mayhem-for-api:
     name: Mayhem for API
