@@ -97,6 +97,9 @@ jobs:
           api-spec: https://dev-swc-backend-1v2c.onrender.com/swagger.json
           duration: 60
           sarif-report: mapi.sarif
+      
+      - name: Debug SARIF File
+        run: ls -al
 
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@v3
