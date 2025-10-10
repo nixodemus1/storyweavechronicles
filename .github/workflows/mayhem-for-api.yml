@@ -35,6 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: development.env
     env:
+      #PID
+      Backend_PID: ""
       # Environment Secrets
       DB_HOST: ${{ secrets.DB_HOST }}
       DB_NAME: ${{ secrets.DB_NAME }}
@@ -78,25 +80,17 @@ jobs:
       - name: Make backend start script executable
         run: chmod +x ./server/start_backend.sh
 
-      - name: Debug Environment Variables
-        run: |
-          echo "DB_HOST=${DB_HOST}"
-          echo "DB_NAME=${DB_NAME}"
-          echo "DB_USER=${DB_USER}"
-          echo "DB_PASSWORD=${DB_PASSWORD}"
-          echo "MAYHEM_TOKEN=${mayhem-token}"
-
-      - name: Verify MAYHEM_TOKEN
-        run: |
-          if [ -z "${{ secrets.MAYHEM_TOKEN }}" ]; then
-            echo "MAYHEM_TOKEN is not set or is empty."
-            exit 1
-          else
-            echo "MAYHEM_TOKEN is set and retrieved successfully."
-          fi
-
       - name: Start your API
-        run: ./server/start_backend.sh
+        run: |
+          ./server/start_backend.sh > backend.log 2>&1 &
+          echo "BACKEND_PID=$!" >> $GITHUB_ENV
+
+      - name: Stop Backend (Post-Run)
+        if: always()
+        run: |
+          if [ -n "${{ env.BACKEND_PID }}" ]; then
+            kill ${{ env.BACKEND_PID }} || echo "Backend process already stopped."
+          fi
 
       - name: Mayhem for API
         uses: ForAllSecure/mapi-action@v1
