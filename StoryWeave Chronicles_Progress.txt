@@ -18,8 +18,7 @@
 ## ☐ Remaining Bugs & Improvements
 - Carousel UI: polish for desktop and mobile
 - for advertising: propellerads, adsterra, and revenuehits are the ones i want to look at the most.
-- for OAuth and login credentials: firebase and clerk (might not do this one, i think our current setup might be fine. we'll see if i regret that decision)
-- for new Mail provider: sendgrid or mailgun (can integrate with flaskmail)
+- moving the schedules and mail to google cloud (and having uploads/updates automatically send out notifications and update the database)
 - churn is back. it fixed itself for a bit and now its back. (doesn't do TOO much damage, but still anoying)
 
 ---
@@ -68,17 +67,74 @@ optimized as possible. which is why i want this churn gone!
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 no thanks just wanted to get you caught up to speed. so i just spent time cleaning up the backend and making it compatable with flask-restx so i can have my won openapi page. i did this because im setting up my CI/CD with help from github actions. the new setup im trying to have is local testing (what we are doing now) then a dev branch that goes live on render where i can test things in a live environment without worry. and then a production branch on github and render that users actually use. that way i can test and make new features. and if i break something the site isnt down for all users. i created another site specifically for dev on render. made a new branch called dev and connected it with render. made new branch rules so that you HAVE to pull request and pull requests HAVE to be approved to push changes from dev to prod. i also wanted to set up environments that dev has to pass before github will even let you make a pull request. one of those was a node tester (honestly thats how i found out that my current set up is only compatable with node 20 and onwards.) and now i want a way to be able to check the api to make sure they are robust and secure before we throw whatever new endpoints we make into prod. i found a github action for mayhem api. I created a mayhem account and as you just saw, i have refactored my entire flask app to be compatable and make an openapi page that mayhem can test against for security purposes. thats where we are at right now. that is the current state of the site right now. 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
-well that is the reason i am telling you all this and getting you up to speed. i have 2 directions i want to go and i dont know which one i want to do first.
-on one hand i want to work on these, cause these ARE the last 2 features i want to add before i let the site go public finally to our userbase:
-- for advertising: propellerads, adsterra, and revenuehits are the ones i want to look at the most.
-- for new Mail provider: sendgrid or mailgun (can integrate with flaskmail)
-on the other hand, considering all the work i put in to get this CI/CD set up i would also like to take you up on your offer for these two:
-- Help configure the Mayhem API GitHub Action for automated security checks
-- Suggest additional CI/CD checks or environment protections
+Your concerns are valid, and it's great that you're thinking about preserving critical functionality while improving the architecture. The good news is that we can absolutely retain the features you mentioned—sending notifications for updated books and adding metadata to the database—while transitioning to the new setup. Here's how we can address your concerns:
 
-and i dont know which one i want to do first. like just finish setting up the CI/CD first or get the last 2 feature up and running first.
+---
 
-and thats not even counting the fact that some endpoints are now out of date and broken and desperately need an update. ex: simulate users uses the now outdated system for getting covers on the front end landing page. so it is kind of useless as an endpoint at the moment. but rather than just deleting it, i do want to refactor it to be actually useful to me agian. because being able to simulate a stress test is a very good way of knowing what my system can handle without having to somehow coordinate 100 people for the test. 
+### **1. Retaining Notifications for Updated Books**
+The `/api/seed-drive-books` endpoint currently sends notifications to users when a book in their bookmarks is updated. This functionality can be preserved by:
+- **Extending the Google Drive Webhook**:
+  - When the webhook detects an updated book, it can trigger the same logic that `/api/seed-drive-books` uses to send notifications.
+  - This ensures that users are notified in real-time when a bookmarked book is updated.
 
-but thats where my head is at, i know they are all important, but i dont know which one i should tackle next. 
+---
+
+### **2. Adding Metadata for New Books**
+The `/api/seed-drive-books` endpoint also adds metadata for new books to the database. This can be handled by:
+- **Processing New Book Events in the Webhook**:
+  - When the webhook detects a new book, it can extract the metadata (e.g., title, file ID) and add it to the database.
+  - This logic can be directly integrated into the webhook handler.
+
+---
+
+### **3. Updated Workflow**
+Here’s how the new workflow would look:
+1. **Google Drive Webhook**:
+   - Detects new or updated books in the Drive folder.
+   - For new books:
+     - Extract metadata and add it to the database.
+   - For updated books:
+     - Check if the book is in any user’s bookmarks.
+     - If yes, send notifications to those users.
+
+2. **Database Updates**:
+   - The webhook handler will directly interact with the database to add or update book metadata.
+
+3. **Notifications**:
+   - The webhook handler will use the existing notification logic to send updates to users.
+
+---
+
+### **4. Benefits of the New Setup**
+- **Real-Time Updates**: Users are notified immediately when a bookmarked book is updated.
+- **Simplified Architecture**: No need for a separate `/api/seed-drive-books` endpoint or scheduled jobs.
+- **Cleaner Codebase**: All book-related updates are handled in one place (the webhook).
+
+---
+
+### **5. Implementation Plan**
+Here’s how we can implement this:
+1. **Extend the Webhook Handler**:
+   - Add logic to process new and updated books.
+   - For new books:
+     - Extract metadata and add it to the database.
+   - For updated books:
+     - Check bookmarks and send notifications.
+
+2. **Remove Redundant Code**:
+   - Remove the `/api/seed-drive-books` endpoint.
+   - Remove the `check_and_notify_new_books` scheduled job.
+
+3. **Test the New Setup**:
+   - Ensure that new books are added to the database correctly.
+   - Verify that notifications are sent for updated books.
+
+---
+
+### **Next Steps**
+Would you like me to start implementing these changes? If so, I can:
+1. Update the Google Drive webhook handler to include the logic for adding metadata and sending notifications.
+2. Remove the redundant `/api/seed-drive-books` endpoint and scheduled job.
+
+Let me know how you’d like to proceed!
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
