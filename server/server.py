@@ -1018,7 +1018,9 @@ class UpdateProfileSettings(Resource):
         comments_page_size = data.get('comments_page_size')
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         if font is not None:
             user.font = font
         if timezone is not None:
@@ -1041,10 +1043,14 @@ class UpdateColors(Resource):
         background_color = data.get('backgroundColor')
         text_color = data.get('textColor')
         if not username or not background_color or not text_color:
-            return jsonify({'success': False, 'message': 'Missing required fields.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Missing required fields.'}))
+            response.status_code = 400
+            return response
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         try:
             user.background_color = background_color
             user.text_color = text_color
@@ -1071,7 +1077,9 @@ class UpdateColors(Resource):
             })
         except Exception as e:
             db.session.rollback()
-            return jsonify({'success': False, 'message': str(e)}), 500
+            response = make_response(jsonify({'success': False, 'message': str(e)}))
+            response.status_code = 500
+            return response
 
 @auth_ns.route('/export-account')
 class ExportAccount(Resource):
@@ -1080,7 +1088,9 @@ class ExportAccount(Resource):
         username = data.get('username')
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         account = {
             'username': user.username,
             'email': user.email,
@@ -1125,7 +1135,9 @@ class ImportAccount(Resource):
         account = data.get('account')
         user = User.query.filter_by(username=username).first()
         if not user or not account:
-            return jsonify({'success': False, 'message': 'User not found or invalid data.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'User not found or invalid data.'}))
+            response.status_code = 400
+            return response
         user.email = account.get('email', user.email)
         user.background_color = account.get('background_color', user.background_color)
         user.text_color = account.get('text_color', user.text_color)
@@ -1174,14 +1186,20 @@ class Login(Resource):
         identifier = data.get('username')
         password = data.get('password')
         if not identifier or not password:
-            return jsonify({'success': False, 'message': 'Username/email and password required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Username/email and password required.'}))
+            response.status_code = 400
+            return response
         user = User.query.filter_by(username=identifier).first()
         if not user:
             user = User.query.filter_by(email=identifier).first()
         if not user or user.password != hash_password(password):
-            return jsonify({'success': False, 'message': 'Invalid username/email or password.'}), 401
+            response = make_response(jsonify({'success': False, 'message': 'Invalid username/email or password.'}))
+            response.status_code = 401
+            return response
         if user.banned:
-            return jsonify({'success': False, 'message': 'Your account has been banned.'}), 403
+            response = make_response(jsonify({'success': False, 'message': 'Your account has been banned.'}))
+            response.status_code = 403
+            return response
         return jsonify({
             'success': True,
             'message': 'Login successful.',
@@ -1208,11 +1226,17 @@ class Register(Resource):
         backgroundColor = data.get('backgroundColor')
         textColor = data.get('textColor')
         if not username or not email or not password:
-            return jsonify({'success': False, 'message': 'Username, email, and password required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Username, email, and password required.'}))
+            response.status_code = 400
+            return response
         if User.query.filter_by(username=username).first():
-            return jsonify({'success': False, 'message': 'Username already exists.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Username already exists.'}))
+            response.status_code = 400
+            return response
         if User.query.filter_by(email=email).first():
-            return jsonify({'success': False, 'message': 'Email already registered.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Email already registered.'}))
+            response.status_code = 400
+            return response
         user = User(
             username=username,
             email=email,
@@ -1270,12 +1294,18 @@ class ChangePassword(Resource):
         current_password = data.get('currentPassword')
         new_password = data.get('newPassword')
         if not username or not current_password or not new_password:
-            return jsonify({'success': False, 'message': 'All fields are required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'All fields are required.'}))
+            response.status_code = 400
+            return response
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         if user.password != hash_password(current_password):
-            return jsonify({'success': False, 'message': 'Current password is incorrect.'}), 401
+            response = make_response(jsonify({'success': False, 'message': 'Current password is incorrect.'}))
+            response.status_code = 401
+            return response
         user.password = hash_password(new_password)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Password changed successfully.'})
@@ -1287,17 +1317,27 @@ class AddSecondaryEmail(Resource):
         username = data.get('username')
         new_email = data.get('email')
         if not username:
-            return jsonify({'success': False, 'message': 'Username required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Username required.'}))
+            response.status_code = 400
+            return response
         if not new_email:
-            return jsonify({'success': False, 'message': 'Email required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Email required.'}))
+            response.status_code = 400
+            return response
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         secondary = json.loads(user.secondary_emails) if user.secondary_emails else []
         if new_email == user.email or new_email in secondary:
-            return jsonify({'success': False, 'message': 'Email already associated with account.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Email already associated with account.'}))
+            response.status_code = 400
+            return response
         if User.query.filter_by(email=new_email).first():
-            return jsonify({'success': False, 'message': 'Email already registered to another account.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Email already registered to another account.'}))
+            response.status_code = 400
+            return response
         secondary.append(new_email)
         user.secondary_emails = json.dumps(secondary)
         db.session.commit()
@@ -1310,13 +1350,19 @@ class RemoveSecondaryEmail(Resource):
         username = data.get('username')
         email_to_remove = data.get('email')
         if not username or not email_to_remove:
-            return jsonify({'success': False, 'message': 'Username and email required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Username and email required.'}))
+            response.status_code = 400
+            return response
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         secondary = json.loads(user.secondary_emails) if user.secondary_emails else []
         if email_to_remove not in secondary:
-            return jsonify({'success': False, 'message': 'Email not found in secondary emails.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Email not found in secondary emails.'}))
+            response.status_code = 400
+            return response
         secondary.remove(email_to_remove)
         user.secondary_emails = json.dumps(secondary)
         db.session.commit()
@@ -1329,7 +1375,9 @@ class GetUser(Resource):
         username = data.get('username')
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.', 'username': None, 'email': None}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         email = user.email
         secondary = json.loads(user.secondary_emails) if user.secondary_emails else []
         if not email and secondary and len(secondary) > 0:
@@ -1378,10 +1426,14 @@ class MakeAdmin(Resource):
         admin_username = data.get('adminUsername')
         target_username = data.get('targetUsername')
         if not is_admin(admin_username):
-            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+            response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
+            response.status_code = 403
+            return response
         user = User.query.filter_by(username=target_username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Target user not found.'}))
+            response.status_code = 404
+            return response
         user.is_admin = True
         db.session.commit()
         return jsonify({'success': True, 'message': f'User {target_username} is now an admin.'})
@@ -1393,10 +1445,14 @@ class RemoveAdmin(Resource):
         admin_username = data.get('adminUsername')
         target_username = data.get('targetUsername')
         if not is_admin(admin_username):
-            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+            response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
+            response.status_code = 403
+            return response
         user = User.query.filter_by(username=target_username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Target user not found.'}))
+            response.status_code = 404
+            return response
         user.is_admin = False
         db.session.commit()
         return jsonify({'success': True, 'message': f'User {target_username} is no longer an admin.'})
@@ -1408,10 +1464,14 @@ class BootstrapAdmin(Resource):
         target_username = data.get('targetUsername')
         admin_count = User.query.filter_by(is_admin=True).count()
         if admin_count > 0:
-            return jsonify({'success': False, 'message': 'Admins already exist. Use make-admin endpoint.'}), 403
+            response = make_response(jsonify({'success': False, 'message': 'Admins already exist. Use make-admin endpoint.'}))
+            response.status_code = 403
+            return response
         user = User.query.filter_by(username=target_username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Target user not found.'}))
+            response.status_code = 404
+            return response
         user.is_admin = True
         db.session.commit()
         return jsonify({'success': True, 'message': f'User {target_username} is now the first admin.'})
@@ -1430,10 +1490,14 @@ class SendEmergencyEmail(Resource):
         logging.info(f"Attempting emergency email: admin={admin_username}, subject={subject}, message={message}, recipient={recipient}")
         if not is_admin(admin_username):
             logging.warning(f"Unauthorized emergency email attempt by {admin_username}")
-            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+            response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
+            response.status_code = 403
+            return response
         if not subject or not message:
             logging.error("Missing subject or message for emergency email.")
-            return jsonify({'success': False, 'message': 'Subject and message required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Subject and message required.'}))
+            response.status_code = 400
+            return response
         def send_with_logging(user, subject, message):
             try:
                 logging.info(f"Preparing to send to {user.username} ({user.email})")
@@ -1480,7 +1544,9 @@ class SendNewsletter(Resource):
         errors = []
         sent_count = 0
         if not is_admin(admin_username):
-            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+            response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
+            response.status_code = 403
+            return response
         today = datetime.datetime.now().strftime('%m/%d/%Y')
         newsletter_subject = f"Newsletter {today} - {subject}"
         newsletter_body = f"{message}\n\nSincerely,\n{admin_username}"
@@ -1503,12 +1569,18 @@ class BanUser(Resource):
         target_username = data.get('targetUsername')
         if not is_admin(admin_username):
             user = User.query.filter_by(username=target_username).first()
-            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+            response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
+            response.status_code = 403
+            return response
         user = User.query.filter_by(username=target_username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Target user not found.'}))
+            response.status_code = 404
+            return response
         if user.is_admin:
-            return jsonify({'success': False, 'message': 'You cannot ban another admin.'}), 403
+            response = make_response(jsonify({'success': False, 'message': 'You cannot ban another admin.'}))
+            response.status_code = 403
+            return response
         user.banned = True
         db.session.commit()
         return jsonify({'success': True, 'message': f'User {target_username} has been banned.'})
@@ -1520,10 +1592,14 @@ class UnbanUser(Resource):
         admin_username = data.get('adminUsername')
         target_username = data.get('targetUsername')
         if not is_admin(admin_username):
-            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+            response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
+            response.status_code = 403
+            return response
         user = User.query.filter_by(username=target_username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'Target user not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Target user not found.'}))
+            response.status_code = 404
+            return response
         user.banned = False
         db.session.commit()
         return jsonify({'success': True, 'message': f'User {target_username} has been unbanned.'})
@@ -1537,10 +1613,14 @@ class ModerateComment(Resource):
         username = data.get('username')
         user = User.query.filter_by(username=username).first()
         if not user or not user.is_admin:
-            return jsonify({'success': False, 'message': 'Not authorized.'}), 403
+            response = make_response(jsonify({'success': False, 'message': 'Not authorized.'}))
+            response.status_code = 403
+            return response
         comment = Comment.query.get(comment_id)
         if not comment:
-            return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Comment not found.'}))
+            response.status_code = 404
+            return response
         if action == 'delete':
             comment.deleted = True
             db.session.commit()
@@ -1570,14 +1650,20 @@ class UpdateExternalId(Resource):
         book_id = data.get('book_id')
         pdf_bytes_b64 = data.get('pdf_bytes')
         if not book_id or not pdf_bytes_b64:
-            return jsonify({'success': False, 'message': 'Missing book_id or pdf_bytes.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Missing book_id or pdf_bytes.'}))
+            response.status_code = 400
+            return response
         book = Book.query.filter_by(drive_id=book_id).first()
         if not book:
-            return jsonify({'success': False, 'message': 'Book not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Book not found.'}))
+            response.status_code = 404
+            return response
         try:
             pdf_bytes = base64.b64decode(pdf_bytes_b64)
         except Exception:
-            return jsonify({'success': False, 'message': 'Invalid PDF bytes.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Invalid PDF bytes.'}))
+            response.status_code = 400
+            return response
         new_external_id = extract_story_id_from_pdf(pdf_bytes)
         # Only update if new_external_id is not None and current value is missing or blank
         if new_external_id and (not book.external_story_id or not book.external_story_id.strip()):
@@ -1598,19 +1684,27 @@ class RebuildCoverCache(Resource):
                 logging.warning(f"[API][rebuild-cover-cache] Skipping deletion: received only {len(book_ids) if book_ids else 0} book_ids (minimum required: 20). Possible partial/empty POST. Waiting for next request.")
             success, missing = rebuild_cover_cache(book_ids)
             if success:
-                return jsonify({'success': True, 'message': 'Cover cache rebuilt.', 'missing_ids': []}), 200
+                response = make_response(jsonify({'success': True, 'message': 'Cover cache rebuilt.', 'missing_ids': []}))
+                response.status_code = 200
+                return response
             else:
-                return jsonify({'success': False, 'error': 'Missing covers', 'missing_ids': missing}), 200
+                response = make_response(jsonify({'success': False, 'error': 'Missing covers', 'missing_ids': missing}))
+                response.status_code = 200
+                return response
         except Exception as e:
             logging.error(f"[API][rebuild-cover-cache] Error: {e}")
-            return jsonify({'success': False, 'error': str(e), 'missing_ids': []}), 500
+            response = make_response(jsonify({'success': False, 'error': str(e), 'missing_ids': []}))
+            response.status_code = 500
+            return response
 
 @books_ns.route('/books')
 class BooksByIds(Resource):
     def get(self):
         ids_param = request.args.get('ids')
         if not ids_param:
-            return jsonify({'error': 'Missing ids parameter'}), 400
+            response = make_response(jsonify({'error': 'Missing ids parameter'}))
+            response.status_code = 400
+            return response
         ids = ids_param.split(',')
         # Query books by drive_id
         books = Book.query.filter(Book.drive_id.in_(ids)).all()
@@ -1691,7 +1785,9 @@ class LandingPageBookIds(Resource):
             return jsonify({'success': True, 'book_ids': book_ids})
         except Exception as e:
             logging.error(f"[Atlas] Error in /api/landing-page-book-ids: {e}")
-            return jsonify({'success': False, 'error': str(e)}), 500
+            response = make_response(jsonify({'success': False, 'error': str(e)}))
+            response.status_code = 500
+            return response
 
 # --- Serve covers from disk with fallback ---
 @books_ns.route('/covers/<cover_id>.jpg')
@@ -1804,7 +1900,9 @@ class ServeCover(Resource):
                 logging.info(f"[ServeCover][Status] Final status for {cover_id}: exists={exists}, valid={valid}")
                 # Fallback: always return JSON error
                 logging.error(f"[ServeCover] Exception in status mode for {cover_id}: {e}")
-                return jsonify({'status': 'error', 'cover_id': cover_id, 'error': str(e)}), 200
+                response = make_response(jsonify({'status': 'error', 'cover_id': cover_id, 'error': str(e)}))
+                response.status_code = 200
+                return response
 
         # Normal image serving
         logging.info(f"[ServeCover] Normal image mode for {cover_id}, exists={os.path.exists(cover_path)}")
@@ -1859,9 +1957,11 @@ class ServeCover(Resource):
             logging.info(f"[ServeCover] Sending fallback image for {cover_id}")
             return send_file(fallback_path, mimetype='image/svg+xml')
         logging.error(f"[ServeCover] No cover or fallback found for {cover_id}")
-        return jsonify({'success': False, 'message': 'Cover not found.'}), 404
+        response = make_response(jsonify({'success': False, 'message': 'Cover not found.'}))
+        response.status_code = 404
+        return response
 
-@books_ns.route('/api/cancel-session', methods=['POST'])
+@books_ns.route('/cancel-session', methods=['POST'])
 class CancelSession(Resource):
     def post(self):
         """
@@ -1872,7 +1972,9 @@ class CancelSession(Resource):
         session_id = data.get('session_id')
         req_type = data.get('type')
         if not session_id or req_type not in ['cover', 'text']:
-            return jsonify({'success': False, 'message': 'Missing session_id or invalid type.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Missing session_id or invalid type.'}))
+            response.status_code = 400
+            return response
 
         removed = 0
         if req_type == 'cover':
@@ -2019,7 +2121,7 @@ class PdfCover(Resource):
                     logging.error(f"[pdf-cover] Fallback SVG not found at {fallback_svg_path}")
                     return make_response(jsonify({'error': 'No cover available', 'file_id': file_id}), 404)
 
-@books_ns.route('/api/pdf-text/<file_id>', methods=['GET'])
+@books_ns.route('/pdf-text/<file_id>', methods=['GET'])
 class PdfText(Resource):
     def get(self, file_id):
         """
@@ -2057,14 +2159,18 @@ class PdfText(Resource):
         try:
             if not session_id:
                 logging.error("[pdf-text] ERROR: No session_id provided!")
-                return jsonify({"success": False, "error": "Missing session_id"}), 400
+                response = make_response(jsonify({"success": False, "error": "Missing session_id"}))
+                response.status_code = 400
+                return response
             heartbeat(session_id)
             page_num = int(page_str) if page_str and page_str.isdigit() else 1
             entry = {'session_id': session_id, 'file_id': file_id, 'page_num': page_num, 'timestamp': time.time()}
             acquired = text_queue_lock.acquire(timeout=5)
             if not acquired:
                 logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock.")
-                return jsonify({"success": False, "error": "Could not acquire queue lock (deadlock?)"}), 503
+                response = make_response(jsonify({"success": False, "error": "Could not acquire queue lock (deadlock?)"}))
+                response.status_code = 503
+                return response
             try:
                 # Deduplicate: only add if not already present
                 if not any(e['session_id'] == entry['session_id'] and e['file_id'] == entry['file_id'] and e['page_num'] == entry['page_num'] for e in text_request_queue):
@@ -2218,7 +2324,9 @@ class PdfText(Resource):
                         text_queue_lock.release()
                 else:
                     logging.error("[pdf-text] ERROR: Could not acquire text_queue_lock after 5 seconds! Possible deadlock in error cleanup.")
-            return jsonify({"success": False, "error": str(e)}), 500
+            response = make_response(jsonify({"success": False, "error": str(e)}))
+            response.status_code = 500
+            return response
 
 # === Bookmarks ===
 @books_ns.route('/get-bookmarks', methods=['GET', 'POST'])
@@ -2227,8 +2335,9 @@ class GetBookmarks(Resource):
         username = request.args.get('username')
         user = User.query.filter_by(username=username).first()
         if not user:
-            response = jsonify({'success': False, 'message': 'User not found.'})
-            return response, 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
         try:
             service = get_drive_service()
@@ -2252,8 +2361,9 @@ class GetBookmarks(Resource):
         username = data.get('username') if data else None
         user = User.query.filter_by(username=username).first()
         if not user:
-            response = jsonify({'success': False, 'message': 'User not found.'})
-            return response, 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
         try:
             service = get_drive_service()
@@ -2279,10 +2389,14 @@ class AddBookmark(Resource):
         username = data.get('username')
         book_id = data.get('book_id')
         if not username or not book_id:
-            return jsonify({'success': False, 'message': 'Username and book_id required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Username and book_id required.'}))
+            response.status_code = 400
+            return response
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
         for bm in bookmarks:
             bm['cover_url'] = get_cover_url(bm['id'])
@@ -2302,9 +2416,13 @@ class RemoveBookmark(Resource):
         book_id = data.get('book_id')
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         if not book_id:
-            return jsonify({'success': False, 'message': 'Book ID missing.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Book ID missing.'}))
+            response.status_code = 400
+            return response
         bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
         before = len(bookmarks)
         bookmarks = [bm for bm in bookmarks if bm['id'] != book_id]
@@ -2326,10 +2444,14 @@ class UpdateBookmarkMeta(Resource):
         last_page = data.get('last_page')
         unread = data.get('unread')
         if not username or not book_id:
-            return jsonify({'success': False, 'message': 'Username and book_id required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Username and book_id required.'}))
+            response.status_code = 400
+            return response
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         bookmarks = json.loads(user.bookmarks) if user.bookmarks else []
         updated = False
         for bm in bookmarks:
@@ -2343,7 +2465,9 @@ class UpdateBookmarkMeta(Resource):
         for bm in bookmarks:
             bm['cover_url'] = get_cover_url(bm['id'])
         if not updated:
-            return jsonify({'success': False, 'message': 'Bookmark not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Bookmark not found.'}))
+            response.status_code = 404
+            return response
         user.bookmarks = json.dumps(bookmarks)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Bookmark updated.', 'bookmarks': bookmarks})
@@ -2351,7 +2475,7 @@ class UpdateBookmarkMeta(Resource):
 api.add_namespace(books_ns, path='/api')
 
 # === Voting ===
-@votes_ns.route('/api/vote-book')
+@votes_ns.route('/vote-book')
 class VoteBook(Resource):
     def post(self):
         data = request.get_json()
@@ -2359,7 +2483,9 @@ class VoteBook(Resource):
         book_id = data.get('book_id')
         value = data.get('value')  # 1-5
         if not username or not book_id or value not in [1,2,3,4,5]:
-            return jsonify({'success': False, 'message': 'Invalid vote data.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Invalid vote data.'}))
+            response.status_code = 400
+            return response
         vote = Vote.query.filter_by(username=username, book_id=book_id).first()
         if vote:
             vote.value = value
@@ -2370,19 +2496,21 @@ class VoteBook(Resource):
         db.session.commit()
         return jsonify({'success': True, 'message': 'Vote recorded.'})
 
-@votes_ns.route('/api/book-votes')
+@votes_ns.route('/book-votes')
 class BookVotes(Resource):
     def get(self):
         book_id = request.args.get('book_id')
         if not book_id:
-            return jsonify({'success': False, 'message': 'Book ID required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Book ID required.'}))
+            response.status_code = 400
+            return response
         votes = Vote.query.filter_by(book_id=book_id).all()
         if not votes:
             return jsonify({'success': True, 'average': 0, 'count': 0})
         avg = round(sum(v.value for v in votes) / len(votes), 2)
         return jsonify({'success': True, 'average': avg, 'count': len(votes)})
 
-@votes_ns.route('/api/top-voted-books')
+@votes_ns.route('/top-voted-books')
 class TopVotedBooks(Resource):
     def get(self):
         vote_counts = db.session.query(
@@ -2408,15 +2536,19 @@ class TopVotedBooks(Resource):
             books.append(meta)
         return jsonify({'success': True, 'books': books})
 
-@votes_ns.route('/api/user-voted-books')
+@votes_ns.route('/user-voted-books')
 class UserVotedBooks(Resource):
     def get(self):
         username = request.args.get('username')
         if not username:
-            return jsonify({'success': False, 'message': 'Username required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Username required.'}))
+            response.status_code = 400
+            return response
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         # Get all votes by this user
         votes = Vote.query.filter_by(username=username).all()
         voted_books = []
@@ -2432,7 +2564,7 @@ class UserVotedBooks(Resource):
                 })
         return jsonify({'success': True, 'voted_books': voted_books})
 
-@votes_ns.route('/api/user-top-voted-books')
+@votes_ns.route('/user-top-voted-books')
 class UserTopVotedBooks(Resource):
     def get(self):
         username = request.args.get('username')
@@ -2478,7 +2610,9 @@ class AddComment(Resource):
         text = data.get('text')
         parent_id = data.get('parent_id')
         if not book_id or not username or not text:
-            return jsonify({'success': False, 'message': 'Missing fields.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Missing fields.'}))
+            response.status_code = 400
+            return response
         comment = Comment(book_id=book_id, username=username, text=text, parent_id=parent_id)
         db.session.add(comment)
         db.session.commit()
@@ -2494,11 +2628,15 @@ class EditComment(Resource):
         text = data.get('text')
         comment = Comment.query.get(comment_id)
         if not comment or comment.deleted:
-            return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Comment not found.'}))
+            response.status_code = 404
+            return response
         if comment.username != username:
             user = User.query.filter_by(username=username).first()
             if not user or not user.is_admin:
-                return jsonify({'success': False, 'message': 'Not authorized.'}), 403
+                response = make_response(jsonify({'success': False, 'message': 'Not authorized.'}))
+                response.status_code = 403
+                return response
         comment.text = text
         comment.edited = True
         comment.timestamp = datetime.datetime.now(datetime.UTC)
@@ -2513,11 +2651,15 @@ class DeleteComment(Resource):
         username = data.get('username')
         comment = Comment.query.get(comment_id)
         if not comment or comment.deleted:
-            return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Comment not found.'}))
+            response.status_code = 404
+            return response
         if comment.username != username:
             user = User.query.filter_by(username=username).first()
             if not user or not user.is_admin:
-                return jsonify({'success': False, 'message': 'Not authorized.'}), 403
+                response = make_response(jsonify({'success': False, 'message': 'Not authorized.'}))
+                response.status_code = 403
+                return response
         comment.deleted = True
         db.session.commit()
         return jsonify({'success': True, 'message': 'Comment deleted.'})
@@ -2529,7 +2671,9 @@ class GetComments(Resource):
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', 20))
         if not book_id:
-            return jsonify({'success': False, 'message': 'Book ID required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Book ID required.'}))
+            response.status_code = 400
+            return response
         # Query all comments for the book, ordered by timestamp ascending
         query = Comment.query.filter_by(book_id=book_id).order_by(Comment.timestamp.asc())
         total_comments = query.count()
@@ -2581,7 +2725,9 @@ class HasNewComments(Resource):
         known_ids = set(data.get('known_ids', []))
         latest_timestamp = data.get('latest_timestamp')  # ISO8601 string or None
         if not book_id:
-            return jsonify({'success': False, 'message': 'Book ID required.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Book ID required.'}))
+            response.status_code = 400
+            return response
         # Query all non-deleted comments for the book
         query = Comment.query.filter_by(book_id=book_id, deleted=False)
         # If known_ids provided, check for any comments not in known_ids
@@ -2595,7 +2741,9 @@ class HasNewComments(Resource):
             try:
                 ts = dateutil.parser.isoparse(latest_timestamp)
             except Exception:
-                return jsonify({'success': False, 'message': 'Invalid timestamp.'}), 400
+                response = make_response(jsonify({'success': False, 'message': 'Invalid timestamp.'}))
+                response.status_code = 400
+                return response
             new_comments = query.filter(Comment.timestamp > ts).all()
             has_new = len(new_comments) > 0
             new_ids = [c.id for c in new_comments]
@@ -2611,10 +2759,14 @@ class VoteComment(Resource):
         comment_id = data.get('comment_id')
         value = data.get('value')  # 1 for upvote, -1 for downvote
         if value not in [1, -1]:
-            return jsonify({'success': False, 'message': 'Invalid vote value.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Invalid vote value.'}))
+            response.status_code = 400
+            return response
         comment = Comment.query.get(comment_id)
         if not comment or comment.deleted:
-            return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Comment not found.'}))
+            response.status_code = 404
+            return response
         if value == 1:
             comment.upvotes += 1
         else:
@@ -2628,7 +2780,9 @@ class GetCommentVotes(Resource):
         comment_id = request.args.get('comment_id')
         comment = Comment.query.get(comment_id)
         if not comment or comment.deleted:
-            return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Comment not found.'}))
+            response.status_code = 404
+            return response
         return jsonify({'success': True, 'upvotes': comment.upvotes, 'downvotes': comment.downvotes})
 
 @comments_ns.route('/user-comments')
@@ -2654,14 +2808,16 @@ class UserComments(Resource):
 api.add_namespace(comments_ns, path='/api')
 
 # === Notifications ===
-@notifications_ns.route('/api/get-notification-prefs')
+@notifications_ns.route('/get-notification-prefs')
 class GetNotificationPrefs(Resource):
     def post(self):
         data = request.get_json()
         username = data.get('username')
         user = User.query.filter_by(username=username).first() if username else None
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         # Define all expected keys and their defaults
         expected_defaults = {
             'email': False,
@@ -2704,7 +2860,7 @@ class GetNotificationPrefs(Resource):
                 normalized[k] = normalized.get(k, v)
         return jsonify({'success': True, 'prefs': normalized})
 
-@notifications_ns.route('/api/update-notification-prefs')
+@notifications_ns.route('/update-notification-prefs')
 class UpdateNotificationPrefs(Resource):
     def post(self):
         data = request.get_json()
@@ -2712,15 +2868,20 @@ class UpdateNotificationPrefs(Resource):
         prefs = data.get('prefs')
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         user.notification_prefs = json.dumps(prefs)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Notification preferences updated.'})
 
-@notifications_ns.route('/api/get-notification-history')
+@notifications_ns.route('/get-notification-history')
 class GetNotificationHistory(Resource):
     def get(self):
-        return jsonify({'success': False, 'message': 'Use POST for this endpoint.'}), 405
+        response = make_response(jsonify({'success': False, 'message': 'Use POST for this endpoint.'}))
+        response.status_code = 405
+        return response
+
     def post(self):
         try:
             data = request.get_json(force=True)
@@ -2765,7 +2926,7 @@ class GetNotificationHistory(Resource):
             logging.error(f"Exception in get_notification_history: {e}")
             return jsonify({'success': False, 'message': f'Error: {str(e)}', 'notifications': []})
 
-@notifications_ns.route('/api/notify-reply', methods=['POST'])
+@notifications_ns.route('/notify-reply', methods=['POST'])
 class NotifyReply(Resource):
     def post(self):
         data = request.get_json()
@@ -2774,11 +2935,15 @@ class NotifyReply(Resource):
         message = data.get('message', 'Someone replied to your comment!')
         parent_comment = db.session.get(Comment, comment_id)
         if not parent_comment or parent_comment.deleted:
-            return jsonify({'success': False, 'message': 'Parent comment not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'Parent comment not found.'}))
+            response.status_code = 404
+            return response
         parent_username = parent_comment.username
         user = User.query.filter_by(username=parent_username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         add_notification(
             user,
             'reply',
@@ -2788,7 +2953,7 @@ class NotifyReply(Resource):
         )
         return jsonify({'success': True, 'message': f'Reply notification sent to {parent_username}.'})
 
-@notifications_ns.route('/api/notify-new-book', methods=['POST'])
+@notifications_ns.route('/notify-new-book', methods=['POST'])
 class NotifyNewBook(Resource):
     def post(self):
         data = request.get_json()
@@ -2801,7 +2966,7 @@ class NotifyNewBook(Resource):
                 add_notification(user, 'newBook', 'New Book Added!', f'A new book "{book_title}" is now available in the library.', link=f'/read/{book_id}')
         return jsonify({'success': True, 'message': f'Notification sent for new book: {book_title}.'})
 
-@notifications_ns.route('/api/notify-book-update', methods=['POST'])
+@notifications_ns.route('/notify-book-update', methods=['POST'])
 class NotifyBookUpdate(Resource):
     def post(self):
         data = request.get_json()
@@ -2817,7 +2982,7 @@ class NotifyBookUpdate(Resource):
                 count += 1
         return jsonify({'success': True, 'message': f'Notification sent to {count} users for book update.'})
 
-@notifications_ns.route('/api/notify-app-update', methods=['POST'])
+@notifications_ns.route('/notify-app-update', methods=['POST'])
 class NotifyAppUpdate(Resource):
     def post(self):
         users = User.query.all()
@@ -2827,14 +2992,16 @@ class NotifyAppUpdate(Resource):
                 add_notification(user, 'appUpdate', 'App Updated!', 'Storyweave Chronicles has been updated!')
         return jsonify({'success': True, 'message': 'App update notification sent to all users.'})
 
-@notifications_ns.route('/api/mark-all-notifications-read', methods=['POST'])
+@notifications_ns.route('/mark-all-notifications-read', methods=['POST'])
 class MarkAllNotificationsRead(Resource):
     def post(self):
         data = request.get_json()
         username = data.get('username')
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         history = json.loads(user.notification_history) if user.notification_history else []
         for n in history:
             n['read'] = True
@@ -2842,7 +3009,7 @@ class MarkAllNotificationsRead(Resource):
         db.session.commit()
         return jsonify({'success': True, 'message': 'Notifications marked as read.', 'history': history})
 
-@notifications_ns.route('/api/delete-notification', methods=['POST'])
+@notifications_ns.route('/delete-notification', methods=['POST'])
 class DeleteNotification(Resource):
     def post(self):
         data = request.get_json()
@@ -2850,7 +3017,9 @@ class DeleteNotification(Resource):
         notification_id = data.get('notificationId')
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         history = json.loads(user.notification_history) if user.notification_history else []
         new_history = [n for n in history if str(n.get('id', n.get('timestamp'))) != str(notification_id)]
         found = len(new_history) < len(history)
@@ -2859,7 +3028,7 @@ class DeleteNotification(Resource):
         return jsonify({'success': found, 'message': 'Notification deleted.' if found else 'Notification not found.', 'history': new_history})
 
 # Dismiss all notifications for a user
-@notifications_ns.route('/api/dismiss-all-notifications', methods=['POST'])
+@notifications_ns.route('/dismiss-all-notifications', methods=['POST'])
 class DismissAllNotifications(Resource):
     def post(self):
         data = request.get_json()
@@ -2868,7 +3037,9 @@ class DismissAllNotifications(Resource):
         user = User.query.filter_by(username=username).first()
         if not user:
             logging.error(f"[DISMISS ALL] User not found: {username}")
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         history = json.loads(user.notification_history) if user.notification_history else []
         logging.info(f"[DISMISS ALL] Initial history count: {len(history)}")
         for n in history:
@@ -2884,7 +3055,7 @@ class DismissAllNotifications(Resource):
         return jsonify({'success': True, 'message': 'All notifications dismissed.', 'history': history})
 
 # Mark a single notification as read/unread
-@notifications_ns.route('/api/mark-notification-read', methods=['POST'])
+@notifications_ns.route('/mark-notification-read', methods=['POST'])
 class MarkNotificationRead(Resource):
     def post(self):
         data = request.get_json()
@@ -2893,7 +3064,9 @@ class MarkNotificationRead(Resource):
         read = data.get('read', True)
         user = User.query.filter_by(username=username).first()
         if not user:
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         history = json.loads(user.notification_history) if user.notification_history else []
         found = False
         for n in history:
@@ -2906,7 +3079,7 @@ class MarkNotificationRead(Resource):
         db.session.commit()
         return jsonify({'success': found, 'message': 'Notification marked as read.' if found else 'Notification not found.', 'history': history})
 
-@notifications_ns.route('/api/delete-all-notification-history', methods=['POST'])
+@notifications_ns.route('/delete-all-notification-history', methods=['POST'])
 class DeleteAllNotificationHistory(Resource):
     def post(self):
         data = request.get_json()
@@ -2915,7 +3088,9 @@ class DeleteAllNotificationHistory(Resource):
         user = User.query.filter_by(username=username).first()
         if not user:
             logging.error(f"[DELETE ALL] User not found: {username}")
-            return jsonify({'success': False, 'message': 'User not found.'}), 404
+            response = make_response(jsonify({'success': False, 'message': 'User not found.'}))
+            response.status_code = 404
+            return response
         logging.info(f"[DELETE ALL] History BEFORE: {user.notification_history}")
         user.notification_history = json.dumps([])
         db.session.commit()
@@ -2925,7 +3100,7 @@ class DeleteAllNotificationHistory(Resource):
         logging.info(f"[DELETE ALL] Notification history cleared for user: {username}")
         return jsonify({'success': True, 'message': 'All notifications deleted from history.', 'history': []})
 
-@notifications_ns.route('/api/has-new-notifications', methods=['POST'])
+@notifications_ns.route('/has-new-notifications', methods=['POST'])
 class HasNewNotifications(Resource):
     @cross_origin()
     def post(self):
@@ -2954,7 +3129,9 @@ class ListPdfs(Resource):
     def get(self, folder_id):
         try:
             if not folder_id:
-                return jsonify({'success': False, 'message': 'Folder ID is required.'}), 400
+                response = make_response(jsonify({'success': False, 'message': 'Folder ID is required.'}))
+                response.status_code = 400
+                return response
             page = int(request.args.get('page', 1))
             page_size = int(request.args.get('page_size', 50))
             if page_size > 200:
@@ -2978,7 +3155,9 @@ class ListPdfs(Resource):
                     if not page_token:
                         break
             except Exception as e:
-                return jsonify({'success': False, 'message': f'Error listing files from Drive: {e}'}), 500
+                response = make_response(jsonify({'success': False, 'message': f'Error listing files from Drive: {e}'}))
+                response.status_code = 500
+                return response
             existing_books = {b.drive_id: b for b in Book.query.filter(Book.drive_id.in_([f['id'] for f in drive_files])).all()}
             total_count = len(drive_files)
             paged_files = drive_files[offset:offset+page_size]
@@ -3001,12 +3180,16 @@ class ListPdfs(Resource):
             })
         except ValueError as ve:
             logging.error(f"Invalid input in /list-pdfs/: {ve}")
-            return jsonify({'success': False, 'message': 'Invalid input parameters.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Invalid input parameters.'}))
+            response.status_code = 400
+            return response
         except Exception as e:
             logging.error(f"Error in paginated /list-pdfs/: {e}")
-            return jsonify({'error': 'Failed to list PDFs', 'details': str(e)}), 500
+            response = make_response(jsonify({'error': 'Failed to list PDFs', 'details': str(e)}))
+            response.status_code = 500
+            return response
 
-@health_ns.route('/api/cover-queue-health', methods=['GET'])
+@health_ns.route('/cover-queue-health', methods=['GET'])
 class CoverQueueHealth(Resource):
     def get(self):
         status = get_queue_status()
@@ -3039,10 +3222,14 @@ class HealthCheck(Resource):
         Only log if status is not 200.
         """
         try:
-            return jsonify({'status': 'ok', 'message': 'Service is healthy.'}), 200
+            response = make_response(jsonify({'success': True, 'status': 'ok', 'message': 'Service is healthy.'}))
+            response.status_code = 200
+            return response
         except Exception as e:
             logging.error(f"Error in /health/: {e}")
-            return jsonify({'status': 'error', 'message': 'Health check failed.', 'details': str(e)}), 500
+            response = make_response(jsonify({'success': False, 'status': 'error', 'message': 'Health check failed.', 'details': str(e)}))
+            response.status_code = 500
+            return response
 
 @health_ns.route('/cover-diagnostics', methods=['GET'])
 class CoverDiagnostics(Resource):
@@ -3062,7 +3249,7 @@ class CoverDiagnostics(Resource):
         })
 
 # --- Manual Seed Endpoint ---
-@health_ns.route('/api/seed-drive-books', methods=['POST'])
+@health_ns.route('/seed-drive-books', methods=['POST'])
 class SeedDriveBooks(Resource):
     def post(self):
         """
@@ -3072,11 +3259,15 @@ class SeedDriveBooks(Resource):
         data = request.get_json(silent=True) or {}
         folder_id = data.get('folder_id') or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
         if not folder_id:
-            return jsonify({'success': False, 'message': 'GOOGLE_DRIVE_FOLDER_ID not set.'}), 500
+            response = make_response(jsonify({'success': False, 'message': 'GOOGLE_DRIVE_FOLDER_ID not set.'}))
+            response.status_code = 500
+            return response
         try:
             service = get_drive_service()
         except Exception as e:
-            return jsonify({'success': False, 'message': f'Error initializing Google Drive service: {e}'}), 500
+            response = make_response(jsonify({'success': False, 'message': f'Error initializing Google Drive service: {e}'}))
+            response.status_code = 500
+            return response
         query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed = false"
         files = []
         page_token = None
@@ -3093,7 +3284,9 @@ class SeedDriveBooks(Resource):
                 if not page_token:
                     break
         except Exception as e:
-            return jsonify({'success': False, 'message': f'Error listing files from Drive: {e}'}), 500
+            response = make_response(jsonify({'success': False, 'message': f'Error listing files from Drive: {e}'}))
+            response.status_code = 500
+            return response
         added_count = 0
         updated_count = 0
         external_id_updates = 0
@@ -3247,7 +3440,7 @@ class SeedDriveBooks(Resource):
             'message': f"Seeded {added_count} new books, updated {updated_count} existing books, {external_id_updates} external IDs set."
         })
 
-@health_ns.route('/api/simulate-cover-load', methods=['POST'])
+@health_ns.route('/simulate-cover-load', methods=['POST'])
 class SimulateCoverLoad(Resource):
     def post(self):
         """
@@ -3259,7 +3452,9 @@ class SimulateCoverLoad(Resource):
         num_users = int(data.get('num_users', 200))
         concurrency = int(data.get('concurrency', 20))
         if not file_ids:
-            return jsonify({'success': False, 'message': 'file_ids required'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'file_ids required'}))
+            response.status_code = 400
+            return response
         results = []
         errors = 0
         total_time = 0.0
@@ -3312,7 +3507,7 @@ class SimulateCoverLoad(Resource):
             f.write(f"Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB\n")
         return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
 
-@health_ns.route('/api/test-send-scheduled-notifications', methods=['POST'])
+@health_ns.route('/test-send-scheduled-notifications', methods=['POST'])
 class TestSendScheduledNotifications(Resource):
     def post(self):
         """
@@ -3329,12 +3524,14 @@ class TestSendScheduledNotifications(Resource):
             send_scheduled_emails(subject, body, frequency, batch_size, sleep_time)
             return jsonify({'success': True, 'message': f'Scheduled notification emails sent in batches of {batch_size}.'})
         except Exception as e:
-            return jsonify({'success': False, 'message': str(e), 'trace': traceback.format_exc()}), 500
+            response = make_response(jsonify({'success': False, 'message': str(e), 'trace': traceback.format_exc()}))
+            response.status_code = 500
+            return response
 
 api.add_namespace(health_ns, path='/api')
 # === Webhooks & Integrations ===
 
-@integrations_ns.route('/api/drive-webhook', methods=['POST'])
+@integrations_ns.route('/drive-webhook', methods=['POST'])
 class DriveWebhook(Resource):
     def post(self):
         channel_id = request.headers.get('X-Goog-Channel-ID')
@@ -3389,7 +3586,7 @@ class DriveWebhook(Resource):
         return '', 200
 
 # --- GitHub Webhook for App Update Notifications ---
-@integrations_ns.route('/api/github-webhook', methods=['POST'])
+@integrations_ns.route('/github-webhook', methods=['POST'])
 class GithubWebhook(Resource):
     def post(self):
         """
@@ -3397,7 +3594,9 @@ class GithubWebhook(Resource):
         """
         data = request.get_json()
         if not data or data.get('ref') is None or 'commits' not in data:
-            return jsonify({'success': False, 'message': 'Invalid payload.'}), 400
+            response = make_response(jsonify({'success': False, 'message': 'Invalid payload.'}))
+            response.status_code = 400
+            return response
         repo = data.get('repository', {}).get('full_name', 'Unknown repo')
         branch = data.get('ref', '').split('/')[-1]
         commits = data.get('commits', [])
@@ -3449,7 +3648,9 @@ def serve_react(path):
 
     # 1. API route fallback: JSON 404
     if path.startswith("api/"):
-        return jsonify({"success": False, "message": "API endpoint not found.", "hint": "See / for API Almanac."}), 404
+        response = make_response(jsonify({"success": False, "message": "API endpoint not found.", "hint": "See / for API Almanac."}))
+        response.status_code = 404
+        return response
 
     # 2. Serve cover images from disk if requested
     if path.startswith("covers/") and path.endswith(".jpg"):
@@ -3458,7 +3659,9 @@ def serve_react(path):
         if os.path.exists(cover_path):
             return send_from_directory(covers_dir, f"{cover_id}.jpg")
         else:
-            return jsonify({"success": False, "message": f"Cover {cover_id}.jpg not found."}), 404
+            response = make_response(jsonify({"success": False, "message": f"Cover {cover_id}.jpg not found."}))
+            response.status_code = 404
+            return response
 
     # 3. Serve favicon.ico from frontend static dir (or vite.svg)
     if path == "favicon.ico":
@@ -3466,7 +3669,9 @@ def serve_react(path):
         if os.path.exists(vite_svg_path):
             return send_from_directory(frontend_static_dir, "vite.svg")
         else:
-            return jsonify({"success": False, "message": "vite.svg not found in frontend static directory."}), 404
+            response = make_response(jsonify({"success": False, "message": "vite.svg not found in frontend static directory."}))
+            response.status_code = 404
+            return response
 
     # 4. Serve static files (css, js, images) from frontend static dir
     static_extensions = [".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".json"]
@@ -3475,7 +3680,9 @@ def serve_react(path):
         if os.path.exists(static_file_path):
             return send_from_directory(frontend_static_dir, path)
         else:
-            return jsonify({"success": False, "message": f"Static file {path} not found."}), 404
+            response = make_response(jsonify({"success": False, "message": f"Static file {path} not found."}))
+            response.status_code = 404
+            return response
 
     # 5. Serve index.html for all other non-API routes (React SPA fallback)
     try:
@@ -3483,10 +3690,14 @@ def serve_react(path):
         if os.path.exists(index_path):
             return send_from_directory(frontend_static_dir, "index.html")
         else:
-            return jsonify({"success": False, "message": "index.html not found in frontend static directory."}), 404
+            response = make_response(jsonify({"success": False, "message": "index.html not found in frontend static directory."}))
+            response.status_code = 404
+            return response
     except Exception as e:
         # 6. Render.com fallback: return helpful JSON if index.html missing
-        return jsonify({"success": False, "message": "Frontend not found. This may be a Render.com deployment issue.", "error": str(e), "hint": "Check / for API Almanac."}), 404
+        response = make_response(jsonify({"success": False, "message": "Frontend not found. This may be a Render.com deployment issue.", "error": str(e), "hint": "Check / for API Almanac."}))
+        response.status_code = 404
+        return response
 
 @app.route('/<filename>')
 def serve_static_file(filename):
@@ -3494,7 +3705,9 @@ def serve_static_file(filename):
     file_path = os.path.join(static_dir, filename)
     if os.path.exists(file_path):
         return send_from_directory(static_dir, filename)
-    return jsonify({"message": f"Static file {filename} not found.", "success": False}), 404
+    response = make_response(jsonify({"message": f"Static file {filename} not found.", "success": False}))
+    response.status_code = 404
+    return response
 
 # === Main ===
 if __name__ == '__main__':
