@@ -3039,11 +3039,7 @@ class HealthCheck(Resource):
         Only log if status is not 200.
         """
         try:
-            response = jsonify({'status': 'ok', 'message': 'Service is healthy.'})
-            status_code = 200
-            if status_code != 200:
-                logging.warning(f"[HEALTH CHECK] Unexpected status: {status_code} Response: {response.get_json()}")
-            return response, status_code
+            return jsonify({'status': 'ok', 'message': 'Service is healthy.'}), 200
         except Exception as e:
             logging.error(f"Error in /health/: {e}")
             return jsonify({'status': 'error', 'message': 'Health check failed.', 'details': str(e)}), 500
