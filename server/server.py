@@ -2719,6 +2719,8 @@ class UpdateNotificationPrefs(Resource):
 
 @notifications_ns.route('/api/get-notification-history')
 class GetNotificationHistory(Resource):
+    def get(self):
+        return jsonify({'success': False, 'message': 'Use POST for this endpoint.'}), 405
     def post(self):
         try:
             data = request.get_json(force=True)
@@ -2762,11 +2764,6 @@ class GetNotificationHistory(Resource):
         except Exception as e:
             logging.error(f"Exception in get_notification_history: {e}")
             return jsonify({'success': False, 'message': f'Error: {str(e)}', 'notifications': []})
-
-@notifications_ns.route('/api/notification-history')
-class NotificationHistoryGet(Resource):
-    def get(self):
-        return jsonify({'success': False, 'message': 'Use POST for this endpoint.'}), 405
 
 @notifications_ns.route('/api/notify-reply', methods=['POST'])
 class NotifyReply(Resource):
@@ -2956,6 +2953,8 @@ api.add_namespace(notifications_ns, path='/api')
 class ListPdfs(Resource):
     def get(self, folder_id):
         try:
+            if not folder_id:
+                return jsonify({'success': False, 'message': 'Folder ID is required.'}), 400
             page = int(request.args.get('page', 1))
             page_size = int(request.args.get('page_size', 50))
             if page_size > 200:
@@ -2985,13 +2984,11 @@ class ListPdfs(Resource):
             paged_files = drive_files[offset:offset+page_size]
             pdf_list = []
             for f in paged_files:
-                created_time = f.get('createdTime')
-                modified_time = f.get('modifiedTime')
                 pdf_list.append({
                     'id': f['id'],
                     'title': f.get('name', 'Untitled'),
-                    'createdTime': created_time,
-                    'modifiedTime': modified_time
+                    'createdTime': f.get('createdTime'),
+                    'modifiedTime': f.get('modifiedTime')
                 })
             mem = psutil.Process().memory_info().rss / (1024 * 1024)
             logging.info(f"[list-pdfs] Memory usage: {mem:.2f} MB for folder_id={drive_folder_id}")
@@ -3002,6 +2999,9 @@ class ListPdfs(Resource):
                 'total_count': total_count,
                 'has_more': offset + len(pdf_list) < total_count
             })
+        except ValueError as ve:
+            logging.error(f"Invalid input in /list-pdfs/: {ve}")
+            return jsonify({'success': False, 'message': 'Invalid input parameters.'}), 400
         except Exception as e:
             logging.error(f"Error in paginated /list-pdfs/: {e}")
             return jsonify({'error': 'Failed to list PDFs', 'details': str(e)}), 500
@@ -3038,11 +3038,15 @@ class HealthCheck(Resource):
         Health check endpoint for Render.com. Returns 200 OK and JSON status.
         Only log if status is not 200.
         """
-        response = jsonify({'status': 'ok', 'message': 'Service is healthy.'})
-        status_code = 200
-        if status_code != 200:
-            logging.info(f"[HEALTH CHECK] Status: {status_code} Response: {response.get_json()}")
-        return response, status_code
+        try:
+            response = jsonify({'status': 'ok', 'message': 'Service is healthy.'})
+            status_code = 200
+            if status_code != 200:
+                logging.warning(f"[HEALTH CHECK] Unexpected status: {status_code} Response: {response.get_json()}")
+            return response, status_code
+        except Exception as e:
+            logging.error(f"Error in /health/: {e}")
+            return jsonify({'status': 'error', 'message': 'Health check failed.', 'details': str(e)}), 500
 
 @health_ns.route('/cover-diagnostics', methods=['GET'])
 class CoverDiagnostics(Resource):

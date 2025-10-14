@@ -95,7 +95,7 @@ jobs:
           mayhem-token: ${{ env.MAYHEM_TOKEN }}
           api-url: https://dev-swc-backend-1v2c.onrender.com/
           api-spec: https://dev-swc-backend-1v2c.onrender.com/swagger.json
-          duration: 60
+          duration: 120
           sarif-report: ./mapi.sarif
       
       - name: Verify SARIF File
