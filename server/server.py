@@ -44,11 +44,12 @@ from flask_cors import CORS, cross_origin
 from flask_mail import Mail, Message
 from flask_restx import Api, Namespace, Resource
 from sqlalchemy import desc, func, text
-from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 import dateutil.parser
+from google.auth import jwt
+from google.auth.transport.requests import Request
 
 # --- Project Imports ---
 try:
@@ -610,6 +611,15 @@ def sync_atlas_with_covers():
     logging.info(f"[Atlas][sync] Merged atlas: {list(merged.keys())}")
     return merged
 
+def is_admin(username):
+    """Check if a user is admin."""
+    user = User.query.filter_by(username=username).first()
+    return user and user.is_admin
+
+def hash_password(password):
+    """Hash a password using SHA256."""
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
 #--- PDF/Image Utilities ---
 
 def extract_story_id_from_pdf(file_content):
@@ -713,35 +723,86 @@ def get_queue_status():
 
 #--- Notification & Email ---
 
-def send_notification_email(user, subject, body):
-    """Send notification email to a user."""
+def send_notification_email(user, subject, body, notifications):
+    """Send notification email to a user with a list of notifications using Flask-Mail SMTP."""
     if not user.email:
         logging.warning(f"User {user.id} has no email address. Skipping email send.")
         return False
-    msg = Message(subject, sender=app.config['MAIL_USERNAME'], recipients=[user.email])
-    msg.body = body
+
+    notifications_list = "\n".join(
+        [f"- {n['title']}: {n['body']}" for n in notifications]
+    )
+    full_body = f"{body}\n\nNotifications:\n{notifications_list}"
+
     try:
+        msg = Message(
+            subject,
+            sender=os.getenv('MAIL_USERNAME'),
+            recipients=[user.email],
+            body=full_body
+        )
         mail.send(msg)
-        logging.info(f"Sent email to {user.email} with subject '{subject}'")
+        logging.info(f"[SMTP] Sent email to {user.email} with subject '{subject}'")
         return True
     except Exception as e:
-        logging.error(f"Failed to send email to {user.email}: {e}")
+        logging.error(f"[SMTP] Failed to send email to {user.email}: {e}")
         return False
 
-def send_scheduled_emails(subject, body, frequency='daily', batch_size=20, sleep_time=2):
-    """Send scheduled emails to users in batches to minimize RAM usage."""
-    with app.app_context():
-        users = User.query.filter_by(banned=False).all()
-        total = len(users)
-        logging.info(f"Starting scheduled email rollout: {total} users, batch_size={batch_size}, sleep_time={sleep_time}s")
-        for i in range(0, total, batch_size):
-            batch = users[i:i+batch_size]
-            for user in batch:
-                # You can add per-user frequency/prefs check here
-                send_notification_email(user, subject, body)
-            logging.info(f"Sent batch {i//batch_size+1} ({i+1}-{min(i+batch_size,total)})")
-            time.sleep(sleep_time)
-        logging.info("Scheduled email rollout complete.")
+def send_scheduled_emails(frequency):
+    """
+    Send scheduled emails using Flask-Mail SMTP.
+    :param frequency: 'daily', 'weekly', or 'monthly'
+    """
+    try:
+        with app.app_context():
+            users = User.query.all()
+            for user in users:
+                prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
+                if prefs.get('emailFrequency', 'immediate') == frequency and user.email:
+                    history = json.loads(user.notification_history) if user.notification_history else []
+                    # Only send unread notifications for this period
+                    unread = [n for n in history if not n.get('read')]
+                    if unread:
+                        subject = f"Your {frequency.capitalize()} Notification Summary"
+                        body_lines = [
+                            f"Hi {user.username or user.email},",
+                            "",
+                            f"Here are your recent notifications ({frequency}):",
+                            ""
+                        ]
+                        for n in unread:
+                            line = f"- [{n.get('type', 'Notification')}] {n.get('title', '')}: {n.get('body', '')}"
+                            if n.get('timestamp'):
+                                try:
+                                    ts_val = n.get('timestamp')
+                                    ts_str = datetime.datetime.fromtimestamp(ts_val / 1000).strftime('%Y-%m-%d %H:%M')
+                                    line += f" (at {ts_str})"
+                                except Exception:
+                                    line += f" (at {n['timestamp']})"
+                            if n.get('link'):
+                                line += f" [View]({n['link']})"
+                            body_lines.append(line)
+                        body_lines.append("")
+                        body_lines.append("Thank you for being part of StoryWeave Chronicles!")
+                        body = "\n".join(body_lines)
+
+                        msg = Message(
+                            subject,
+                            sender=os.getenv('MAIL_USERNAME'),
+                            recipients=[user.email],
+                            body=body
+                        )
+                        mail.send(msg)
+                        logging.info(f"[SMTP] Sent {len(unread)} notifications to {user.email} for {frequency} summary.")
+
+                        # Optionally mark as read after sending
+                        for n in history:
+                            if not n.get('read'):
+                                n['read'] = True
+                        user.notification_history = json.dumps(history)
+                        db.session.commit()
+    except Exception as e:
+        logging.error(f"Error sending {frequency} emails: {e}")
 
 def add_notification(user, type_, title, body, link=None):
     """Add a notification to a user."""
@@ -781,48 +842,6 @@ def call_seed_drive_books():
         logging.info("Scheduled seed-drive-books response: %s %s", response.status_code, response.text)
     except Exception as e:
         logging.error("Error calling seed-drive-books endpoint: %s", e)
-
-def send_scheduled_emails(frequency):
-    """Send scheduled emails for a given frequency."""
-    with app.app_context():
-        users = User.query.all()
-        for user in users:
-            prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-            if prefs.get('emailFrequency', 'immediate') == frequency and user.email:
-                history = json.loads(user.notification_history) if user.notification_history else []
-                # Only send unread notifications for this period
-                unread = [n for n in history if not n.get('read')]
-                if unread:
-                    subject = f"Your {frequency.capitalize()} Notification Summary"
-                    body_lines = [
-                        f"Hi {user.username or user.email},",
-                        "",
-                        f"Here are your recent notifications ({frequency}):",
-                        ""
-                    ]
-                    for n in unread:
-                        line = f"- [{n.get('type', 'Notification')}] {n.get('title', '')}: {n.get('body', '')}"
-                        if n.get('timestamp'):
-                            try:
-                                ts_val = n.get('timestamp')
-                                ts_str = datetime.datetime.fromtimestamp(ts_val / 1000).strftime('%Y-%m-%d %H:%M')
-                                line += f" (at {ts_str})"
-                            except Exception:
-                                line += f" (at {n['timestamp']})"
-                        if n.get('link'):
-                            line += f" [View]({n['link']})"
-                        body_lines.append(line)
-                    body_lines.append("")
-                    body_lines.append("Thank you for being part of StoryWeave Chronicles!")
-                    body = "\n".join(body_lines)
-                    send_notification_email(user, subject, body)
-                    logging.info(f"Sent {len(unread)} notifications to {user.email} for {frequency} summary.")
-                    # Optionally mark as read after sending
-                    for n in history:
-                        if not n.get('read'):
-                            n['read'] = True
-                    user.notification_history = json.dumps(history)
-                    db.session.commit()
 
 def check_and_notify_new_books():
     """Check for new books and notify users."""
@@ -901,14 +920,17 @@ def get_drive_service():
     redirect_uris = [os.getenv('GOOGLE_REDIRECT_URI')]
     # Load token from file as before
     if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+        creds = service_account.Credentials.from_service_account_info(
+            service_account_info,
+            scopes=SCOPES
+        ).with_subject("storyweavechronicles1@gmail.com")
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
     if not creds or not creds.valid:
         creds = service_account.Credentials.from_service_account_info(
             service_account_info,
             scopes=SCOPES
-        )
+        ).with_subject("storyweavechronicles1@gmail.com")
     return build('drive', 'v3', credentials=creds)
 
 def setup_drive_webhook(folder_id, webhook_url):
@@ -919,7 +941,7 @@ def setup_drive_webhook(folder_id, webhook_url):
         # Only register if missing or expired
         if not webhook or not webhook.expiration or webhook.expiration < now_ms:
             channel_id = webhook.channel_id if webhook else 'storyweave-drive-channel'
-            creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
+            creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=SCOPES).with_subject("storyweavechronicles1@gmail.com")
             service = build('drive', 'v3', credentials=creds)
             body = {
                 'id': channel_id,
@@ -941,55 +963,6 @@ def setup_drive_webhook(folder_id, webhook_url):
                 logging.error(f"Failed to register Google Drive webhook: {e}")
         else:
             logging.info(f"Existing webhook is still valid (expires at {webhook.expiration})")
-
-# --- Admin/Memory ---
-
-def cleanup_locals(locals_dict):
-    """Helper to close/delete large objects."""
-    for varname in ['doc', 'img_bytes', 'out', 'pix', 'page']:
-        obj = locals_dict.get(varname)
-        if obj is not None:
-            try:
-                if hasattr(obj, 'close'):
-                    # Avoid double-closing file-like objects
-                    if hasattr(obj, 'closed') and obj.closed:
-                        logging.info(f"[cleanup_locals] Object already closed: {varname}")
-                    else:
-                        obj.close()
-                        logging.info(f"[cleanup_locals] Closed object: {varname}")
-            except Exception as e:
-                logging.warning(f"[cleanup_locals] Error closing {varname}: {e}")
-            try:
-                del obj
-                logging.info(f"[cleanup_locals] Deleted object: {varname}")
-            except Exception as e:
-                logging.warning(f"[cleanup_locals] Error deleting {varname}: {e}")
-    # PIL image cleanup (if any)
-    img = locals_dict.get('img')
-    if img is not None:
-        try:
-            img.close()
-            logging.info("[cleanup_locals] Closed PIL image: img")
-        except Exception as e:
-            logging.warning(f"[cleanup_locals] Error closing img: {e}")
-        try:
-            del img
-            logging.info("[cleanup_locals] Deleted PIL image: img")
-        except Exception as e:
-            logging.warning(f"[cleanup_locals] Error deleting img: {e}")
-    # Aggressive GC
-    for _ in range(3):
-        gc.collect()
-    logging.info("[cleanup_locals] Finished cleanup and GC.")
-
-def is_admin(username):
-    """Check if a user is admin."""
-    user = User.query.filter_by(username=username).first()
-    return user and user.is_admin
-
-def hash_password(password):
-    """Hash a password using SHA256."""
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 # =========================
 # 8. App Hooks
@@ -1636,7 +1609,7 @@ class ModerateComment(Resource):
             return jsonify({'success': True, 'message': 'Comment deleted.'})
 
 # Register the namespace with the API
-api.add_namespace(admin_ns, path='/api/admin')
+api.add_namespace(admin_ns, path='/api')
 
 # === Book & PDF Management ===
 @books_ns.route('/update-external-id')
@@ -3120,6 +3093,32 @@ class HasNewNotifications(Resource):
         response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
         return response
 
+@notifications_ns.route('/send-scheduled-emails', methods=['POST'])
+class SendScheduledEmails(Resource):
+    def post(self):
+        """
+        Trigger the send_scheduled_emails function for a given frequency.
+        Expected JSON payload: { "frequency": "daily" }
+        """
+        data = request.get_json()
+        frequency = data.get("frequency", "").lower()
+
+        if frequency not in ["daily", "weekly", "monthly"]:
+            response = make_response(jsonify({"error": "Invalid frequency. Must be 'daily', 'weekly', or 'monthly'."}))
+            response.status_code = 400
+            return response
+
+        try:
+            send_scheduled_emails(frequency)
+            response = make_response(jsonify({"message": f"Scheduled emails for {frequency} frequency sent successfully."}))
+            response.status_code = 200
+            return response
+        except Exception as e:
+            logging.error(f"Error in /send-scheduled-emails endpoint: {e}")
+            response = make_response(jsonify({"error": "Failed to send scheduled emails."}))
+            response.status_code = 500
+            return response
+
 api.add_namespace(notifications_ns, path='/api')
 
 # === Health & Diagnostics ===
@@ -3314,8 +3313,6 @@ class SeedDriveBooks(Resource):
                         file_request = service.files().get_media(fileId=drive_id)
                         file_content = file_request.execute()
                         external_story_id = extract_story_id_from_pdf(file_content)
-                        del file_content
-                        gc.collect()
                     except Exception as e:
                         logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
                         errors.append(f"Error extracting story ID for {title}: {e}")
@@ -3358,8 +3355,6 @@ class SeedDriveBooks(Resource):
                                 file_request = service.files().get_media(fileId=drive_id)
                                 file_content = file_request.execute()
                                 external_story_id = extract_story_id_from_pdf(file_content)
-                                del file_content
-                                gc.collect()
                                 if external_story_id:
                                     book.external_story_id = external_story_id
                                     external_id_updates += 1
@@ -3368,9 +3363,20 @@ class SeedDriveBooks(Resource):
                                 logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
                                 errors.append(f"Error extracting story ID for {title}: {e}")
                         if updated:
-                            updated_count += 1
-                            updated_books.append({'id': drive_id, 'title': title})
-                            logging.info(f"[Seed] Updated book: drive_id={drive_id}, title={title}")
+                            db.session.commit()
+
+                            # Notify users about the updated book
+                            users = User.query.all()
+                            for user in users:
+                                add_notification(
+                                    user,
+                                    type_='book_update',
+                                    title='Book Updated!',
+                                    body=f"The book '{book.title}' has been updated.",
+                                    link=f"/read/{book.drive_id}"
+                                )
+                            logging.info(f"[Drive Webhook] Book updated: {book.title}")
+
                     except Exception as e:
                         skipped_count += 1
                         errors.append(f"Error updating Book for {title} ({drive_id}): {e}")
@@ -3511,29 +3517,68 @@ class SimulateCoverLoad(Resource):
 class TestSendScheduledNotifications(Resource):
     def post(self):
         """
-        Test endpoint to simulate scheduled notification emails for all users in batches.
-        POST data: {"frequency": "daily"|"weekly"|"monthly", "batch_size": 20, "sleep_time": 2}
+        Test endpoint to send a batch of fake notifications to a specified email address using the notification email function.
+        POST data: {"test_email": "your@email.com", "num_notifications": 10}
         """
         try:
             data = request.get_json()
-            frequency = data.get('frequency', 'daily')
-            batch_size = int(data.get('batch_size', 20))
-            sleep_time = int(data.get('sleep_time', 2))
-            subject = f"Your {frequency.capitalize()} Notification Summary"
-            body = f"This is your {frequency} notification summary from Storyweave Chronicles."
-            send_scheduled_emails(subject, body, frequency, batch_size, sleep_time)
-            return jsonify({'success': True, 'message': f'Scheduled notification emails sent in batches of {batch_size}.'})
+            test_email = data.get('test_email')
+            num_notifications = int(data.get('num_notifications', 10))
+            if not test_email:
+                response = make_response(jsonify({'success': False, 'message': 'Missing test_email in request.'}))
+                response.status_code = 400
+                return response
+
+            # Generate fake notifications
+            fake_notifications = []
+            for i in range(num_notifications):
+                fake_notifications.append({
+                    'title': f'Notification {i+1}',
+                    'body': f'This is a test notification #{i+1}.',
+                    'timestamp': datetime.datetime.now().isoformat(),
+                    'type': 'test',
+                })
+
+            # Create a mock user object with an email attribute
+            class MockUser:
+                def __init__(self, email):
+                    self.email = email
+                    self.id = 'test'
+            test_user = MockUser(test_email)
+            subject = "Test Notification"
+            body = "This is a test notification email."
+            result = send_notification_email(test_user, subject, body, fake_notifications)
+
+            return jsonify({'success': True, 'message': f'Sent {num_notifications} fake notifications to {test_email}.', 'result': result})
         except Exception as e:
             response = make_response(jsonify({'success': False, 'message': str(e), 'trace': traceback.format_exc()}))
             response.status_code = 500
             return response
 
 api.add_namespace(health_ns, path='/api')
-# === Webhooks & Integrations ===
 
+# === Webhooks & Integrations ===
 @integrations_ns.route('/drive-webhook', methods=['POST'])
 class DriveWebhook(Resource):
     def post(self):
+        # Verify JWT token from Pub/Sub
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+
+        token = auth_header.split(' ')[1]
+        try:
+            # Verify the token using Google public keys
+            audience = os.getenv('PUBSUB_AUDIENCE')
+            decoded_token = jwt.decode(token, audience=audience, request=Request())
+        except Exception as e:
+            logging.error(f"JWT verification failed: {e}")
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+
+        # Log the verified token claims
+        logging.info(f"Verified JWT claims: {decoded_token}")
+
+        # Process the webhook event
         channel_id = request.headers.get('X-Goog-Channel-ID')
         resource_id = request.headers.get('X-Goog-Resource-ID')
         resource_state = request.headers.get('X-Goog-Resource-State')
@@ -3544,45 +3589,81 @@ class DriveWebhook(Resource):
         if resource_state in ['update', 'add']:
             try:
                 service = get_drive_service()
-                file = service.files().get(fileId=resource_id, fields='id, name, createdTime, modifiedTime').execute()
+                file_metadata = service.files().get(fileId=resource_id, fields='id, name, createdTime, modifiedTime').execute()
+
+                # Check if the book already exists in the database
                 book = Book.query.filter_by(drive_id=resource_id).first()
                 if not book:
+                    # Extract external story ID from the PDF
+                    external_story_id = None
+                    try:
+                        file_request = service.files().get_media(fileId=resource_id)
+                        file_content = file_request.execute()
+                        external_story_id = extract_story_id_from_pdf(file_content)
+                    except Exception as e:
+                        logging.warning(f"[Drive Webhook] Error extracting story ID for {file_metadata['name']}: {e}")
+
+                    # Add new book
                     new_book = Book(
-                        drive_id=file['id'],
-                        title=file['name'],
-                        created_at=file.get('createdTime'),
-                        updated_at=file.get('modifiedTime')
+                        drive_id=file_metadata['id'],
+                        title=file_metadata['name'],
+                        external_story_id=external_story_id,
+                        created_at=file_metadata['createdTime'],
+                        updated_at=file_metadata['modifiedTime']
                     )
                     db.session.add(new_book)
                     db.session.commit()
-                    logging.info(f"Added new book to DB: {file['name']}")
-                    # Use notification endpoint
-                    try:
-                        resp = requests.post(f'{os.getenv("VITE_HOST_URL", "http://localhost")}:{os.getenv("PORT", 5000)}/api/notify-new-book', json={
-                            'book_id': new_book.drive_id,
-                            'book_title': new_book.title
-                        })
-                        if resp.status_code != 200:
-                            logging.error(f"Error notifying new book: {resp.text}")
-                    except Exception as e:
-                        logging.error(f"Error notifying new book: {e}")
+
+                    # Notify users about the new book
+                    users = User.query.all()
+                    for user in users:
+                        add_notification(
+                            user,
+                            type_='new_book',
+                            title='New Book Added!',
+                            body=f"A new book titled '{new_book.title}' has been added.",
+                            link=f"/read/{new_book.drive_id}"
+                        )
+                    logging.info(f"[Drive Webhook] New book added: {new_book.title}")
                 else:
-                    book.title = file['name']
-                    book.updated_at = file.get('modifiedTime')
-                    db.session.commit()
-                    logging.info(f"Updated book in DB: {file['name']}")
-                    # Use notification endpoint
-                    try:
-                        resp = requests.post(f'{os.getenv("VITE_HOST_URL", "http://localhost")}:{os.getenv("PORT", 5000)}/api/notify-book-update', json={
-                            'book_id': book.drive_id,
-                            'book_title': book.title
-                        })
-                        if resp.status_code != 200:
-                            logging.error(f"Error notifying book update: {resp.text}")
-                    except Exception as e:
-                        logging.error(f"Error notifying book update: {e}")
+                    # Update existing book
+                    updated = False
+                    if book.title != file_metadata['name']:
+                        book.title = file_metadata['name']
+                        updated = True
+                    if file_metadata['modifiedTime']:
+                        book.updated_at = file_metadata['modifiedTime']
+                        updated = True
+
+                    # Extract external story ID if missing
+                    if not book.external_story_id:
+                        try:
+                            file_request = service.files().get_media(fileId=resource_id)
+                            file_content = file_request.execute()
+                            external_story_id = extract_story_id_from_pdf(file_content)
+                            if external_story_id:
+                                book.external_story_id = external_story_id
+                                updated = True
+                        except Exception as e:
+                            logging.warning(f"[Drive Webhook] Error extracting story ID for {file_metadata['name']}: {e}")
+
+                    if updated:
+                        db.session.commit()
+
+                        # Notify users about the updated book
+                        users = User.query.all()
+                        for user in users:
+                            add_notification(
+                                user,
+                                type_='book_update',
+                                title='Book Updated!',
+                                body=f"The book '{book.title}' has been updated.",
+                                link=f"/read/{book.drive_id}"
+                            )
+                        logging.info(f"[Drive Webhook] Book updated: {book.title}")
+
             except Exception as e:
-                logging.error(f"Error updating DB from webhook: {e}")
+                logging.error(f"Error processing Drive webhook: {e}")
         return '', 200
 
 # --- GitHub Webhook for App Update Notifications ---
@@ -3622,7 +3703,7 @@ class Authorize(Resource):
         creds = service_account.Credentials.from_service_account_info(
             service_account_info,
             scopes=SCOPES
-        )
+        ).with_subject("storyweavechronicles1@gmail.com")
         return redirect("/")
 
 api.add_namespace(integrations_ns, path='/api')
