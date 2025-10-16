@@ -1,29 +1,5 @@
 import { stepColor } from "../utils/colorUtils";
 import { waitForServerHealth } from "../utils/serviceHealth";
-
-// --- Unified cover cache logic from LandingPage.jsx ---
-function useCachedCovers(pdfs) {
-  const [covers, setCovers] = React.useState({});
-  const [loadingCovers, setLoadingCovers] = React.useState({});
-  const { user } = React.useContext(ThemeContext);
-  React.useEffect(() => {
-    let isMounted = true;
-    const newCovers = {};
-    const newLoading = {};
-    pdfs.forEach(pdf => {
-      const bookId = pdf && (pdf.drive_id || pdf.id);
-      if (!bookId) return;
-      // Use public cover_url from API response
-      const coverUrl = pdf.cover_url || '/no-cover.png';
-      newCovers[bookId] = coverUrl;
-      newLoading[bookId] = false;
-    });
-    if (isMounted) setCovers(newCovers);
-    if (isMounted) setLoadingCovers(newLoading);
-    return () => { isMounted = false; };
-  }, [pdfs, user]);
-  return { covers, loadingCovers };
-}
 import React, { useEffect, useState, useContext } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
@@ -31,19 +7,6 @@ import AdBanner300x250 from "../components/AdBanner300x250";
 import AdNativeBanner from "../components/AdNativeBanner";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
-function setCoverInCache(bookId, url) {
-  try {
-    const cache = JSON.parse(localStorage.getItem('swc_cover_cache') || '{}');
-    if (url === '/no-cover.png') {
-      cache[bookId] = { url, ts: Date.now() };
-    } else {
-      cache[bookId] = { url };
-    }
-    localStorage.setItem('swc_cover_cache', JSON.stringify(cache));
-  } catch {
-    null;
-  }
-}
 
 export default function SearchResults() {
   const location = useLocation();
@@ -169,8 +132,7 @@ export default function SearchResults() {
     });
   }, [results, sort]);
 
-  // Use unified cover cache logic
-  const { covers, loadingCovers } = useCachedCovers(sortedResults);
+  // Cover logic removed
 
   // Use stepColor for container background and CSS variable for text
   const containerBg = stepColor(backgroundColor, theme, 1);
@@ -214,43 +176,8 @@ export default function SearchResults() {
                     </li>
                   );
                 }
-                const coverUrl = covers[bookId] || '/no-cover.png';
-                const isLoading = loadingCovers[bookId];
                 return (
                   <li key={bookId || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: listItemBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-                    {/* Cover image or placeholder */}
-                    <div style={{ width: 60, height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {isLoading
-                        ? (
-                          <img
-                            src="/loading-cover.svg"
-                            alt="Loading Cover"
-                            style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                          />
-                        )
-                        : coverUrl === '/no-cover.png'
-                          ? (
-                            <img
-                              src="/no-cover.svg"
-                              alt="No Cover"
-                              style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                            />
-                          )
-                          : (
-                            <img
-                              src={coverUrl}
-                              alt={pdf.title}
-                              style={{ width: 60, height: 90, objectFit: 'cover', borderRadius: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                              onError={e => {
-                                if (e.target.src !== '/no-cover.svg') {
-                                  setCoverInCache(bookId, '/no-cover.png');
-                                  e.target.src = '/no-cover.svg';
-                                }
-                              }}
-                            />
-                          )
-                      }
-                    </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 700, fontSize: 18 }}>{pdf.title}</div>
                       <div style={{ fontSize: 14, color: '#888' }}>

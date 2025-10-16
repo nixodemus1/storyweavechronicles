@@ -13,7 +13,8 @@
 - fixed infinite polling with yet ANOTHER cover system. but this one is not only working, but is the most stable and the most optimized.
 - FINALLY fixed the routing issue. no more!
 - moved the schedules and mail to google cloud (and having uploads/updates automatically send out notifications and update the database)
-- for advertising: adsterra implemented. now the website has ads. 
+- for advertising: adsterra implemented. now the website has ads.
+- decided to remove search and account covers. no happy about it, but a necessary sacrifice.
 
 ---
 
@@ -39,7 +40,7 @@
 - **Render Free Tier:**  
   - 256 MB RAM, 0.1 CPU, 100 connections per instance.
   - 750 free instance hours/month.
-  - Services spin down after 15 minutes inactivity.
+  - Services spin down after 15 minutes inactivity. can take 30 seconds at minimum to spin back up
   - PostgreSQL: 1GB, expires every 30 days (moved to neon, no need to worry about this).
 ---
 
@@ -66,86 +67,7 @@ optimized as possible. which is why i want this churn gone!
   - PostgreSQL: 1GB, expires every 30 days.)
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-no thanks just wanted to get you caught up to speed. so i just spent time cleaning up the backend and making it compatable with flask-restx so i can have my won openapi page. i did this because im setting up my CI/CD with help from github actions. the new setup im trying to have is local testing (what we are doing now) then a dev branch that goes live on render where i can test things in a live environment without worry. and then a production branch on github and render that users actually use. that way i can test and make new features. and if i break something the site isnt down for all users. i created another site specifically for dev on render. made a new branch called dev and connected it with render. made new branch rules so that you HAVE to pull request and pull requests HAVE to be approved to push changes from dev to prod. i also wanted to set up environments that dev has to pass before github will even let you make a pull request. one of those was a node tester (honestly thats how i found out that my current set up is only compatable with node 20 and onwards.) and now i want a way to be able to check the api to make sure they are robust and secure before we throw whatever new endpoints we make into prod. i found a github action for mayhem api. I created a mayhem account and as you just saw, i have refactored my entire flask app to be compatable and make an openapi page that mayhem can test against for security purposes. thats where we are at right now. that is the current state of the site right now. 
+
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Thanks for sharing the detailed context! Here's how we can proceed based on the outlined plan:
 
----
-
-### **Action Plan**
-1. **Prioritize Gmail API Integration**:
-   - Replace the `send_scheduled_emails` function with Gmail API logic.
-   - Remove Flask-Mail and related .env variables.
-
-2. **Update Google Drive Webhook**:
-   - Extend the `/api/drive-webhook` endpoint to handle:
-     - Adding new books to the database.
-     - Updating existing books.
-     - Sending notifications for new/updated books.
-
-3. **Remove Redundant Code**:
-   - Delete the `/api/seed-drive-books` endpoint.
-   - Remove the `check_and_notify_new_books` and `call_seed_drive_books` scheduled jobs.
-   - Clean up .env variables related to the old email system and redundant jobs.
-
-4. **Set Up Google Cloud Scheduler**:
-   - Migrate the daily/weekly/monthly email jobs to Google Cloud Scheduler.
-
----
-
-### **Next Steps**
-Let me know which part you'd like to prioritize:
-1. **Gmail API Integration**: Start with replacing the email-sending logic.
-2. **Webhook Updates**: Focus on extending the `/api/drive-webhook` functionality.
-3. **Code Cleanup**: Remove unused endpoints, jobs, and .env variables.
-
-Alternatively, I can begin with the Gmail API integration and proceed sequentially. Let me know!
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-### Summary of Work Done and Next Steps
-
-#### **Objective**
-The goal is to transition the backend of Storyweave Chronicles to use Google Cloud services for email notifications and webhooks, ensuring reliability even when the backend spins down on Render.com. This includes testing the new integrations, cleaning up unused code, and preparing the site for launch.
-
----
-
-#### **Completed Work**
-1. **Google Cloud Webhook Integration**:
-   - Verified that the `/api/drive-webhook` endpoint works correctly.
-   - Confirmed no additional authentication is required for the webhook in Postman.
-
-2. **Scheduled Email Notifications**:
-   - Updated the `TestSendScheduledNotifications` endpoint to simulate sending scheduled notification emails in batches.
-   - Added validation for frequency (`daily`, `weekly`, `monthly`) and logic to process users in batches with a delay between batches.
-
-3. **Testing Plan**:
-   - Provided Postman configurations for testing the updated `TestSendScheduledNotifications` endpoint.
-
----
-
-#### **Current Status**
-- The `TestSendScheduledNotifications` endpoint is ready for testing.
-- The webhook functionality has been confirmed to work.
-- The next steps involve testing the scheduled notifications and cleaning up unused variables and endpoints.
-
----
-
-#### **Next Steps**
-1. **Test Scheduled Notifications**:
-   - Use Postman to test the `TestSendScheduledNotifications` endpoint with various frequencies and batch sizes.
-   - Verify that emails are sent correctly and logs show expected behavior.
-
-2. **Clean Up Unused Code**:
-   - After confirming functionality, remove unused environment variables and endpoints related to the old email system.
-
-3. **Implement Advertisements**:
-   - Add advertisement functionality to the site, ensuring it integrates seamlessly with the existing design.
-
-4. **Prepare for Launch**:
-   - Finalize all features, test thoroughly, and prepare the site for public launch.
-
-5. **Post-Launch Maintenance**:
-   - Address any bugs or issues that arise post-launch and maintain the site.
-
----
-
-This summary provides a clear snapshot of the current progress and next steps. If you start a new session, you can refer to this to pick up where we left off. Let me know if you need further clarification!
