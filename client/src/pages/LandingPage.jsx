@@ -448,6 +448,36 @@ export default function LandingPage() {
     };
   }, [location.pathname, user]);
 
+  useEffect(() => {
+  // Remove previous ad if it exists
+  const adDiv = document.getElementById('adsterra-banner-300x250');
+  if (adDiv) adDiv.innerHTML = '';
+  // Create the script tag for Adsterra
+  const script1 = document.createElement('script');
+  script1.type = 'text/javascript';
+  script1.innerHTML = `
+    atOptions = {
+      'key' : '60d6ecc3b38b0ec3c54b334990fa06fb',
+      'format' : 'iframe',
+      'height' : 250,
+      'width' : 300,
+      'params' : {}
+    };
+  `;
+  const script2 = document.createElement('script');
+  script2.type = 'text/javascript';
+  script2.src = '//www.highperformanceformat.com/60d6ecc3b38b0ec3c54b334990fa06fb/invoke.js';
+  // Append both scripts to the ad div
+  if (adDiv) {
+    adDiv.appendChild(script1);
+    adDiv.appendChild(script2);
+  }
+  // Cleanup on unmount
+  return () => {
+    if (adDiv) adDiv.innerHTML = '';
+  };
+}, []);
+
   const [pdfs, setPdfs] = useState([]);
   const [topNewest, setTopNewest] = useState([]);
   const [topVoted, setTopVoted] = useState([]);
@@ -537,7 +567,7 @@ export default function LandingPage() {
           coversWaitingRef.current.add(bookId);
           let backendPermanentFailure = false;
           try {
-            const resp = await fetch(`${API_BASE_URL}/pdf-cover/${encodeURIComponent(bookId)}?session_id=${encodeURIComponent(sessionId)}`, {
+            const resp = await fetch(`${API_BASE_URL}/api/pdf-cover/${encodeURIComponent(bookId)}?session_id=${encodeURIComponent(sessionId)}`, {
               method: 'GET'
             });
             if (resp.ok) {
@@ -571,7 +601,7 @@ export default function LandingPage() {
             if (checkData.exists) {
               // Cover now exists, update cover_url to real image with cache-busting timestamp
               const timestamp = Date.now();
-              const publicCoverUrl = `${API_BASE_URL}/covers/${bookId}.jpg?t=${timestamp}`;
+              const publicCoverUrl = `${API_BASE_URL}/api/covers/${bookId}.jpg?t=${timestamp}`;
               console.log(`[LandingPage] Cover for bookId: ${bookId} is now available. Updating cover_url with cache-busting: ${publicCoverUrl}`);
               setPdfs(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
               setTopNewest(prev => prev.map(b => b.drive_id === bookId ? { ...b, cover_url: publicCoverUrl } : b));
@@ -633,7 +663,7 @@ export default function LandingPage() {
       try {
         await waitForServerHealth();
         const sessionId = user?.session_id || localStorage.getItem('session_id');
-        await fetch(`${API_BASE_URL}/pdf-cover/${encodeURIComponent(bookId)}?session_id=${encodeURIComponent(sessionId)}`, {
+        await fetch(`${API_BASE_URL}/api/pdf-cover/${encodeURIComponent(bookId)}?session_id=${encodeURIComponent(sessionId)}`, {
           method: 'GET'
         });
       } catch (err) {
@@ -659,6 +689,11 @@ export default function LandingPage() {
             handleCoverLoad={carouselCoverState.handleCoverLoad}
             handleCoverError={carouselCoverState.handleCoverError}
           />
+
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '32px 0' }}>
+            <div id="adsterra-banner-300x250"></div>
+          </div>
+
           <TopListsSection
             topNewest={topNewest}
             topVoted={topVoted}
