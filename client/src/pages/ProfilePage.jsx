@@ -7,6 +7,8 @@ import NotificationsTab from "../components/NotificationsTab";
 import AdminTabContent from "../components/AdminTabContent";
 import SettingsTabContent from "../components/SettingsTabContent";
 import SecurityTabContent from "../components/SecurityTabContent";
+import AdBanner300x250 from "../components/AdBanner300x250";
+
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 function ProfileSidebar({ user, sidebarExpanded, activeTab, setActiveTab, isAdmin, setUser, sidebarRef, backgroundColor, textColor, theme }) {
@@ -252,32 +254,39 @@ function ProfilePage({ user, setUser }) {
       display: 'flex',
       minHeight: '100vh',
       background: effectiveBg,
-      color: effectiveText
+      color: effectiveText,
+      flexDirection: 'column'
     }}>
-      <ProfileSidebar
-        user={effectiveUser}
-        sidebarExpanded={sidebarExpanded}
-        activeTab={activeTab}
-        setActiveTab={handleTabSwitch}
-        isAdmin={isAdmin}
-        setUser={setUser}
-        sidebarRef={sidebarRef}
-        handleLogout={handleLogout}
-        backgroundColor={effectiveBg}
-        textColor={effectiveText}
-        theme={theme}
-      />
-      <main style={{
-        marginLeft: sidebarExpanded ? 180 : 56,
-        padding: '32px 24px',
-        width: '100%',
-        boxSizing: 'border-box',
-        background: effectiveBg,
-        color: effectiveText
-      }}>
-        {/* --- Existing tab content --- */}
-        {tabContent}
-      </main>
+      <div style={{ display: 'flex', flex: 1 }}>
+        <ProfileSidebar
+          user={effectiveUser}
+          sidebarExpanded={sidebarExpanded}
+          activeTab={activeTab}
+          setActiveTab={handleTabSwitch}
+          isAdmin={isAdmin}
+          setUser={setUser}
+          sidebarRef={sidebarRef}
+          handleLogout={handleLogout}
+          backgroundColor={effectiveBg}
+          textColor={effectiveText}
+          theme={theme}
+        />
+        <main style={{
+          marginLeft: sidebarExpanded ? 180 : 56,
+          padding: '32px 24px',
+          width: '100%',
+          boxSizing: 'border-box',
+          background: effectiveBg,
+          color: effectiveText
+        }}>
+          {/* --- Existing tab content --- */}
+          {tabContent}
+        </main>
+      </div>
+      {/* Regular banner ad at the very bottom */}
+      <div style={{ display: 'flex', justifyContent: 'center', margin: '32px 0' }}>
+        <AdBanner300x250 />
+      </div>
     </div>
   );
 }

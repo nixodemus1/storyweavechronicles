@@ -1,6 +1,7 @@
 import React, { useState, useContext } from "react";
 import { ThemeContext } from "../themeContext";
 import { waitForServerHealth } from "../utils/serviceHealth";
+import AdBanner300x250 from "../components/AdBanner300x250";
 
 // Utility to normalize hex color to 6 digits
 function normalizeHex(hex) {
@@ -81,8 +82,12 @@ export default function LoginRegisterPage({ onAuth }) {
   return (
     <div
       className={`login-register-page ${theme}-mode`}
-      style={{ background: "var(--background-color)", color: "var(--text-color)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}
+      style={{ background: "var(--background-color)", color: "var(--text-color)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}
     >
+      {/* Regular banner ad at the very top */}
+      <div style={{ display: "flex", justifyContent: "center", margin: "32px 0" }}>
+        <AdBanner300x250 />
+      </div>
       <form
         onSubmit={handleSubmit}
         style={{

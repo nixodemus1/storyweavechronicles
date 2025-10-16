@@ -7,6 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
 import { ContainerDepthProvider, SteppedContainer } from "../components/ContainerDepthContext";
 import { waitForServerHealth } from "../utils/serviceHealth";
+import AdBanner300x250 from "../components/AdBanner300x250";
+import AdNativeBanner from "../components/AdNativeBanner";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
@@ -448,35 +450,6 @@ export default function LandingPage() {
     };
   }, [location.pathname, user]);
 
-  useEffect(() => {
-  // Remove previous ad if it exists
-  const adDiv = document.getElementById('adsterra-banner-300x250');
-  if (adDiv) adDiv.innerHTML = '';
-  // Create the script tag for Adsterra
-  const script1 = document.createElement('script');
-  script1.type = 'text/javascript';
-  script1.innerHTML = `
-    atOptions = {
-      'key' : '60d6ecc3b38b0ec3c54b334990fa06fb',
-      'format' : 'iframe',
-      'height' : 250,
-      'width' : 300,
-      'params' : {}
-    };
-  `;
-  const script2 = document.createElement('script');
-  script2.type = 'text/javascript';
-  script2.src = '//www.highperformanceformat.com/60d6ecc3b38b0ec3c54b334990fa06fb/invoke.js';
-  // Append both scripts to the ad div
-  if (adDiv) {
-    adDiv.appendChild(script1);
-    adDiv.appendChild(script2);
-  }
-  // Cleanup on unmount
-  return () => {
-    if (adDiv) adDiv.innerHTML = '';
-  };
-}, []);
 
   const [pdfs, setPdfs] = useState([]);
   const [topNewest, setTopNewest] = useState([]);
@@ -690,8 +663,9 @@ export default function LandingPage() {
             handleCoverError={carouselCoverState.handleCoverError}
           />
 
+          {/* Native ad banner between carousel and lists */}
           <div style={{ display: 'flex', justifyContent: 'center', margin: '32px 0' }}>
-            <div id="adsterra-banner-300x250"></div>
+            <AdNativeBanner style={{ width: 300, minHeight: 50, borderRadius: 8, background: stepColor(_backgroundColor, theme, 1) }} />
           </div>
 
           <TopListsSection
@@ -711,11 +685,18 @@ export default function LandingPage() {
             handleErrorVoted={votedCoverState.handleCoverError}
             textColor={textColor}
           />
+
           <div style={{ textAlign: 'center', margin: '24px 0' }}>
             <button onClick={handleRetryFailedCovers} style={{ padding: '10px 24px', borderRadius: 8, border: '1.5px solid #333', background: '#ccc', color: '#333', fontWeight: 700, fontSize: 18, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', transition: 'background 0.15s, color 0.15s' }}>
               Retry Failed Covers
             </button>
           </div>
+
+          {/* Regular banner ad at the very bottom */}
+          <div style={{ display: 'flex', justifyContent: 'center', margin: '32px 0' }}>
+            <AdBanner300x250 />
+          </div>
+
           {loadingPdfs && (
             <div style={{ textAlign: 'center', color: '#888', margin: 24, background: stepColor(_backgroundColor, theme, 1), borderRadius: 8 }}>Loading more books...</div>
           )}
