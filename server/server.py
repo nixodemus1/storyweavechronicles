@@ -250,7 +250,7 @@ tracemalloc.start()
 def get_cover_url(file_id):
     """Returns the public URL for a cover image, using FRONTEND_BASE_URL from .env."""
     base_url = os.getenv('FRONTEND_BASE_URL', 'http://localhost:5173')
-    return f"{base_url}/covers/{file_id}.jpg"
+    return f"{base_url}/api/covers/{file_id}.jpg"
 
 def load_atlas():
     """Load the atlas.json file and return the covers mapping. Retries up to 3 times on error."""
@@ -832,7 +832,7 @@ def add_notification(user, type_, title, body, link=None):
         db.session.commit()
         prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
         if prefs.get('emailFrequency', 'immediate') == 'immediate':
-            send_notification_email(user, title, body)
+            send_notification_email(user, title, body, [notification])
 
 def call_seed_drive_books():
     """Call the seed-drive-books endpoint."""
@@ -923,14 +923,14 @@ def get_drive_service():
         creds = service_account.Credentials.from_service_account_info(
             service_account_info,
             scopes=SCOPES
-        ).with_subject("storyweavechronicles1@gmail.com")
+        )
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
     if not creds or not creds.valid:
         creds = service_account.Credentials.from_service_account_info(
             service_account_info,
             scopes=SCOPES
-        ).with_subject("storyweavechronicles1@gmail.com")
+        )
     return build('drive', 'v3', credentials=creds)
 
 def setup_drive_webhook(folder_id, webhook_url):
@@ -941,7 +941,7 @@ def setup_drive_webhook(folder_id, webhook_url):
         # Only register if missing or expired
         if not webhook or not webhook.expiration or webhook.expiration < now_ms:
             channel_id = webhook.channel_id if webhook else 'storyweave-drive-channel'
-            creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=SCOPES).with_subject("storyweavechronicles1@gmail.com")
+            creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
             service = build('drive', 'v3', credentials=creds)
             body = {
                 'id': channel_id,
@@ -2571,7 +2571,7 @@ class UserTopVotedBooks(Resource):
         response = jsonify({'books': result})
         return response, 200
 
-api.add_namespace(auth_ns, path='/api')
+api.add_namespace(votes_ns, path='/api')
 
 # === Comments ===
 @comments_ns.route('/add-comment')
@@ -3703,7 +3703,7 @@ class Authorize(Resource):
         creds = service_account.Credentials.from_service_account_info(
             service_account_info,
             scopes=SCOPES
-        ).with_subject("storyweavechronicles1@gmail.com")
+        )
         return redirect("/")
 
 api.add_namespace(integrations_ns, path='/api')

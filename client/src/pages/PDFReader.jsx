@@ -320,7 +320,7 @@ export default function PDFReader() {
   useEffect(() => {
     const folderId = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
     if (!folderId) return;
-    fetch(`${API_BASE_URL}/list-pdfs/${folderId}`)
+    fetch(`${API_BASE_URL}/api/list-pdfs/${folderId}`)
       .then(res => res.json())
       .then(data => {
         if (data.pdfs && Array.isArray(data.pdfs)) {
