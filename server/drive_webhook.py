@@ -23,13 +23,14 @@ service_account_info = {
 def setup_drive_webhook(folder_id, webhook_url):
     creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
     service = build('drive', 'v3', credentials=creds)
+    pubsub_topic = f'projects/{os.getenv("GOOGLE_PROJECT_ID")}/topics/{os.getenv("PUBSUB_TOPIC_NAME")}'
     body = {
         'id': 'storyweave-drive-channel',  # Unique channel ID
-        'type': 'web_hook',
-        'address': webhook_url,  # Your backend endpoint, e.g. https://yourdomain.com/api/drive-webhook
+        'type': 'pubsub',
+        'address': pubsub_topic,  # Pub/Sub topic resource name, e.g. 'projects/your-project/topics/your-topic'
     }
     response = service.files().watch(fileId=folder_id, body=body).execute()
-    print("Webhook registered:", response)
+    print("Drive Pub/Sub webhook registered:", response)
 
 if __name__ == '__main__':
-    setup_drive_webhook(os.getenv('GOOGLE_DRIVE_FOLDER_ID'), 'https://swcflaskbackend.onrender.com/api/drive-webhook')
+    setup_drive_webhook(os.getenv('GOOGLE_DRIVE_FOLDER_ID'), os.getenv('PUBSUB_AUDIENCE'))

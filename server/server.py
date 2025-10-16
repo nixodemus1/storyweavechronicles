@@ -2542,17 +2542,20 @@ class UserTopVotedBooks(Resource):
     def get(self):
         username = request.args.get('username')
         if not username:
-            response = jsonify({'error': 'Missing username'})
-            return response, 400
+            response = make_response(jsonify({'error': 'Missing username'}))
+            response.status_code = 400
+            return response
         user = User.query.filter_by(username=username).first()
         if not user:
-            response = jsonify({'error': 'User not found'})
-            return response, 404
+            response = make_response(jsonify({'error': 'User not found'}))
+            response.status_code = 404
+            return response
         # Get all votes by this user
         votes = Vote.query.filter_by(username=username).all()
         if not votes:
-            response = jsonify({'books': []})
-            return response, 200
+            response = make_response(jsonify({'books': []}))
+            response.status_code = 200
+            return response
         # Get book info for each voted book
         book_ids = [v.book_id for v in votes]
         books = Book.query.filter(Book.drive_id.in_(book_ids)).all()
@@ -2568,8 +2571,9 @@ class UserTopVotedBooks(Resource):
             })
         # Sort by vote value descending, then by title
         result.sort(key=lambda b: (-b['votes'] if b['votes'] is not None else 0, b['title']))
-        response = jsonify({'books': result})
-        return response, 200
+        response = make_response(jsonify({'books': result}))
+        response.status_code = 200
+        return response
 
 api.add_namespace(votes_ns, path='/api')
 
@@ -3564,7 +3568,9 @@ class DriveWebhook(Resource):
         # Verify JWT token from Pub/Sub
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+            response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
+            response.status_code = 401
+            return response
 
         token = auth_header.split(' ')[1]
         try:
@@ -3573,7 +3579,9 @@ class DriveWebhook(Resource):
             decoded_token = jwt.decode(token, audience=audience, request=Request())
         except Exception as e:
             logging.error(f"JWT verification failed: {e}")
-            return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+            response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
+            response.status_code = 401
+            return response
 
         # Log the verified token claims
         logging.info(f"Verified JWT claims: {decoded_token}")
@@ -3664,7 +3672,9 @@ class DriveWebhook(Resource):
 
             except Exception as e:
                 logging.error(f"Error processing Drive webhook: {e}")
-        return '', 200
+        response = make_response('')
+        response.status_code = 200
+        return response
 
 # --- GitHub Webhook for App Update Notifications ---
 @integrations_ns.route('/github-webhook', methods=['POST'])
@@ -3795,20 +3805,10 @@ if __name__ == '__main__':
     # Register Google Drive webhook on startup
     try:
         folder_id = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
-        webhook_url = 'https://swcflaskbackend.onrender.com/api/drive-webhook'
+        webhook_url = os.getenv('PUBSUB_AUDIENCE')
         setup_drive_webhook(folder_id, webhook_url)
         logging.info("Google Drive webhook registered on startup.")
         logging.info("Tracemalloc started for memory tracking.")
     except Exception as e:
         logging.error(f"Failed to register Google Drive webhook: {e}")
-    # Schedule daily/weekly/monthly email notifications at 8am, and daily new book check at 9am
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(lambda: send_scheduled_emails('daily'), 'cron', hour=8)
-    scheduler.add_job(lambda: send_scheduled_emails('weekly'), 'cron', day_of_week='mon', hour=8)
-    scheduler.add_job(lambda: send_scheduled_emails('monthly'), 'cron', day=1, hour=8)
-    # Change from hourly to daily for backup new book check
-    scheduler.add_job(check_and_notify_new_books, 'cron', hour=9)
-    # Add scheduled job to call seed-drive-books endpoint daily at 10am
-    scheduler.add_job(call_seed_drive_books, 'cron', hour=10)
-    scheduler.start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=os.getenv("DEBUG", True))

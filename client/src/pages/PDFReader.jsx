@@ -4,6 +4,8 @@ import { useParams } from "react-router-dom";
 import { ThemeContext } from "../themeContext";
 import { SteppedContainer } from "../components/ContainerDepthContext.jsx";
 import { waitForServerHealth } from "../utils/serviceHealth";
+import AdBanner300x250 from "../components/AdBanner300x250";
+import AdNativeBanner from "../components/AdNativeBanner";
 // Removed CommentsProvider import; using memoized CommentsSection only
 import { CommentsProvider } from "../components/commentsContext.jsx";
 import CommentsSection from "../components/CommentsSection";
@@ -543,8 +545,12 @@ export default function PDFReader() {
   // Remove loadingBook check here, always allow navigation
 
   return (
-  <SteppedContainer step={0} style={{ minHeight: '100vh', background: baseBg, color: "var(--text-color)" }} className={`pdf-reader-container ${theme}-mode`}>
-  <header className="pdf-reader-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', marginBottom: 16, background: baseBg, color: "var(--text-color)", flexDirection: window.innerWidth < 600 ? 'column' : 'row', gap: window.innerWidth < 600 ? 10 : 18 }}>
+    <SteppedContainer step={0} style={{ minHeight: '100vh', background: baseBg, color: "var(--text-color)" }} className={`pdf-reader-container ${theme}-mode`}>
+      {/* Regular banner ad at the very top */}
+      <div style={{ display: "flex", justifyContent: "center", margin: "32px 0" }}>
+        <AdBanner300x250 />
+      </div>
+      <header className="pdf-reader-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 32px', marginBottom: 16, background: baseBg, color: "var(--text-color)", flexDirection: window.innerWidth < 600 ? 'column' : 'row', gap: window.innerWidth < 600 ? 10 : 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: window.innerWidth < 600 ? 10 : 18 }}>
           {/* Logo/title can be added here if needed for PDFReader */}
         </div>
@@ -552,7 +558,7 @@ export default function PDFReader() {
           {/* Theme toggle or other header actions if needed */}
         </div>
       </header>
-  <div style={{ display: window.innerWidth < 600 ? 'block' : 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 16, width: window.innerWidth < 600 ? '100%' : 'auto' }}>
+      <div style={{ display: window.innerWidth < 600 ? 'block' : 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 16, width: window.innerWidth < 600 ? '100%' : 'auto' }}>
         <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: window.innerWidth < 600 ? 12 : 8, width: '100%' }}>
           <button
             className="pdf-reader-btn"
@@ -583,7 +589,7 @@ export default function PDFReader() {
         </div>
       </div>
 
-  <SteppedContainer step={1} style={{ borderRadius: 8, padding: 32, margin: 16, background: pdfPageBg, maxWidth: 1100, marginLeft: 'auto', marginRight: 'auto', color: "var(--text-color)" }} className="pdf-reader-page">
+      <SteppedContainer step={1} style={{ borderRadius: 8, padding: 32, margin: 16, background: pdfPageBg, maxWidth: 1100, marginLeft: 'auto', marginRight: 'auto', color: "var(--text-color)" }} className="pdf-reader-page">
         {/* Show loading or page content */}
         {pageObj ? (
           <div key={pageObj.page}>
@@ -652,10 +658,15 @@ export default function PDFReader() {
         )}
       </SteppedContainer>
 
+      {/* Native ad banner between PDF text and comments */}
+      <div style={{ display: "flex", justifyContent: "center", margin: "32px 0" }}>
+        <AdNativeBanner style={{ width: 300, minHeight: 50, borderRadius: 8, background: bookMetaBg }} />
+      </div>
+
       {/* Show error banner between text and comments if error occurs */}
       {errorBanner}
 
-  <SteppedContainer step={2} style={{ margin: '0 auto', maxWidth: 900, borderRadius: 8, padding: 20, marginBottom: 32, marginTop: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', background: bookMetaBg, color: "var(--text-color)" }}>
+      <SteppedContainer step={2} style={{ margin: '0 auto', maxWidth: 900, borderRadius: 8, padding: 20, marginBottom: 32, marginTop: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', background: bookMetaBg, color: "var(--text-color)" }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 10 }}>
           <span style={{ fontWeight: 700, fontSize: 22 }}>{bookMeta?.title || `Book ${id}`}</span>
           {isBookmarked ? (
