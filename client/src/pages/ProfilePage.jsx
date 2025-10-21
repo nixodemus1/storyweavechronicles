@@ -8,6 +8,7 @@ import AdminTabContent from "../components/AdminTabContent";
 import SettingsTabContent from "../components/SettingsTabContent";
 import SecurityTabContent from "../components/SecurityTabContent";
 import AdBanner300x250 from "../components/AdBanner300x250";
+import AdNativeBanner from "../components/AdNativeBanner";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
@@ -257,6 +258,10 @@ function ProfilePage({ user, setUser }) {
       color: effectiveText,
       flexDirection: 'column'
     }}>
+      {/* Native banner at the very top for profile pages */}
+      <div style={{ display: 'flex', justifyContent: 'center', margin: '16px 0' }}>
+        <AdNativeBanner style={{ width: 300, minHeight: 50, borderRadius: 8 }} />
+      </div>
       <div style={{ display: 'flex', flex: 1 }}>
         <ProfileSidebar
           user={effectiveUser}

@@ -6,6 +6,84 @@ import { ThemeContext } from "../themeContext";
 import AdBanner300x250 from "../components/AdBanner300x250";
 import AdNativeBanner from "../components/AdNativeBanner";
 
+// Small inline sponsored result that visually matches search results but is clearly labeled
+function SponsoredResult({ containerBg, containerText }) {
+  const [adMetadata, setAdMetadata] = useState(null);
+  const [adBlocked, setAdBlocked] = useState(false);
+
+  const sponsorStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 18,
+    marginBottom: 18,
+    background: containerBg,
+    color: containerText,
+    borderRadius: 8,
+    padding: '12px 18px',
+    boxShadow: '0 1px 6px rgba(0,0,0,0.03)',
+    border: '2px solid rgba(200,160,0,0.06)'
+  };
+
+  const badgeStyle = {
+    fontSize: 12,
+    padding: '4px 8px',
+    borderRadius: 12,
+    background: '#fff8e6',
+    color: '#b27700',
+    fontWeight: 700,
+    marginRight: 8,
+    border: '1px solid rgba(180,120,0,0.08)'
+  };
+
+  const handleClick = () => {
+    // Prefer ad-provided click URL when available
+    const url = (adMetadata && (adMetadata.clickUrl || adMetadata.url)) || 'https://example.com';
+    // Analytics hook could be added here before navigation
+    window.open(url, '_blank', 'noopener');
+  };
+
+  // If the ad provider blocked the creative, remove the sponsored card entirely
+  if (adBlocked) return null;
+
+  return (
+    <li style={sponsorStyle} role="article" aria-label="Sponsored result">
+      <div style={{ flex: 1 }}>
+        {adMetadata ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={badgeStyle}>Sponsored</span>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>{adMetadata.title || 'Recommended for you — Sponsored'}</div>
+            </div>
+            {adMetadata.subtitle && (
+              <div style={{ fontSize: 14, color: '#666', marginTop: 6 }}>{adMetadata.subtitle}</div>
+            )}
+          </>
+        ) : (
+          // Minimal presentation when metadata isn't available: keep the badge and let the native creative fill the slot
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={badgeStyle}>Sponsored</span>
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+        {/* Use the native ad script inside the sponsored slot; it will hide itself if blocked. */}
+        <div style={{ width: 300, minHeight: 50 }}>
+          <AdNativeBanner
+            style={{ width: 300, minHeight: 50, borderRadius: 8, background: containerBg }}
+            onAdLoaded={(meta) => {
+              if (meta) setAdMetadata(meta);
+            }}
+            onAdBlocked={() => setAdBlocked(true)}
+          />
+        </div>
+        <button onClick={handleClick} style={{ background: 'var(--accent-color)', color: 'var(--container-bg)', border: 'none', padding: '6px 14px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>
+          {adMetadata && adMetadata.title ? 'Learn' : 'Learn'}
+        </button>
+      </div>
+    </li>
+  );
+}
+
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
 export default function SearchResults() {
@@ -166,42 +244,66 @@ export default function SearchResults() {
             <div>No books found matching your search.</div>
           ) : (
             <ul style={{ listStyle: 'none', padding: 0 }}>
-              {sortedResults.map(pdf => {
-                const bookId = pdf.drive_id || pdf.id;
-                if (!bookId) {
-                  console.warn('[SearchResults] Rendering: invalid book id', pdf);
-                  return (
-                    <li key={Math.random()} style={{ color: '#c00', fontSize: 14, marginBottom: 18 }}>
-                      [No valid book id]
+              {(() => {
+                const items = [];
+                const insertIndex = Math.min(2, sortedResults.length); // after 2nd item
+                for (let i = 0; i < sortedResults.length; i++) {
+                  // Insert sponsored result at the chosen index
+                  if (i === insertIndex) {
+                    items.push(
+                      <SponsoredResult key="sponsored-1" containerBg={listItemBg} containerText={containerText} />
+                    );
+                  }
+                  const pdf = sortedResults[i];
+                  const bookId = pdf.drive_id || pdf.id;
+                  // Determine votes count from possible backend shapes. Fallback to 0.
+                  const voteCount = (pdf.total_votes ?? pdf.vote_count ?? (pdf.votes ? (Array.isArray(pdf.votes) ? pdf.votes.length : null) : null) ?? 0);
+                  if (!bookId) {
+                    console.warn('[SearchResults] Rendering: invalid book id', pdf);
+                    items.push(
+                      <li key={Math.random()} style={{ color: '#c00', fontSize: 14, marginBottom: 18 }}>
+                        [No valid book id]
+                      </li>
+                    );
+                    continue;
+                  }
+                  items.push(
+                    <li key={bookId || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: listItemBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 18 }}>{pdf.title}</div>
+                        <div style={{ fontSize: 14, color: '#888' }}>
+                          Last updated: {
+                            pdf.modifiedTime
+                              ? new Date(pdf.modifiedTime).toLocaleString()
+                              : pdf.createdTime
+                                ? new Date(pdf.createdTime).toLocaleString()
+                                : pdf.created_at
+                                  ? new Date(pdf.created_at).toLocaleString()
+                                  : 'Unknown'
+                          }
+                        </div>
+                      </div>
+                      {bookmarks.includes(bookId) && (
+                        <span style={{ color: containerText, fontWeight: 600, fontSize: 15, marginRight: 8 }}>★ Favorited</span>
+                      )}
+                      {/* Vote indicator: show star + count, even when 0 */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginRight: 12 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#b27700' }}>★ {voteCount}</div>
+                        <div style={{ fontSize: 12, color: '#888' }}>{voteCount} vote{voteCount === 1 ? '' : 's'}</div>
+                      </div>
+                      <button
+                        style={{ background: stepColor(backgroundColor, theme, 0), color: containerText, border: '1px solid var(--accent-color)', borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: 'pointer' }}
+                        onClick={() => navigate(`/read/${pdf.id}`)}
+                      >Read</button>
                     </li>
                   );
                 }
-                return (
-                  <li key={bookId || Math.random()} style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 18, background: listItemBg, color: containerText, borderRadius: 8, padding: '12px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 700, fontSize: 18 }}>{pdf.title}</div>
-                      <div style={{ fontSize: 14, color: '#888' }}>
-                        Last updated: {
-                          pdf.modifiedTime
-                            ? new Date(pdf.modifiedTime).toLocaleString()
-                            : pdf.createdTime
-                              ? new Date(pdf.createdTime).toLocaleString()
-                              : pdf.created_at
-                                ? new Date(pdf.created_at).toLocaleString()
-                                : 'Unknown'
-                        }
-                      </div>
-                    </div>
-                    {bookmarks.includes(pdf.id) && (
-                      <span style={{ color: containerText, fontWeight: 600, fontSize: 15, marginRight: 8 }}>★ Favorited</span>
-                    )}
-                    <button
-                      style={{ background: stepColor(backgroundColor, theme, 0), color: containerText, border: '1px solid var(--accent-color)', borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: 'pointer' }}
-                      onClick={() => navigate(`/read/${pdf.id}`)}
-                    >Read</button>
-                  </li>
-                );
-              })}
+                // If insert index is at end, ensure sponsored is appended
+                if (insertIndex >= sortedResults.length) {
+                  items.push(<SponsoredResult key="sponsored-1" containerBg={listItemBg} containerText={containerText} />);
+                }
+                return items;
+              })()}
             </ul>
           )}
         </div>

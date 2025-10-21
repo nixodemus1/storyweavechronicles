@@ -88,15 +88,65 @@ app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
-CORS(app, origins=[
-    "http://localhost:5173",
-    "http://localhost:5000",
-    "https://dev-swc-backend.onrender.com",
-    "https://dev-swc-backend-1v2c.onrender.com"
-    "https://storyweavechronicles.onrender.com",
-    "https://swcflaskbackend.onrender.com"
-], supports_credentials=True, allow_headers="*", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+
+# Build a safe CORS origins list. Use env vars when available so dev/prod frontends
+# can be added without editing code. Note: missing commas can accidentally
+# concatenate strings (causing wrong origin values) — include an explicit list.
+frontend_base = os.getenv('FRONTEND_BASE_URL', 'http://localhost:5173')
+dev_frontend = os.getenv('DEV_FRONTEND_URL', 'http://localhost:5000')
+allowed_origins = [
+    frontend_base,
+    dev_frontend,
+    'https://dev-swc-backend.onrender.com',
+    'https://dev-swc-backend-1v2c.onrender.com',
+    'https://storyweavechronicles.onrender.com',
+    'https://swcflaskbackend.onrender.com'
+]
+
+# Build a normalized set for runtime comparisons and log allowed origins for debugging
+# If DEBUG is enabled, ensure the common Vite dev origin is present so local dev frontends
+# (served at http://localhost:5173) can be matched even when .env.FRONTEND_BASE_URL points elsewhere.
+is_debug = os.getenv('DEBUG', 'True').lower() == 'true'
+vite_dev_origin = 'http://localhost:5173'
+if is_debug and vite_dev_origin not in allowed_origins:
+    # keep the explicit dev origin at the end of the list
+    allowed_origins.append(vite_dev_origin)
+    logging.info(f"CORS debug: added vite dev origin {vite_dev_origin} to allowed_origins")
+
+# Normalize allowed origins (strip whitespace, remove trailing slash, lowercase)
+normalized_allowed_origins = set(o.strip().rstrip('/').lower() for o in allowed_origins if o)
+# Log the raw and normalized lists using repr to make hidden characters visible during debugging
+logging.info(f"CORS allowed origins: {[repr(a) for a in allowed_origins]}")
+logging.info(f"CORS normalized allowed origins: {[repr(a) for a in sorted(list(normalized_allowed_origins))]}")
+
+CORS(app, origins=allowed_origins, supports_credentials=True, allow_headers="*", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 mail = Mail(app)
+
+
+# Runtime CORS diagnostics: log incoming Origin and ensure ACAO header for allowed origins
+@app.after_request
+def add_cors_diagnostics(response):
+    try:
+        origin = request.headers.get('Origin')
+        # Log origin and request path for diagnostics. Use repr() so invisible characters are visible.
+        logging.info(f"[CORS][DIAGNOSTIC] Incoming request from Origin={repr(origin)} Path={request.path}")
+        if origin:
+            # Normalize origin (strip whitespace, remove trailing slash, lowercase)
+            origin_norm = origin.strip().rstrip('/').lower()
+            # Show normalized allowed origins as reprs for easier diffing (print at INFO so it appears in logs)
+            logging.info(f"[CORS][DIAGNOSTIC] Normalized allowed origins: {[repr(a) for a in sorted(list(normalized_allowed_origins))]}")
+            if origin_norm in normalized_allowed_origins:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                logging.info(f"[CORS][DIAGNOSTIC] Allowed origin: {repr(origin)} (normalized: {origin_norm})")
+            else:
+                # Not allowed origin — log for debugging (do not set ACAO)
+                logging.warning(f"[CORS][DIAGNOSTIC] Blocked origin: {repr(origin)} (normalized: {origin_norm})")
+        else:
+            logging.info("[CORS][DIAGNOSTIC] No Origin header on request.")
+    except Exception as e:
+        logging.error(f"[CORS][DIAGNOSTIC] Error in add_cors_diagnostics: {e}")
+    return response
 
 service_account_info = {
     "type": "service_account",
