@@ -6,20 +6,7 @@ import { waitForServerHealth } from "../utils/serviceHealth";
 
 const API_BASE_URL = import.meta.env.VITE_HOST_URL;
 
-// --- Unified cover cache logic from LandingPage.jsx ---
-function useCachedCovers(pdfs) {
-  const [covers, setCovers] = React.useState({});
-  React.useEffect(() => {
-    const newCovers = {};
-    pdfs.forEach(pdf => {
-      if (!pdf || !pdf.id) return;
-      // Use public cover_url from API response
-      newCovers[pdf.id] = pdf.cover_url || '/no-cover.png';
-    });
-    setCovers(newCovers);
-  }, [pdfs]);
-  return covers;
-}
+
 
 
 const BookmarksTab = React.memo(function BookmarksTab({ user }) {
@@ -58,7 +45,6 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
   }, []);
 
 
-    // Use unified cover cache logic from LandingPage.jsx
     const bookmarkedBooks = React.useMemo(() => {
       return bookmarks
         .map(bm => {
@@ -68,7 +54,6 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
         .filter(Boolean)
         .sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated));
     }, [bookmarks, books]);
-    const covers = useCachedCovers(bookmarkedBooks);
   // Always use CSS variable for stepColor
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
   const containerBg = stepColor(cssBg, theme, 1);
@@ -87,7 +72,6 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
                 if (!book.id) {
                   console.warn('[AccountTabContent] BookmarksTab: invalid book id', book);
                 }
-                const coverUrl = covers[book.id] || '/no-cover.png';
                 return (
                   <li
                     key={book.id || Math.random()}
@@ -102,28 +86,7 @@ const BookmarksTab = React.memo(function BookmarksTab({ user }) {
                       boxShadow: book.unread ? '0 0 4px var(--unread-shadow, #c00)' : 'none',
                     }}
                   >
-                    <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
-                      {book.id ? (
-                        coverUrl === '/no-cover.png'
-                          ? <img
-                              src="/no-cover.svg"
-                              alt="No Cover"
-                              style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                            />
-                          : <img
-                              src={coverUrl}
-                              alt={book.name}
-                              style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                              onError={e => {
-                                e.target.src = '/no-cover.svg';
-                              }}
-                            />
-                      ) : (
-                        <span style={{ color: 'var(--error-text, #c00)', fontSize: 12 }}>[No valid book id]</span>
-                      )}
-                    </Link>
-                    {/* Clickable book title next to cover */}
-                    <Link to={book.id ? `/read/${book.id}` : '#'} style={{ color: textColor, textDecoration: 'underline', fontWeight: 600, fontSize: 16, marginLeft: 4 }}>
+                    <Link to={book.id ? `/read/${book.id}` : '#'} style={{ color: textColor, textDecoration: 'underline', fontWeight: 600, fontSize: 16 }}>
                       {book.title || book.name || book.id}
                     </Link>
                     <span style={{ fontSize: 13, color: 'var(--meta-text, #888)' }}>
@@ -169,8 +132,6 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
     fetchTopVotedBooks();
   }, [user?.username]);
 
-  // Use unified cover cache logic from LandingPage.jsx
-  const covers = useCachedCovers(books);
   const cssBg = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim() || backgroundColor;
   const containerBg = stepColor(cssBg, theme, 1);
   const itemBg = stepColor(cssBg, theme, 2);
@@ -188,7 +149,6 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
             if (!book.id) {
               console.warn('[AccountTabContent] UserTopVotedBooksTab: invalid book id', book);
             }
-            const coverUrl = covers[book.id] || '/no-cover.png';
             return (
               <li key={book.id || Math.random()} style={{
                 marginBottom: 14,
@@ -200,28 +160,9 @@ const UserTopVotedBooksTab = React.memo(function UserTopVotedBooksTab({ user }) 
                 padding: '6px 8px',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
               }}>
-                <Link to={book.id ? `/read/${book.id}` : '#'} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: textColor }}>
-                  {book.id ? (
-                    coverUrl === '/no-cover.png'
-                      ? <div style={{
-                          width: 38, height: 54,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: stepColor(cssBg, theme, 3), color: textColor, borderRadius: 4,
-                          fontSize: 12, fontStyle: 'italic', boxShadow: '0 1px 4px rgba(0,0,0,0.08)'
-                        }}>No Cover</div>
-                      : <img
-                          src={coverUrl}
-                          alt={book.name}
-                          style={{ width: 38, height: 54, objectFit: 'cover', borderRadius: 4, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-                          onError={e => {
-                            e.target.src = '/no-cover.png';
-                          }}
-                        />
-                  ) : (
-                    <span style={{ color: 'var(--error-text, #c00)', fontSize: 12 }}>[No valid book id]</span>
-                  )}
+                <Link to={book.id ? `/read/${book.id}` : '#'} style={{ fontWeight: 600, textDecoration: 'underline', fontSize: 16, color: textColor }}>
+                  {book.name}
                 </Link>
-                <span style={{ fontWeight: 600, textDecoration: 'underline', fontSize: 16, color: textColor }}>{book.name}</span>
                 <span style={{ fontSize: 13, color: textColor }}>
                   Votes: {book.votes}
                 </span>

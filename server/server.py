@@ -42,7 +42,7 @@ from flask import (
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS, cross_origin
 from flask_mail import Mail, Message
-from flask_restx import Api, Namespace, Resource
+from flask_restx import Api, Namespace, Resource, fields
 from sqlalchemy import desc, func, text
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
@@ -88,15 +88,48 @@ app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 db = SQLAlchemy(app)
-CORS(app, origins=[
-    "http://localhost:5173",
-    "http://localhost:5000",
-    "https://dev-swc-backend.onrender.com",
-    "https://dev-swc-backend-1v2c.onrender.com"
-    "https://storyweavechronicles.onrender.com",
-    "https://swcflaskbackend.onrender.com"
-], supports_credentials=True, allow_headers="*", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+
+# Build a safe CORS origins list. Use env vars when available so dev/prod frontends
+# can be added without editing code. Note: missing commas can accidentally
+# concatenate strings (causing wrong origin values) — include an explicit list.
+frontend_base = os.getenv('FRONTEND_BASE_URL', 'http://localhost:5173')
+dev_frontend = os.getenv('DEV_FRONTEND_URL', 'http://localhost:5000')
+allowed_origins = [
+    frontend_base,
+    dev_frontend,
+    'https://dev-swc-backend.onrender.com',
+    'https://dev-swc-backend-1v2c.onrender.com',
+    'https://storyweavechronicles.onrender.com',
+    'https://swcflaskbackend.onrender.com'
+]
+
+# Build a normalized set for runtime comparisons and log allowed origins for debugging
+# If DEBUG is enabled, ensure the common Vite dev origin is present so local dev frontends
+# (served at http://localhost:5173) can be matched even when .env.FRONTEND_BASE_URL points elsewhere.
+is_debug = os.getenv('DEBUG', 'True').lower() == 'true'
+vite_dev_origin = 'http://localhost:5173'
+if is_debug and vite_dev_origin not in allowed_origins:
+    # keep the explicit dev origin at the end of the list
+    allowed_origins.append(vite_dev_origin)
+    logging.info(f"CORS debug: added vite dev origin {vite_dev_origin} to allowed_origins")
+
+# During development on Render we sometimes run frontend and backend on different
+# render subdomains (for example dev-swc-backend.onrender.com vs
+# dev-swc-backend-1v2c.onrender.com). To make local/dev testing smoother we
+# optionally allow any origin under the onrender.com domain while DEBUG is true.
+allow_onrender_wildcard = os.getenv('ALLOW_ONRENDER_WILDCARD', 'True').lower() == 'true'
+if is_debug and allow_onrender_wildcard:
+    logging.info('CORS debug: ALLOW_ONRENDER_WILDCARD enabled; allowing *.onrender.com origins at runtime')
+
+# Normalize allowed origins (strip whitespace, remove trailing slash, lowercase)
+normalized_allowed_origins = set(o.strip().rstrip('/').lower() for o in allowed_origins if o)
+# Log the raw and normalized lists using repr to make hidden characters visible during debugging
+logging.info(f"CORS allowed origins: {[repr(a) for a in allowed_origins]}")
+logging.info(f"CORS normalized allowed origins: {[repr(a) for a in sorted(list(normalized_allowed_origins))]}")
+
+CORS(app, origins=allowed_origins, supports_credentials=True, allow_headers="*", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 mail = Mail(app)
+
 
 service_account_info = {
     "type": "service_account",
@@ -725,16 +758,26 @@ def get_queue_status():
 
 #--- Notification & Email ---
 
-def send_notification_email(user, subject, body, notifications):
-    """Send notification email to a user with a list of notifications using Flask-Mail SMTP."""
-    if not user.email:
-        logging.warning(f"User {user.id} has no email address. Skipping email send.")
+def send_notification_email(user, subject, body, notifications=None):
+    """Send notification email to a user with a list of notifications using Flask-Mail SMTP.
+
+    notifications: optional list of notification dicts (each with 'title' and 'body').
+    Older call sites pass only (user, subject, body) so we accept None and treat as empty list.
+    """
+    if not user or not getattr(user, 'email', None):
+        logging.warning(f"User {getattr(user, 'id', '<unknown>')} has no email address. Skipping email send.")
         return False
 
-    notifications_list = "\n".join(
-        [f"- {n['title']}: {n['body']}" for n in notifications]
-    )
-    full_body = f"{body}\n\nNotifications:\n{notifications_list}"
+    notifications = notifications or []
+    try:
+        notifications_list = "\n".join(
+            [f"- {n.get('title', '')}: {n.get('body', '')}" for n in notifications]
+        )
+    except Exception:
+        # Defensive: if notifications is not iterable or items lack expected keys
+        notifications_list = ''
+
+    full_body = f"{body}\n\nNotifications:\n{notifications_list}" if notifications_list else body
 
     try:
         msg = Message(
@@ -806,8 +849,14 @@ def send_scheduled_emails(frequency):
     except Exception as e:
         logging.error(f"Error sending {frequency} emails: {e}")
 
-def add_notification(user, type_, title, body, link=None):
-    """Add a notification to a user."""
+def add_notification(user, type_, title, body, link=None, send_email=True):
+    """Add a notification to a user.
+
+    Returns the created notification dict.
+
+    send_email: if True (default) and the user's prefs indicate immediate emails, an email will be sent.
+    If False, the caller may choose to send the email explicitly (useful to include exact notification data in the email body).
+    """
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     history = json.loads(user.notification_history) if user.notification_history else []
     timestamp = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
@@ -833,8 +882,10 @@ def add_notification(user, type_, title, body, link=None):
         user.notification_history = json.dumps(history)
         db.session.commit()
         prefs = json.loads(user.notification_prefs) if user.notification_prefs else {}
-        if prefs.get('emailFrequency', 'immediate') == 'immediate':
+        if send_email and prefs.get('emailFrequency', 'immediate') == 'immediate':
+            # Preserve previous behavior by sending the email when requested
             send_notification_email(user, title, body, [notification])
+    return notification
 
 def call_seed_drive_books():
     """Call the seed-drive-books endpoint."""
@@ -969,6 +1020,16 @@ def setup_drive_webhook(folder_id, webhook_url):
 # =========================
 # 8. App Hooks
 # =========================
+# Explicitly handle OPTIONS preflight requests early so we always return proper
+# CORS headers for preflight checks (avoids gateway/proxy responses that lack ACAO).
+@app.before_request
+def handle_preflight():
+    if request.method == 'OPTIONS':
+        origin = request.headers.get('Origin')
+        # Build a minimal response and let add_cors_diagnostics attach headers
+        resp = make_response(('', 200))
+        return resp
+
 @app.before_request
 def check_atlas_init():
     """Initialize atlas on first API request."""
@@ -981,9 +1042,47 @@ def check_atlas_init():
         except Exception as e:
             logging.error("[Atlas] Error during first-load rebuild: %s", e)
 
+# Runtime CORS diagnostics: log incoming Origin and ensure ACAO header for allowed origins
+@app.after_request
+def add_cors_diagnostics(response):
+    try:
+        origin = request.headers.get('Origin')
+        # Log origin and request path for diagnostics. Use repr() so invisible characters are visible.
+        logging.info(f"[CORS][DIAGNOSTIC] Incoming request from Origin={repr(origin)} Path={request.path}")
+        if origin:
+            # Normalize origin (strip whitespace, remove trailing slash, lowercase)
+            origin_norm = origin.strip().rstrip('/').lower()
+            # Show normalized allowed origins as reprs for easier diffing (print at INFO so it appears in logs)
+            logging.info(f"[CORS][DIAGNOSTIC] Normalized allowed origins: {[repr(a) for a in sorted(list(normalized_allowed_origins))]}")
+            # Allow if origin explicitly listed OR (debug + onrender wildcard matches)
+            allowed_by_list = origin_norm in normalized_allowed_origins
+            allowed_by_onrender = is_debug and allow_onrender_wildcard and origin_norm.endswith('.onrender.com')
+            if allowed_by_list or allowed_by_onrender:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                # Allow common preflight headers/methods as well
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+                response.headers['Access-Control-Allow-Headers'] = request.headers.get('Access-Control-Request-Headers', '*')
+                logging.info(f"[CORS][DIAGNOSTIC] Allowed origin: {repr(origin)} (normalized: {origin_norm}) by_list={allowed_by_list} by_onrender={allowed_by_onrender}")
+            else:
+                # Not allowed origin — log for debugging (do not set ACAO)
+                logging.warning(f"[CORS][DIAGNOSTIC] Blocked origin: {repr(origin)} (normalized: {origin_norm})")
+        else:
+            logging.info("[CORS][DIAGNOSTIC] No Origin header on request.")
+    except Exception as e:
+        logging.error(f"[CORS][DIAGNOSTIC] Error in add_cors_diagnostics: {e}")
+    return response
+# =========================
+
 # === Authentication & User Management ===
 # Update font and timezone for user
 @auth_ns.route('/update-profile-settings')
+@auth_ns.expect(api.model('UpdateProfileSettings', {
+    'username': fields.String(required=True, description='Username'),
+    'font': fields.String(required=False, description='Font name'),
+    'timezone': fields.String(required=False, description='Timezone identifier'),
+    'comments_page_size': fields.Integer(required=False, description='Comments page size (1-20)')
+}), validate=False)
 class UpdateProfileSettings(Resource):
     def post(self):
         data = request.get_json()
@@ -1011,6 +1110,11 @@ class UpdateProfileSettings(Resource):
         return jsonify({'success': True, 'message': 'Profile settings updated.', 'font': user.font, 'timezone': user.timezone, 'comments_page_size': user.comments_page_size})
 
 @auth_ns.route('/update-colors')
+@auth_ns.expect(api.model('UpdateColors', {
+    'username': fields.String(required=True, description='Username'),
+    'backgroundColor': fields.String(required=True, description='Background color hex or name'),
+    'textColor': fields.String(required=True, description='Text color hex or name')
+}), validate=False)
 class UpdateColors(Resource):
     def post(self):
         data = request.get_json(force=True)
@@ -1057,6 +1161,9 @@ class UpdateColors(Resource):
             return response
 
 @auth_ns.route('/export-account')
+@auth_ns.expect(api.model('ExportAccountRequest', {
+    'username': fields.String(required=True, description='Username')
+}), validate=False)
 class ExportAccount(Resource):
     def post(self):
         data = request.get_json(force=True)
@@ -1102,7 +1209,12 @@ class ExportAccount(Resource):
         }
         return jsonify({'success': True, 'account': account})
 
+
 @auth_ns.route('/import-account')
+@auth_ns.expect(api.model('ImportAccountRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'account': fields.Raw(required=True, description='Account JSON object to import')
+}), validate=False)
 class ImportAccount(Resource):
     def post(self):
         data = request.get_json(force=True)
@@ -1154,7 +1266,12 @@ class ImportAccount(Resource):
         db.session.commit()
         return jsonify({'success': True, 'message': 'Account data imported.'})
 
+
 @auth_ns.route('/login')
+@auth_ns.expect(api.model('LoginRequest', {
+    'username': fields.String(required=True, description='Username or email'),
+    'password': fields.String(required=True, description='Password')
+}), validate=False)
 class Login(Resource):
     def post(self):
         data = request.get_json()
@@ -1192,6 +1309,13 @@ class Login(Resource):
         })
 
 @auth_ns.route('/register')
+@auth_ns.expect(api.model('RegisterRequest', {
+    'username': fields.String(required=True, description='Desired username'),
+    'email': fields.String(required=True, description='Email address'),
+    'password': fields.String(required=True, description='Password'),
+    'backgroundColor': fields.String(required=False, description='Preferred background color hex or name'),
+    'textColor': fields.String(required=False, description='Preferred text color hex or name')
+}), validate=False)
 class Register(Resource):
     def post(self):
         data = request.get_json()
@@ -1233,17 +1357,21 @@ class Register(Resource):
         )
         db.session.add(user)
         db.session.commit()
-        add_notification(
+        # Create the welcome notification but do not auto-send email here; we'll send with exact notification data
+        welcome_notification = add_notification(
             user,
             'announcement',
             'Welcome to Storyweave Chronicles!',
             'Thank you for registering. Explore stories, bookmark your favorites, and join the community!',
-            link='/'
+            link='/',
+            send_email=False
         )
+        # Send welcome email and include the created notification so the email body matches the in-app notification
         send_notification_email(
             user,
             'Welcome to Storyweave Chronicles!',
-            f"Welcome to the site! You can read stories, bookmark your favorites, and join the community discussion. Hope you have a great time!\n\nYour account info:\nUsername: {user.username}\nEmail: {user.email}\n"
+            f"Welcome to the site! You can read stories, bookmark your favorites, and join the community discussion. Hope you have a great time!\n\nYour account info:\nUsername: {user.username}\nEmail: {user.email}\n",
+            [welcome_notification] if welcome_notification else []
         )
         return jsonify({
             'success': True,
@@ -1262,6 +1390,11 @@ class Register(Resource):
         })
 
 @auth_ns.route('/change-password')
+@auth_ns.expect(api.model('ChangePasswordRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'currentPassword': fields.String(required=True, description='Current password'),
+    'newPassword': fields.String(required=True, description='New password')
+}), validate=False)
 class ChangePassword(Resource):
     def post(self):
         data = request.get_json()
@@ -1286,6 +1419,10 @@ class ChangePassword(Resource):
         return jsonify({'success': True, 'message': 'Password changed successfully.'})
 
 @auth_ns.route('/add-secondary-email')
+@auth_ns.expect(api.model('AddSecondaryEmailRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'email': fields.String(required=True, description='Secondary email to add')
+}), validate=False)
 class AddSecondaryEmail(Resource):
     def post(self):
         data = request.get_json()
@@ -1319,6 +1456,10 @@ class AddSecondaryEmail(Resource):
         return jsonify({'success': True, 'message': 'Secondary email added.', 'secondaryEmails': secondary})
 
 @auth_ns.route('/remove-secondary-email')
+@auth_ns.expect(api.model('RemoveSecondaryEmailRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'email': fields.String(required=True, description='Secondary email to remove')
+}), validate=False)
 class RemoveSecondaryEmail(Resource):
     def post(self):
         data = request.get_json()
@@ -1344,6 +1485,9 @@ class RemoveSecondaryEmail(Resource):
         return jsonify({'success': True, 'message': 'Secondary email removed.', 'secondaryEmails': secondary})
 
 @auth_ns.route('/get-user')
+@auth_ns.expect(api.model('GetUserRequest', {
+    'username': fields.String(required=True, description='Username')
+}), validate=False)
 class GetUser(Resource):
     def post(self):
         data = request.get_json()
@@ -1372,7 +1516,11 @@ class GetUser(Resource):
             'is_admin': user.is_admin
         })
 
+get_user_meta_parser = auth_ns.parser()
+get_user_meta_parser.add_argument('username', type=str, required=True, location='args', help='Username')
+
 @auth_ns.route('/get-user-meta')
+@auth_ns.expect(get_user_meta_parser, validate=False)
 class GetUserMeta(Resource):
     def get(self):
         username = request.args.get('username')
@@ -1393,8 +1541,58 @@ class GetUserMeta(Resource):
 # Register the namespace with the API
 api.add_namespace(auth_ns, path='/api')
 
+notification_history_request = api.model('NotificationHistoryRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'page': fields.Integer(required=False, description='Page number', default=1),
+    'page_size': fields.Integer(required=False, description='Page size', default=100)
+})
+
 # === Admin & Moderation ===
+admin_make_admin_request = admin_ns.model('MakeAdminRequest', {
+    'adminUsername': fields.String(required=True, description='Admin username performing the action'),
+    'targetUsername': fields.String(required=True, description='Username to grant admin')
+})
+
+admin_remove_admin_request = admin_ns.model('RemoveAdminRequest', {
+    'adminUsername': fields.String(required=True, description='Admin username performing the action'),
+    'targetUsername': fields.String(required=True, description='Username to revoke admin')
+})
+
+admin_bootstrap_request = admin_ns.model('BootstrapAdminRequest', {
+    'targetUsername': fields.String(required=True, description='Username to make the initial admin')
+})
+
+admin_send_emergency_request = admin_ns.model('SendEmergencyEmailRequest', {
+    'adminUsername': fields.String(required=True, description='Admin username performing the action'),
+    'subject': fields.String(required=True, description='Email subject'),
+    'message': fields.String(required=True, description='Email body'),
+    'recipient': fields.String(required=False, description="'all', username, or email")
+})
+
+admin_send_newsletter_request = admin_ns.model('SendNewsletterRequest', {
+    'adminUsername': fields.String(required=True, description='Admin username performing the action'),
+    'subject': fields.String(required=True, description='Newsletter subject'),
+    'message': fields.String(required=True, description='Newsletter body')
+})
+
+admin_ban_user_request = admin_ns.model('BanUserRequest', {
+    'adminUsername': fields.String(required=True, description='Admin username performing the action'),
+    'targetUsername': fields.String(required=True, description='Username to ban')
+})
+
+admin_unban_user_request = admin_ns.model('UnbanUserRequest', {
+    'adminUsername': fields.String(required=True, description='Admin username performing the action'),
+    'targetUsername': fields.String(required=True, description='Username to unban')
+})
+
+admin_moderate_comment_request = admin_ns.model('ModerateCommentRequest', {
+    'username': fields.String(required=True, description='Admin username performing moderation'),
+    'comment_id': fields.Integer(required=True, description='Comment id to moderate'),
+    'action': fields.String(required=True, description="Action to perform, e.g., 'delete'")
+})
+
 @admin_ns.route('/make-admin')
+@admin_ns.expect(admin_make_admin_request, validate=False)
 class MakeAdmin(Resource):
     def post(self):
         data = request.get_json()
@@ -1414,6 +1612,7 @@ class MakeAdmin(Resource):
         return jsonify({'success': True, 'message': f'User {target_username} is now an admin.'})
 
 @admin_ns.route('/remove-admin')
+@admin_ns.expect(admin_remove_admin_request, validate=False)
 class RemoveAdmin(Resource):
     def post(self):
         data = request.get_json()
@@ -1433,6 +1632,7 @@ class RemoveAdmin(Resource):
         return jsonify({'success': True, 'message': f'User {target_username} is no longer an admin.'})
 
 @admin_ns.route('/bootstrap-admin')
+@admin_ns.expect(admin_bootstrap_request, validate=False)
 class BootstrapAdmin(Resource):
     def post(self):
         data = request.get_json()
@@ -1452,6 +1652,7 @@ class BootstrapAdmin(Resource):
         return jsonify({'success': True, 'message': f'User {target_username} is now the first admin.'})
 
 @admin_ns.route('/send-emergency-email')
+@admin_ns.expect(admin_send_emergency_request, validate=False)
 class SendEmergencyEmail(Resource):
     def post(self):
         data = request.get_json()
@@ -1510,6 +1711,7 @@ class SendEmergencyEmail(Resource):
         return jsonify(result)
 
 @admin_ns.route('/send-newsletter')
+@admin_ns.expect(admin_send_newsletter_request, validate=False)
 class SendNewsletter(Resource):
     def post(self):
         data = request.get_json()
@@ -1537,6 +1739,7 @@ class SendNewsletter(Resource):
         return jsonify({'success': True, 'message': f'Newsletter sent to {sent_count} user(s).', 'errors': errors})
 
 @admin_ns.route('/ban-user')
+@admin_ns.expect(admin_ban_user_request, validate=False)
 class BanUser(Resource):
     def post(self):
         data = request.get_json()
@@ -1561,6 +1764,7 @@ class BanUser(Resource):
         return jsonify({'success': True, 'message': f'User {target_username} has been banned.'})
 
 @admin_ns.route('/unban-user')
+@admin_ns.expect(admin_unban_user_request, validate=False)
 class UnbanUser(Resource):
     def post(self):
         data = request.get_json()
@@ -1580,6 +1784,7 @@ class UnbanUser(Resource):
         return jsonify({'success': True, 'message': f'User {target_username} has been unbanned.'})
 
 @admin_ns.route('/moderate-comment')
+@admin_ns.expect(admin_moderate_comment_request, validate=False)
 class ModerateComment(Resource):
     def post(self):
         data = request.get_json()
@@ -1614,7 +1819,62 @@ class ModerateComment(Resource):
 api.add_namespace(admin_ns, path='/api')
 
 # === Book & PDF Management ===
+books_update_external_model = books_ns.model('UpdateExternalIdRequest', {
+    'book_id': fields.String(required=True, description='Drive file id for the book'),
+    'pdf_bytes': fields.String(required=True, description='Base64-encoded PDF bytes')
+})
+
+books_rebuild_cover_cache_model = books_ns.model('RebuildCoverCacheRequest', {
+    'book_ids': fields.List(fields.String, required=False, description='Optional list of book ids to rebuild cache for')
+})
+
+books_books_query = books_ns.parser()
+books_books_query.add_argument('ids', type=str, required=True, location='args', help='Comma-separated list of drive ids')
+
+books_cover_exists_parser = books_ns.parser()
+books_cover_exists_parser.add_argument('file_id', type=str, required=True, location='view_args', help='Cover file id')
+
+books_landing_page_parser = books_ns.parser()
+books_landing_page_parser.add_argument('dummy', required=False, location='args', help='No args expected; placeholder')
+
+books_serve_cover_parser = books_ns.parser()
+books_serve_cover_parser.add_argument('status', type=int, required=False, location='args', help='Return JSON status instead of image')
+
+books_cancel_session_model = books_ns.model('CancelSessionRequest', {
+    'session_id': fields.String(required=True, description='Session id to cancel'),
+    'type': fields.String(required=True, description="'cover' or 'text'")
+})
+
+books_pdf_text_parser = books_ns.parser()
+books_pdf_text_parser.add_argument('page', type=int, required=False, location='args', help='Page number (1-based)')
+books_pdf_text_parser.add_argument('session_id', type=str, required=True, location='args', help='Session id')
+
+# --- Bookmarks request models/parsers ---
+books_get_bookmarks_parser = books_ns.parser()
+books_get_bookmarks_parser.add_argument('username', type=str, required=True, location='args', help='Username')
+
+books_get_bookmarks_model = books_ns.model('GetBookmarksRequest', {
+    'username': fields.String(required=True, description='Username')
+})
+
+books_add_bookmark_model = books_ns.model('AddBookmarkRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'book_id': fields.String(required=True, description='Drive file id for the book')
+})
+
+books_remove_bookmark_model = books_ns.model('RemoveBookmarkRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'book_id': fields.String(required=True, description='Drive file id to remove')
+})
+
+books_update_bookmark_meta_model = books_ns.model('UpdateBookmarkMetaRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'book_id': fields.String(required=True, description='Drive file id for the bookmark'),
+    'last_page': fields.Integer(required=False, description='Last page read'),
+    'unread': fields.Boolean(required=False, description='Unread flag')
+})
 @books_ns.route('/update-external-id')
+@books_ns.expect(books_update_external_model, validate=False)
 class UpdateExternalId(Resource):
     def post(self):
         """
@@ -1648,6 +1908,7 @@ class UpdateExternalId(Resource):
         return jsonify({'success': True, 'message': 'No update needed.', 'external_story_id': book.external_story_id})
 
 @books_ns.route('/rebuild-cover-cache')
+@books_ns.expect(books_rebuild_cover_cache_model, validate=False)
 class RebuildCoverCache(Resource):
     def post(self):
         """Rebuild atlas and cache covers for provided book_ids (landing page), or fallback to DB if not provided."""
@@ -1673,6 +1934,7 @@ class RebuildCoverCache(Resource):
             return response
 
 @books_ns.route('/books')
+@books_ns.expect(books_books_query, validate=False)
 class BooksByIds(Resource):
     def get(self):
         ids_param = request.args.get('ids')
@@ -1741,6 +2003,7 @@ class AllBooks(Resource):
             return response, 500
 
 @books_ns.route('/cover-exists/<file_id>')
+@books_ns.expect(books_cover_exists_parser, validate=False)
 class CoverExists(Resource):
     def get(self, file_id):
         cover_path = os.path.join(COVERS_DIR, f"{file_id}.jpg")
@@ -1748,6 +2011,7 @@ class CoverExists(Resource):
         return jsonify({'exists': exists})
 
 @books_ns.route('/landing-page-book-ids')
+@books_ns.expect(books_landing_page_parser, validate=False)
 class LandingPageBookIds(Resource):
     def get(self):
         """
@@ -1766,6 +2030,7 @@ class LandingPageBookIds(Resource):
 
 # --- Serve covers from disk with fallback ---
 @books_ns.route('/covers/<cover_id>.jpg')
+@books_ns.expect(books_serve_cover_parser, validate=False)
 class ServeCover(Resource):
     def get(self, cover_id):
         """
@@ -1937,6 +2202,7 @@ class ServeCover(Resource):
         return response
 
 @books_ns.route('/cancel-session', methods=['POST'])
+@books_ns.expect(books_cancel_session_model, validate=False)
 class CancelSession(Resource):
     def post(self):
         """
@@ -2097,6 +2363,7 @@ class PdfCover(Resource):
                     return make_response(jsonify({'error': 'No cover available', 'file_id': file_id}), 404)
 
 @books_ns.route('/pdf-text/<file_id>', methods=['GET'])
+@books_ns.expect(books_pdf_text_parser, validate=False)
 class PdfText(Resource):
     def get(self, file_id):
         """
@@ -2305,6 +2572,7 @@ class PdfText(Resource):
 
 # === Bookmarks ===
 @books_ns.route('/get-bookmarks', methods=['GET', 'POST'])
+@books_ns.expect(books_get_bookmarks_parser, validate=False)
 class GetBookmarks(Resource):
     def get(self):
         username = request.args.get('username')
@@ -2358,6 +2626,7 @@ class GetBookmarks(Resource):
         return response
 
 @books_ns.route('/add-bookmark', methods=['POST'])
+@books_ns.expect(books_add_bookmark_model, validate=False)
 class AddBookmark(Resource):
     def post(self):
         data = request.get_json()
@@ -2384,6 +2653,7 @@ class AddBookmark(Resource):
         return jsonify({'success': True, 'message': 'Bookmarked.', 'bookmarks': bookmarks})
 
 @books_ns.route('/remove-bookmark', methods=['POST'])
+@books_ns.expect(books_remove_bookmark_model, validate=False)
 class RemoveBookmark(Resource):
     def post(self):
         data = request.get_json()
@@ -2411,6 +2681,7 @@ class RemoveBookmark(Resource):
         return jsonify({'success': True, 'message': 'Bookmark removed.', 'bookmarks': bookmarks})
 
 @books_ns.route('/update-bookmark-meta', methods=['POST'])
+@books_ns.expect(books_update_bookmark_meta_model, validate=False)
 class UpdateBookmarkMeta(Resource):
     def post(self):
         data = request.get_json()
@@ -2450,7 +2721,22 @@ class UpdateBookmarkMeta(Resource):
 api.add_namespace(books_ns, path='/api')
 
 # === Voting ===
+vote_book_model = votes_ns.model('VoteBookRequest', {
+    'username': fields.String(required=True, description='Username casting the vote'),
+    'book_id': fields.String(required=True, description='Drive file id for the book'),
+    'value': fields.Integer(required=True, description='Vote value (1-5)')
+})
+
+book_votes_parser = votes_ns.parser()
+book_votes_parser.add_argument('book_id', type=str, required=True, location='args', help='Drive file id for the book')
+
+user_voted_books_parser = votes_ns.parser()
+user_voted_books_parser.add_argument('username', type=str, required=True, location='args', help='Username')
+
+user_top_voted_books_parser = votes_ns.parser()
+user_top_voted_books_parser.add_argument('username', type=str, required=True, location='args', help='Username')
 @votes_ns.route('/vote-book')
+@votes_ns.expect(vote_book_model, validate=False)
 class VoteBook(Resource):
     def post(self):
         data = request.get_json()
@@ -2472,6 +2758,7 @@ class VoteBook(Resource):
         return jsonify({'success': True, 'message': 'Vote recorded.'})
 
 @votes_ns.route('/book-votes')
+@votes_ns.expect(book_votes_parser, validate=False)
 class BookVotes(Resource):
     def get(self):
         book_id = request.args.get('book_id')
@@ -2512,6 +2799,7 @@ class TopVotedBooks(Resource):
         return jsonify({'success': True, 'books': books})
 
 @votes_ns.route('/user-voted-books')
+@votes_ns.expect(user_voted_books_parser, validate=False)
 class UserVotedBooks(Resource):
     def get(self):
         username = request.args.get('username')
@@ -2540,6 +2828,7 @@ class UserVotedBooks(Resource):
         return jsonify({'success': True, 'voted_books': voted_books})
 
 @votes_ns.route('/user-top-voted-books')
+@votes_ns.expect(user_top_voted_books_parser, validate=False)
 class UserTopVotedBooks(Resource):
     def get(self):
         username = request.args.get('username')
@@ -2580,7 +2869,49 @@ class UserTopVotedBooks(Resource):
 api.add_namespace(votes_ns, path='/api')
 
 # === Comments ===
+# -- Swagger models/parsers for comments namespace --
+comments_add_model = comments_ns.model('AddCommentRequest', {
+    'book_id': fields.String(required=True, description='Drive file id for the book'),
+    'username': fields.String(required=True, description='Username posting the comment'),
+    'text': fields.String(required=True, description='Comment text'),
+    'parent_id': fields.Integer(required=False, description='Optional parent comment id')
+})
+
+comments_edit_model = comments_ns.model('EditCommentRequest', {
+    'comment_id': fields.Integer(required=True, description='Comment id to edit'),
+    'username': fields.String(required=True, description='Username performing the edit'),
+    'text': fields.String(required=True, description='Updated comment text')
+})
+
+comments_delete_model = comments_ns.model('DeleteCommentRequest', {
+    'comment_id': fields.Integer(required=True, description='Comment id to delete'),
+    'username': fields.String(required=True, description='Username performing the delete')
+})
+
+comments_get_parser = comments_ns.parser()
+comments_get_parser.add_argument('book_id', type=str, required=True, location='args', help='Drive file id for the book')
+comments_get_parser.add_argument('page', type=int, required=False, location='args', help='Page number')
+comments_get_parser.add_argument('page_size', type=int, required=False, location='args', help='Page size')
+
+comments_has_new_model = comments_ns.model('HasNewCommentsRequest', {
+    'book_id': fields.String(required=True, description='Drive file id for the book'),
+    'known_ids': fields.List(fields.Integer, required=False, description='List of known comment ids'),
+    'latest_timestamp': fields.String(required=False, description='ISO8601 timestamp of latest known comment')
+})
+
+comments_vote_model = comments_ns.model('VoteCommentRequest', {
+    'comment_id': fields.Integer(required=True, description='Comment id to vote on'),
+    'value': fields.Integer(required=True, description='Vote value: 1 for upvote, -1 for downvote')
+})
+
+comments_get_votes_parser = comments_ns.parser()
+comments_get_votes_parser.add_argument('comment_id', type=int, required=True, location='args', help='Comment id')
+
+comments_user_comments_parser = comments_ns.parser()
+comments_user_comments_parser.add_argument('username', type=str, required=True, location='args', help='Username')
+
 @comments_ns.route('/add-comment')
+@comments_ns.expect(comments_add_model, validate=False)
 class AddComment(Resource):
     def post(self):
         data = request.get_json()
@@ -2599,6 +2930,7 @@ class AddComment(Resource):
         return jsonify({'success': True, 'message': 'Comment added.', 'comment_id': comment.id})
 
 @comments_ns.route('/edit-comment')
+@comments_ns.expect(comments_edit_model, validate=False)
 class EditComment(Resource):
     def post(self):
         data = request.get_json()
@@ -2623,6 +2955,7 @@ class EditComment(Resource):
         return jsonify({'success': True, 'message': 'Comment edited.'})
 
 @comments_ns.route('/delete-comment')
+@comments_ns.expect(comments_delete_model, validate=False)
 class DeleteComment(Resource):
     def post(self):
         data = request.get_json()
@@ -2644,6 +2977,7 @@ class DeleteComment(Resource):
         return jsonify({'success': True, 'message': 'Comment deleted.'})
 
 @comments_ns.route('/get-comments')
+@comments_ns.expect(comments_get_parser, validate=False)
 class GetComments(Resource):
     def get(self):
         book_id = request.args.get('book_id')
@@ -2696,6 +3030,7 @@ class GetComments(Resource):
         })
 
 @comments_ns.route('/has-new-comments')
+@comments_ns.expect(comments_has_new_model, validate=False)
 class HasNewComments(Resource):
     def post(self):
         data = request.get_json()
@@ -2732,6 +3067,7 @@ class HasNewComments(Resource):
             return jsonify({'success': True, 'hasNew': False, 'new_ids': []})
 
 @comments_ns.route('/vote-comment')
+@comments_ns.expect(comments_vote_model, validate=False)
 class VoteComment(Resource):
     def post(self):
         data = request.get_json()
@@ -2754,6 +3090,7 @@ class VoteComment(Resource):
         return jsonify({'success': True, 'message': 'Vote recorded.', 'upvotes': comment.upvotes, 'downvotes': comment.downvotes})
 
 @comments_ns.route('/get-comment-votes')
+@comments_ns.expect(comments_get_votes_parser, validate=False)
 class GetCommentVotes(Resource):
     def get(self):
         comment_id = request.args.get('comment_id')
@@ -2765,6 +3102,7 @@ class GetCommentVotes(Resource):
         return jsonify({'success': True, 'upvotes': comment.upvotes, 'downvotes': comment.downvotes})
 
 @comments_ns.route('/user-comments')
+@comments_ns.expect(comments_user_comments_parser, validate=False)
 class UserComments(Resource):
     def get(self):
         username = request.args.get('username')
@@ -2787,7 +3125,68 @@ class UserComments(Resource):
 api.add_namespace(comments_ns, path='/api')
 
 # === Notifications ===
+# -- Swagger models/parsers for notifications namespace --
+notifications_get_prefs_model = notifications_ns.model('GetNotificationPrefsRequest', {
+    'username': fields.String(required=True, description='Username')
+})
+
+notifications_update_prefs_model = notifications_ns.model('UpdateNotificationPrefsRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'prefs': fields.Raw(required=True, description='Notification preferences object')
+})
+
+notification_history_request = notifications_ns.model('NotificationHistoryRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'page': fields.Integer(required=False, description='Page number', default=1),
+    'page_size': fields.Integer(required=False, description='Page size', default=100)
+})
+
+notify_reply_model = notifications_ns.model('NotifyReplyRequest', {
+    'book_id': fields.String(required=True, description='Drive file id for the book'),
+    'comment_id': fields.Integer(required=True, description='Parent comment id'),
+    'message': fields.String(required=False, description='Notification message')
+})
+
+notify_book_model = notifications_ns.model('NotifyBookRequest', {
+    'book_id': fields.String(required=True, description='Drive file id for the book'),
+    'book_title': fields.String(required=False, description='Book title')
+})
+
+notify_app_update_model = notifications_ns.model('NotifyAppUpdateRequest', {})
+
+notifications_mark_all_model = notifications_ns.model('MarkAllNotificationsReadRequest', {
+    'username': fields.String(required=True, description='Username')
+})
+
+notifications_delete_model = notifications_ns.model('DeleteNotificationRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'notificationId': fields.String(required=True, description='Notification id or timestamp')
+})
+
+notifications_dismiss_all_model = notifications_ns.model('DismissAllNotificationsRequest', {
+    'username': fields.String(required=True, description='Username')
+})
+
+notifications_mark_notification_model = notifications_ns.model('MarkNotificationRequest', {
+    'username': fields.String(required=True, description='Username'),
+    'notificationId': fields.String(required=True, description='Notification id or timestamp'),
+    'read': fields.Boolean(required=False, description='Read flag')
+})
+
+notifications_delete_all_history_model = notifications_ns.model('DeleteAllNotificationHistoryRequest', {
+    'username': fields.String(required=True, description='Username')
+})
+
+notifications_has_new_model = notifications_ns.model('HasNewNotificationsRequest', {
+    'username': fields.String(required=True, description='Username')
+})
+
+notifications_send_scheduled_model = notifications_ns.model('SendScheduledEmailsRequest', {
+    'frequency': fields.String(required=True, description="'daily' | 'weekly' | 'monthly'")
+})
+
 @notifications_ns.route('/get-notification-prefs')
+@notifications_ns.expect(notifications_get_prefs_model, validate=False)
 class GetNotificationPrefs(Resource):
     def post(self):
         data = request.get_json()
@@ -2840,6 +3239,7 @@ class GetNotificationPrefs(Resource):
         return jsonify({'success': True, 'prefs': normalized})
 
 @notifications_ns.route('/update-notification-prefs')
+@notifications_ns.expect(notifications_update_prefs_model, validate=False)
 class UpdateNotificationPrefs(Resource):
     def post(self):
         data = request.get_json()
@@ -2855,6 +3255,7 @@ class UpdateNotificationPrefs(Resource):
         return jsonify({'success': True, 'message': 'Notification preferences updated.'})
 
 @notifications_ns.route('/get-notification-history')
+@notifications_ns.expect(notification_history_request, validate=False)
 class GetNotificationHistory(Resource):
     def get(self):
         response = make_response(jsonify({'success': False, 'message': 'Use POST for this endpoint.'}))
@@ -2906,6 +3307,7 @@ class GetNotificationHistory(Resource):
             return jsonify({'success': False, 'message': f'Error: {str(e)}', 'notifications': []})
 
 @notifications_ns.route('/notify-reply', methods=['POST'])
+@notifications_ns.expect(notify_reply_model, validate=False)
 class NotifyReply(Resource):
     def post(self):
         data = request.get_json()
@@ -2933,6 +3335,7 @@ class NotifyReply(Resource):
         return jsonify({'success': True, 'message': f'Reply notification sent to {parent_username}.'})
 
 @notifications_ns.route('/notify-new-book', methods=['POST'])
+@notifications_ns.expect(notify_book_model, validate=False)
 class NotifyNewBook(Resource):
     def post(self):
         data = request.get_json()
@@ -2946,6 +3349,7 @@ class NotifyNewBook(Resource):
         return jsonify({'success': True, 'message': f'Notification sent for new book: {book_title}.'})
 
 @notifications_ns.route('/notify-book-update', methods=['POST'])
+@notifications_ns.expect(notify_book_model, validate=False)
 class NotifyBookUpdate(Resource):
     def post(self):
         data = request.get_json()
@@ -2962,6 +3366,7 @@ class NotifyBookUpdate(Resource):
         return jsonify({'success': True, 'message': f'Notification sent to {count} users for book update.'})
 
 @notifications_ns.route('/notify-app-update', methods=['POST'])
+@notifications_ns.expect(notify_app_update_model, validate=False)
 class NotifyAppUpdate(Resource):
     def post(self):
         users = User.query.all()
@@ -2972,6 +3377,7 @@ class NotifyAppUpdate(Resource):
         return jsonify({'success': True, 'message': 'App update notification sent to all users.'})
 
 @notifications_ns.route('/mark-all-notifications-read', methods=['POST'])
+@notifications_ns.expect(notifications_mark_all_model, validate=False)
 class MarkAllNotificationsRead(Resource):
     def post(self):
         data = request.get_json()
@@ -2989,6 +3395,7 @@ class MarkAllNotificationsRead(Resource):
         return jsonify({'success': True, 'message': 'Notifications marked as read.', 'history': history})
 
 @notifications_ns.route('/delete-notification', methods=['POST'])
+@notifications_ns.expect(notifications_delete_model, validate=False)
 class DeleteNotification(Resource):
     def post(self):
         data = request.get_json()
@@ -3008,6 +3415,7 @@ class DeleteNotification(Resource):
 
 # Dismiss all notifications for a user
 @notifications_ns.route('/dismiss-all-notifications', methods=['POST'])
+@notifications_ns.expect(notifications_dismiss_all_model, validate=False)
 class DismissAllNotifications(Resource):
     def post(self):
         data = request.get_json()
@@ -3035,6 +3443,7 @@ class DismissAllNotifications(Resource):
 
 # Mark a single notification as read/unread
 @notifications_ns.route('/mark-notification-read', methods=['POST'])
+@notifications_ns.expect(notifications_mark_notification_model, validate=False)
 class MarkNotificationRead(Resource):
     def post(self):
         data = request.get_json()
@@ -3059,6 +3468,7 @@ class MarkNotificationRead(Resource):
         return jsonify({'success': found, 'message': 'Notification marked as read.' if found else 'Notification not found.', 'history': history})
 
 @notifications_ns.route('/delete-all-notification-history', methods=['POST'])
+@notifications_ns.expect(notifications_delete_all_history_model, validate=False)
 class DeleteAllNotificationHistory(Resource):
     def post(self):
         data = request.get_json()
@@ -3080,6 +3490,7 @@ class DeleteAllNotificationHistory(Resource):
         return jsonify({'success': True, 'message': 'All notifications deleted from history.', 'history': []})
 
 @notifications_ns.route('/has-new-notifications', methods=['POST'])
+@notifications_ns.expect(notifications_has_new_model, validate=False)
 class HasNewNotifications(Resource):
     @cross_origin()
     def post(self):
@@ -3100,6 +3511,7 @@ class HasNewNotifications(Resource):
         return response
 
 @notifications_ns.route('/send-scheduled-emails', methods=['POST'])
+@notifications_ns.expect(notifications_send_scheduled_model, validate=False)
 class SendScheduledEmails(Resource):
     def post(self):
         """
@@ -3128,8 +3540,29 @@ class SendScheduledEmails(Resource):
 api.add_namespace(notifications_ns, path='/api')
 
 # === Health & Diagnostics ===
+# -- Swagger models/parsers for health namespace --
+health_list_pdfs_parser = health_ns.parser()
+health_list_pdfs_parser.add_argument('page', type=int, required=False, location='args', help='Page number')
+health_list_pdfs_parser.add_argument('page_size', type=int, required=False, location='args', help='Page size')
+
+health_seed_drive_model = health_ns.model('SeedDriveBooksRequest', {
+    'folder_id': fields.String(required=False, description='Drive folder id to seed from')
+})
+
+health_simulate_cover_model = health_ns.model('SimulateCoverLoadRequest', {
+    'file_ids': fields.List(fields.String, required=True, description='List of cover ids to request'),
+    'num_users': fields.Integer(required=False, description='Number of simulated users', default=200),
+    'concurrency': fields.Integer(required=False, description='Concurrent worker threads', default=20)
+})
+
+health_test_notifications_model = health_ns.model('TestSendScheduledNotificationsRequest', {
+    'test_email': fields.String(required=True, description='Recipient email for test notifications'),
+    'num_notifications': fields.Integer(required=False, description='Number of fake notifications to send', default=10)
+})
+
 # Paginated PDF list endpoint
 @health_ns.route('/list-pdfs/<folder_id>')
+@health_ns.expect(health_list_pdfs_parser, validate=False)
 class ListPdfs(Resource):
     def get(self, folder_id):
         try:
@@ -3255,6 +3688,7 @@ class CoverDiagnostics(Resource):
 
 # --- Manual Seed Endpoint ---
 @health_ns.route('/seed-drive-books', methods=['POST'])
+@health_ns.expect(health_seed_drive_model, validate=False)
 class SeedDriveBooks(Resource):
     def post(self):
         """
@@ -3453,6 +3887,7 @@ class SeedDriveBooks(Resource):
         })
 
 @health_ns.route('/simulate-cover-load', methods=['POST'])
+@health_ns.expect(health_simulate_cover_model, validate=False)
 class SimulateCoverLoad(Resource):
     def post(self):
         """
@@ -3520,6 +3955,7 @@ class SimulateCoverLoad(Resource):
         return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
 
 @health_ns.route('/test-send-scheduled-notifications', methods=['POST'])
+@health_ns.expect(health_test_notifications_model, validate=False)
 class TestSendScheduledNotifications(Resource):
     def post(self):
         """
@@ -3564,6 +4000,16 @@ class TestSendScheduledNotifications(Resource):
 api.add_namespace(health_ns, path='/api')
 
 # === Webhooks & Integrations ===
+# -- Swagger models/parsers for integrations namespace --
+github_webhook_model = integrations_ns.model('GithubWebhookRequest', {
+    'ref': fields.String(required=False, description='Git ref, e.g. refs/heads/main'),
+    'repository': fields.Raw(required=False, description='Repository object'),
+    'commits': fields.List(fields.Raw, required=False, description='List of commits')
+})
+
+authorize_parser = integrations_ns.parser()
+authorize_parser.add_argument('redirect', type=str, required=False, location='args', help='Optional redirect target after authorize')
+
 @integrations_ns.route('/drive-webhook', methods=['POST'])
 class DriveWebhook(Resource):
     def post(self):
@@ -3680,6 +4126,7 @@ class DriveWebhook(Resource):
 
 # --- GitHub Webhook for App Update Notifications ---
 @integrations_ns.route('/github-webhook', methods=['POST'])
+@integrations_ns.expect(github_webhook_model, validate=False)
 class GithubWebhook(Resource):
     def post(self):
         """
@@ -3710,6 +4157,7 @@ class GithubWebhook(Resource):
         return jsonify({'success': True, 'message': 'App update notifications sent.'})
 
 @integrations_ns.route('/authorize')
+@integrations_ns.expect(authorize_parser, validate=False)
 class Authorize(Resource):
     def get(self):
         creds = service_account.Credentials.from_service_account_info(
