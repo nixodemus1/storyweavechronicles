@@ -79,14 +79,33 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Make backend start script executable
         run: chmod +x ./server/start_backend.sh
 
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install backend requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r server/requirements.txt
+
       - name: Start your API
         run: |
-          ./server/start_backend.sh > backend.log 2>&1 &
+          # Start the server in background and capture its PID so we can stop it later
+          nohup python server/server.py > backend.log 2>&1 &
           echo "BACKEND_PID=$!" >> $GITHUB_ENV
+          # Wait for a short period for the server to come up before running Mayhem
+          for i in {1..30}; do
+            if curl -sSf http://127.0.0.1:5000/swagger.json > /dev/null; then
+              echo "Backend is up"
+              break
+            fi
+            echo "Waiting for backend to start... ($i)"
+            sleep 1
+          done
 
       - name: Mayhem for API
         uses: ForAllSecure/mapi-action@v1
