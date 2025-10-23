@@ -93,8 +93,8 @@ jobs:
         continue-on-error: true
         with:
           mayhem-token: ${{ env.MAYHEM_TOKEN }}
-          api-url: https://dev-swc-backend-1v2c.onrender.com/
-          api-spec: https://dev-swc-backend-1v2c.onrender.com/swagger.json
+          api-url: http://127.0.0.1:5000/
+          api-spec: http://127.0.0.1:5000/swagger.json
           duration: 120
           sarif-report: ./mapi.sarif
       
