@@ -126,3 +126,10 @@ jobs:
             echo "Stopping backend process with PID ${{ env.BACKEND_PID }}"
             kill ${{ env.BACKEND_PID }} || echo "Backend process already stopped."
           fi
+
+      - name: Upload backend log as Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-log
+          path: ./backend.log
