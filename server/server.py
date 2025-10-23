@@ -418,9 +418,13 @@ def extract_cover_image_from_pdf(book_id):
             for _ in range(3):
                 gc.collect()
             return None
-
-        request_drive = service.files().get_media(fileId=book.drive_id)
-        pdf_bytes = request_drive.execute()
+        try:
+            request_drive = service.files().get_media(fileId=book.drive_id)
+            pdf_bytes = request_drive.execute()
+        except Exception as e:
+            logging.error(f"[extract_cover_image_from_pdf] Drive get_media failed for {book.drive_id}: {e}")
+            # Avoid raising: return None so caller can handle missing cover
+            return None
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         page = doc.load_page(0)
 
@@ -907,7 +911,11 @@ def check_and_notify_new_books():
                 return
             service = get_drive_service()
             query = f"'{folder_id}' in parents and mimeType='application/pdf'"
-            results = service.files().list(q=query, fields="files(id, name, createdTime, modifiedTime)").execute()
+            try:
+                results = service.files().list(q=query, fields="files(id, name, createdTime, modifiedTime)").execute()
+            except Exception as e:
+                logging.error(f"[check_and_notify_new_books] Drive files().list failed for query={query}: {e}")
+                return
             files = results.get('files', [])
             known_ids = set(b.drive_id for b in Book.query.all())
             new_files = [f for f in files if f['id'] not in known_ids]
@@ -918,7 +926,8 @@ def check_and_notify_new_books():
                     request = service.files().get_media(fileId=f['id'])
                     file_content = io.BytesIO(request.execute())
                     story_id = extract_story_id_from_pdf(file_content)
-                except Exception:
+                except Exception as e:
+                    logging.error(f"[check_and_notify_new_books] Failed to download/extract PDF for {f.get('id')}: {e}")
                     story_id = None
                 # Truncate external_story_id if too long
                 if story_id and isinstance(story_id, str) and len(story_id) > 128:
@@ -1002,7 +1011,11 @@ def setup_drive_webhook(folder_id, webhook_url):
                 'address': webhook_url,
             }
             try:
-                response = service.files().watch(fileId=folder_id, body=body).execute()
+                try:
+                    response = service.files().watch(fileId=folder_id, body=body).execute()
+                except Exception as e:
+                    logging.error(f"Failed to register Google Drive webhook for folder {folder_id}: {e}")
+                    response = {}
                 expiration = int(response.get('expiration', now_ms + 24*60*60*1000))
                 if webhook:
                     webhook.expiration = expiration
@@ -2253,6 +2266,12 @@ class PdfCover(Resource):
         MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
         MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
         logging.info(f"[pdf-cover] ENTRY: file_id={file_id}, RAM={mem:.2f} MB, CPU={cpu:.2f}%")
+        # --- Quick validation: reject obviously-invalid fuzzed file IDs (e.g. "str") ---
+        if not re.match(r'^[A-Za-z0-9_-]{10,}$', file_id):
+            logging.warning(f"[pdf-cover] INVALID_FILE_ID: {file_id}")
+            response = make_response(jsonify({'error': 'invalid_file_id', 'file_id': file_id, 'message': 'Invalid file_id format'}))
+            response.status_code = 400
+            return response
         cover_path = os.path.join(COVERS_DIR, f"{file_id}.jpg")
         covers_map = load_atlas()
         # --- Deduplication: fail immediately if already queued ---
@@ -2378,6 +2397,12 @@ class PdfText(Resource):
         mem = process.memory_info().rss / (1024 * 1024)
         cpu = process.cpu_percent(interval=0.1)
         logging.info(f"[pdf-text] ENTRY: file_id={file_id}, RAM={mem:.2f} MB, CPU={cpu:.2f}%")
+        # --- Quick validation: reject obviously-invalid fuzzed file IDs (e.g. "str") ---
+        if not re.match(r'^[A-Za-z0-9_-]{10,}$', file_id):
+            logging.warning(f"[pdf-text] INVALID_FILE_ID: {file_id}")
+            response = make_response(jsonify({'success': False, 'error': 'invalid_file_id', 'file_id': file_id, 'message': 'Invalid file_id format'}))
+            response.status_code = 400
+            return response
         # --- Existing code logic ---
         # --- Find book in DB and get total_pages if available ---
         book = Book.query.filter_by(drive_id=file_id).first()
@@ -2449,8 +2474,12 @@ class PdfText(Resource):
             try:
                 service = get_drive_service()
                 logging.info(f"[pdf-text] Step: got Google Drive service for file_id={file_id}")
-                request_drive = service.files().get_media(fileId=file_id)
-                pdf_bytes = request_drive.execute()
+                try:
+                    request_drive = service.files().get_media(fileId=file_id)
+                    pdf_bytes = request_drive.execute()
+                except Exception as e:
+                    logging.error(f"[pdf endpoint] Drive get_media failed for {file_id}: {e}")
+                    return jsonify({"success": False, "error": f"Failed to download PDF: {e}"}), 503
                 logging.info(f"[pdf-text] downloaded file content for file_id={file_id}, size={len(pdf_bytes)} bytes")
                 temp_pdf = None
                 doc = None
@@ -2587,7 +2616,11 @@ class GetBookmarks(Resource):
             file_ids = [bm['id'] for bm in bookmarks]
             if file_ids:
                 query = " or ".join([f"'{fid}' in parents or id='{fid}'" for fid in file_ids])
-                results = service.files().list(q=query, fields="files(id, modifiedTime)").execute()
+                try:
+                    results = service.files().list(q=query, fields="files(id, modifiedTime)").execute()
+                except Exception as e:
+                    logging.error(f"[cover health] Drive list failed for query={query}: {e}")
+                    results = {'files': []}
                 files = results.get('files', [])
                 file_update_map = {f['id']: f.get('modifiedTime') for f in files}
                 for bm in bookmarks:
@@ -2613,7 +2646,11 @@ class GetBookmarks(Resource):
             file_ids = [bm['id'] for bm in bookmarks]
             if file_ids:
                 query = " or ".join([f"'{fid}' in parents or id='{fid}'" for fid in file_ids])
-                results = service.files().list(q=query, fields="files(id, modifiedTime)").execute()
+                try:
+                    results = service.files().list(q=query, fields="files(id, modifiedTime)").execute()
+                except Exception as e:
+                    logging.error(f"[cover queue] Drive list failed for query={query}: {e}")
+                    results = {'files': []}
                 files = results.get('files', [])
                 file_update_map = {f['id']: f.get('modifiedTime') for f in files}
                 for bm in bookmarks:
@@ -2791,7 +2828,11 @@ class TopVotedBooks(Resource):
             meta = {'id': book_id, 'average': round(avg_vote,2), 'count': vote_count}
             if service:
                 try:
-                    file_metadata = service.files().get(fileId=book_id, fields='name').execute()
+                    try:
+                        file_metadata = service.files().get(fileId=book_id, fields='name').execute()
+                    except Exception as e:
+                        logging.error(f"[book meta] Drive get failed for {book_id}: {e}")
+                        file_metadata = None
                     meta['name'] = file_metadata.get('name')
                 except Exception:
                     meta['name'] = None
@@ -3750,7 +3791,11 @@ class SeedDriveBooks(Resource):
                 if not book:
                     external_story_id = None
                     try:
-                        file_request = service.files().get_media(fileId=drive_id)
+                        try:
+                            file_request = service.files().get_media(fileId=drive_id)
+                        except Exception as e:
+                            logging.error(f"[cover download] Drive get_media creation failed for {drive_id}: {e}")
+                            file_request = None
                         file_content = file_request.execute()
                         external_story_id = extract_story_id_from_pdf(file_content)
                     except Exception as e:
@@ -3792,7 +3837,11 @@ class SeedDriveBooks(Resource):
                                 updated = True
                         if not book.external_story_id or not str(book.external_story_id).strip():
                             try:
-                                file_request = service.files().get_media(fileId=drive_id)
+                                try:
+                                    file_request = service.files().get_media(fileId=drive_id)
+                                except Exception as e:
+                                    logging.error(f"[cover download nested] Drive get_media creation failed for {drive_id}: {e}")
+                                    file_request = None
                                 file_content = file_request.execute()
                                 external_story_id = extract_story_id_from_pdf(file_content)
                                 if external_story_id:
@@ -4045,7 +4094,11 @@ class DriveWebhook(Resource):
         if resource_state in ['update', 'add']:
             try:
                 service = get_drive_service()
-                file_metadata = service.files().get(fileId=resource_id, fields='id, name, createdTime, modifiedTime').execute()
+                try:
+                    file_metadata = service.files().get(fileId=resource_id, fields='id, name, createdTime, modifiedTime').execute()
+                except Exception as e:
+                    logging.error(f"[resource meta] Drive get failed for {resource_id}: {e}")
+                    file_metadata = None
 
                 # Check if the book already exists in the database
                 book = Book.query.filter_by(drive_id=resource_id).first()
@@ -4053,7 +4106,11 @@ class DriveWebhook(Resource):
                     # Extract external story ID from the PDF
                     external_story_id = None
                     try:
-                        file_request = service.files().get_media(fileId=resource_id)
+                        try:
+                            file_request = service.files().get_media(fileId=resource_id)
+                        except Exception as e:
+                            logging.error(f"[resource download] Drive get_media creation failed for {resource_id}: {e}")
+                            file_request = None
                         file_content = file_request.execute()
                         external_story_id = extract_story_id_from_pdf(file_content)
                     except Exception as e:
@@ -4094,7 +4151,11 @@ class DriveWebhook(Resource):
                     # Extract external story ID if missing
                     if not book.external_story_id:
                         try:
-                            file_request = service.files().get_media(fileId=resource_id)
+                            try:
+                                file_request = service.files().get_media(fileId=resource_id)
+                            except Exception as e:
+                                logging.error(f"[resource download nested] Drive get_media creation failed for {resource_id}: {e}")
+                                file_request = None
                             file_content = file_request.execute()
                             external_story_id = extract_story_id_from_pdf(file_content)
                             if external_story_id:
