@@ -287,6 +287,21 @@ def get_cover_url(file_id):
     base_url = os.getenv('FRONTEND_BASE_URL', 'http://localhost:5173')
     return f"{base_url}/api/covers/{file_id}.jpg"
 
+def safe_get_json(default=None):
+        """Return request JSON parsed safely.
+
+        Behavior:
+        - In DEBUG/dev (is_debug == True) the parser is silent (silent=True) so fuzzers with
+            empty/malformed bodies do not raise and we can return a controlled default.
+        - In production (is_debug == False) we intentionally do not silence JSON errors so
+            invalid JSON will raise and surface a useful stacktrace for debugging.
+
+        Returns parsed JSON or `default` when parsing returns None.
+        """
+        # request.get_json will raise when silent=False and JSON is invalid; that's desired in prod
+        parsed = request.get_json(silent=is_debug)
+        return parsed if parsed is not None else default
+
 def load_atlas():
     """Load the atlas.json file and return the covers mapping. Retries up to 3 times on error."""
     if not os.path.exists(ATLAS_PATH):
@@ -757,9 +772,9 @@ def get_queue_status():
         return {
             'active': cover_request_queue[0] if cover_request_queue else None,
             'queue': list(cover_request_queue),
-            'queue_length': len(cover_request_queue)
+            'queue_length': len(cover_request_queue),
+            'sessions': list(session_last_seen.keys()),
         }
-
 #--- Notification & Email ---
 
 def send_notification_email(user, subject, body, notifications=None):
@@ -1054,6 +1069,7 @@ def check_atlas_init():
             ATLAS_INITIALIZED = True
         except Exception as e:
             logging.error("[Atlas] Error during first-load rebuild: %s", e)
+
 
 # Runtime CORS diagnostics: log incoming Origin and ensure ACAO header for allowed origins
 @app.after_request
@@ -1927,7 +1943,7 @@ class RebuildCoverCache(Resource):
         """Rebuild atlas and cache covers for provided book_ids (landing page), or fallback to DB if not provided."""
         try:
             # Optionally accept book_ids from frontend, else use default
-            data = request.get_json(silent=True)
+            data = safe_get_json({})
             book_ids = data.get('book_ids') if data and 'book_ids' in data else None
             if not book_ids or len(book_ids) < 20:
                 logging.warning(f"[API][rebuild-cover-cache] Skipping deletion: received only {len(book_ids) if book_ids else 0} book_ids (minimum required: 20). Possible partial/empty POST. Waiting for next request.")
@@ -3736,7 +3752,7 @@ class SeedDriveBooks(Resource):
         Manually repopulate the Book table from all PDFs in the configured Google Drive folder.
         Returns: {success, added_count, skipped_count, errors}
         """
-        data = request.get_json(silent=True) or {}
+        data = safe_get_json({})
         folder_id = data.get('folder_id') or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
         if not folder_id:
             response = make_response(jsonify({'success': False, 'message': 'GOOGLE_DRIVE_FOLDER_ID not set.'}))
@@ -4012,9 +4028,17 @@ class TestSendScheduledNotifications(Resource):
         POST data: {"test_email": "your@email.com", "num_notifications": 10}
         """
         try:
-            data = request.get_json()
+            # Defensive JSON parsing: respect DEBUG setting via safe_get_json
+            data = safe_get_json({})
+            if not data:
+                response = make_response(jsonify({'success': False, 'message': 'Missing JSON body.'}))
+                response.status_code = 400
+                return response
             test_email = data.get('test_email')
-            num_notifications = int(data.get('num_notifications', 10))
+            try:
+                num_notifications = int(data.get('num_notifications', 10))
+            except Exception:
+                num_notifications = 10
             if not test_email:
                 response = make_response(jsonify({'success': False, 'message': 'Missing test_email in request.'}))
                 response.status_code = 400
