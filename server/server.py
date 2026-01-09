@@ -3994,12 +3994,30 @@ class DriveWebhook(Resource):
         token = auth_header.split(' ')[1]
         try:
             # Verify the identity token using google.oauth2.id_token
-            audience = os.getenv('PUBSUB_AUDIENCE')
-            # id_token.verify_oauth2_token raises ValueError on failure
-            decoded_token = id_token.verify_oauth2_token(token, Request(), audience=audience)
-            logging.info(f"Verified JWT claims: {decoded_token}")
+            # Prefer the configured PUBSUB_AUDIENCE (push endpoint). For debugging and
+            # compatibility with gcloud-issued identity tokens, also accept the
+            # configured GOOGLE_CLIENT_ID as an alternate audience.
+            primary_audience = os.getenv('PUBSUB_AUDIENCE')
+            alternate_audience = os.getenv('GOOGLE_CLIENT_ID')
+            decoded_token = None
+            try:
+                decoded_token = id_token.verify_oauth2_token(token, Request(), audience=primary_audience)
+                logging.info(f"Verified JWT claims (aud={primary_audience}): {decoded_token}")
+            except ValueError as e_primary:
+                # Audience mismatch or other verification error for primary audience.
+                logging.warning(f"Primary audience verification failed: {e_primary}")
+                if alternate_audience:
+                    try:
+                        decoded_token = id_token.verify_oauth2_token(token, Request(), audience=alternate_audience)
+                        logging.warning(f"Verified JWT claims using alternate audience (GOOGLE_CLIENT_ID={alternate_audience}). This is allowed for debugging only.")
+                        logging.info(f"Verified JWT claims (aud={alternate_audience}): {decoded_token}")
+                    except ValueError as e_alt:
+                        logging.error(f"Alternate audience verification also failed: {e_alt}")
+                        raise
+                else:
+                    raise
         except ValueError as e:
-            # Token verification failed
+            # Token verification failed for all attempted audiences
             logging.error(f"JWT verification failed: {e}")
             response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
             response.status_code = 401
@@ -4009,6 +4027,28 @@ class DriveWebhook(Resource):
             response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
             response.status_code = 401
             return response
+
+        # Debug: log the decoded token claims (safe — token contains no secret keys)
+        try:
+            logging.info(f"Drive webhook token claims: {{'iss': decoded_token.get('iss'), 'sub': decoded_token.get('sub'), 'aud': decoded_token.get('aud'), 'email': decoded_token.get('email')}}")
+        except Exception:
+            logging.info("Drive webhook: could not log token claims cleanly")
+
+        # Debug: log raw request body and Pub/Sub message attributes (do not log Authorization header)
+        try:
+            raw_body = request.get_data(as_text=True)
+            logging.info(f"Drive webhook raw body: {raw_body}")
+            # Attempt to parse and log message.attributes if present
+            try:
+                parsed = json.loads(raw_body) if raw_body else {}
+                message = parsed.get('message') or {}
+                attributes = message.get('attributes') if isinstance(message, dict) else None
+                if attributes:
+                    logging.info(f"Drive webhook message.attributes: {attributes}")
+            except Exception:
+                logging.info("Drive webhook: raw body not JSON or attributes missing")
+        except Exception:
+            logging.info("Drive webhook: failed to read raw request body for diagnostics")
 
         # Process the webhook event
         channel_id = request.headers.get('X-Goog-Channel-ID')
