@@ -22,7 +22,6 @@
 - Carousel UI: polish for desktop and mobile
 - churn is back. it fixed itself for a bit and now its back. (doesn't do TOO much damage, but still annoying)
 - finish CI/CD make actually useful tests that need to be passed for dev to merge with main
-- some stories dont load. at all. whats up with that? get internal server error.
 - trying to get discord integration working.
 
 ---

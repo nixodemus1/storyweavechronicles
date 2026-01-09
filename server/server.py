@@ -7,6 +7,7 @@ Main server module.
 # =========================
 # --- Standard Library Imports ---
 import tracemalloc
+import csv
 import os
 import io
 import gc
@@ -3701,10 +3702,16 @@ health_seed_drive_model = health_ns.model('SeedDriveBooksRequest', {
 class SeedDriveBooks(Resource):
     """Seed the database with PDFs found in a Google Drive folder.
 
-    Safety:
-    - Disabled by default in production. Allow when `DEBUG` is true or env `ENABLE_SEED_DRIVE` == 'True',
-      or when request includes header `X-Admin-Username` belonging to an admin user.
-    - Non-destructive: will only add Book rows for Drive files not already present.
+    This implementation restores the richer behavior from the previous version:
+    - Iterates all pages from Drive.list
+    - Adds new Book rows, updates existing metadata
+    - Extracts external story IDs from PDFs when possible
+    - Batches DB commits and throttles based on memory usage
+    - Sends notify-new-book / notify-book-update callbacks for downstream UI
+
+    Safety: Disabled by default in production. Allowed when `DEBUG` is true,
+    or env `ENABLE_SEED_DRIVE` == 'True', or when request includes header
+    `X-Admin-Username` belonging to an admin user.
     """
     def post(self):
         try:
@@ -3742,37 +3749,261 @@ class SeedDriveBooks(Resource):
                 response.status_code = 503
                 return response
 
-            query = f"'{folder_id}' in parents and mimeType='application/pdf'"
+            query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed=false"
+            files = []
+            page_token = None
             try:
-                results = service.files().list(q=query, fields="files(id, name, createdTime, modifiedTime)").execute()
+                while True:
+                    resp = service.files().list(q=query, spaces='drive', fields='nextPageToken, files(id, name, createdTime, modifiedTime)', pageToken=page_token).execute()
+                    files.extend(resp.get('files', []))
+                    page_token = resp.get('nextPageToken')
+                    if not page_token:
+                        break
             except Exception as e:
                 logging.error(f"[API][seed-drive-books] Drive files().list failed for folder {folder_id}: {e}")
                 response = make_response(jsonify({'success': False, 'message': 'Drive list failed', 'error': str(e)}))
                 response.status_code = 503
                 return response
 
-            files = results.get('files', [])
-            existing_ids = set(b.drive_id for b in Book.query.all())
-            added = 0
-            skipped = 0
+            # Prepare counters and batching
+            added_count = 0
+            updated_count = 0
+            external_id_updates = 0
+            skipped_count = 0
+            errors = []
+            new_books = []
+            updated_books = []
+            logging.info(f"[Seed] Total files returned from Drive: {len(files)}")
+            # --- Compare DB vs Drive: produce CSV of DB books missing from Drive ---
+            drive_id_set = set(f.get('id') for f in files if f.get('id'))
+            db_books = Book.query.filter(Book.drive_id.isnot(None)).all()
+            db_drive_map = {b.drive_id: b for b in db_books if b.drive_id}
+            missing_drive_ids = [did for did in db_drive_map.keys() if did not in drive_id_set]
+            timestamp_str = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+            csv_fname = os.path.join(os.path.dirname(__file__), f'missing_books_{timestamp_str}.csv')
+            try:
+                with open(csv_fname, 'w', newline='', encoding='utf-8') as fh:
+                    writer = csv.writer(fh)
+                    writer.writerow(['drive_id', 'db_id', 'title', 'external_story_id', 'created_at', 'updated_at'])
+                    for did in missing_drive_ids:
+                        b = db_drive_map.get(did)
+                        writer.writerow([did, getattr(b, 'id', None), getattr(b, 'title', None), getattr(b, 'external_story_id', None), getattr(b, 'created_at', None), getattr(b, 'updated_at', None)])
+                logging.info(f"[Seed][COMPARE] Wrote missing-drive CSV: {csv_fname} (missing_count={len(missing_drive_ids)})")
+            except Exception as e:
+                logging.error(f"[Seed][COMPARE] Failed writing missing CSV {csv_fname}: {e}")
+
+            # Optional deletion/relink behavior controlled by env vars
+            delete_missing = os.getenv('ENABLE_SEED_DELETE_MISSING', 'False') == 'True'
+            relink_by_title = os.getenv('ENABLE_SEED_RELINK_BY_TITLE', 'False') == 'True'
+            deleted_count = 0
+            relinked_count = 0
+            # Build title -> drive ids map for drive files (normalized)
+            drive_title_map = {}
             for f in files:
-                fid = f.get('id')
-                title = f.get('name') or 'Untitled'
-                if not fid:
+                t = (f.get('name') or '').strip().lower()
+                if not t:
                     continue
-                if fid in existing_ids:
-                    skipped += 1
-                    continue
+                drive_title_map.setdefault(t, []).append(f.get('id'))
+
+            if relink_by_title and missing_drive_ids:
+                logging.info(f"[Seed][RELINK] Attempting title-based relink for {len(missing_drive_ids)} missing DB records")
+                for old_did in list(missing_drive_ids):
+                    book = db_drive_map.get(old_did)
+                    if not book:
+                        continue
+                    title_norm = (book.title or '').strip().lower()
+                    candidates = drive_title_map.get(title_norm, [])
+                    # Only auto-relink when there's exactly one candidate to avoid mistakes
+                    if len(candidates) == 1:
+                        new_did = candidates[0]
+                        # Ensure no other DB book already uses new_did
+                        existing = Book.query.filter_by(drive_id=new_did).first()
+                        if existing:
+                            logging.info(f"[Seed][RELINK] Skipping relink for {book.id} title='{book.title}': new drive id {new_did} already in DB")
+                            continue
+                        try:
+                            logging.info(f"[Seed][RELINK] Relinking DB book id={book.id} title='{book.title}' from {old_did} -> {new_did}")
+                            book.drive_id = new_did
+                            book.updated_at = datetime.datetime.now(timezone.utc)
+                            db.session.add(book)
+                            db.session.commit()
+                            relinked_count += 1
+                            # remove from missing list since it's re-linked
+                            missing_drive_ids.remove(old_did)
+                        except Exception as e:
+                            db.session.rollback()
+                            logging.error(f"[Seed][RELINK] Failed relinking book id={book.id}: {e}")
+
+            if delete_missing and missing_drive_ids:
                 try:
-                    book = Book(drive_id=fid, title=title, external_story_id=None, version_history=json.dumps([{'created': f.get('createdTime')}]))
-                    db.session.add(book)
+                    logging.info(f"[Seed][DELETE] Deleting {len(missing_drive_ids)} DB books missing from Drive")
+                    # delete by drive_id
+                    deleted = Book.query.filter(Book.drive_id.in_(missing_drive_ids)).delete(synchronize_session=False)
                     db.session.commit()
-                    added += 1
-                except Exception as db_exc:
+                    deleted_count = int(deleted)
+                    logging.info(f"[Seed][DELETE] Deleted {deleted_count} books from DB that were missing in Drive")
+                except Exception as e:
                     db.session.rollback()
-                    logging.error(f"[API][seed-drive-books] DB error adding {fid}: {db_exc}")
-            logging.info(f"[API][seed-drive-books] Completed: added={added}, skipped={skipped}, total_files={len(files)}")
-            return jsonify({'success': True, 'added': added, 'skipped': skipped, 'total_files': len(files)})
+                    logging.error(f"[Seed][DELETE] Failed deleting missing books: {e}")
+
+            # Expose counts to the later response via variables
+            # They will be included in the final JSON return below
+            process = psutil.Process()
+            BATCH_SIZE = int(os.getenv('SEED_BATCH_SIZE', '10'))
+            MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
+            MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
+            batch = []
+
+            for idx, f in enumerate(files):
+                drive_id = f.get('id')
+                title = f.get('name')
+                created_time = f.get('createdTime')
+                modified_time = f.get('modifiedTime')
+                logging.info(f"[Seed] Processing file {idx+1}/{len(files)}: drive_id={drive_id}, title={title}, created_time={created_time}, modified_time={modified_time}")
+                try:
+                    book = Book.query.filter_by(drive_id=drive_id).first()
+                    if not book:
+                        external_story_id = None
+                        try:
+                            file_request = service.files().get_media(fileId=drive_id)
+                            file_content = file_request.execute()
+                            external_story_id = extract_story_id_from_pdf(file_content)
+                            del file_content
+                            gc.collect()
+                        except Exception as e:
+                            logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
+                            errors.append(f"Error extracting story ID for {title}: {e}")
+                            external_story_id = None
+                        try:
+                            book = Book(
+                                drive_id=drive_id,
+                                title=title,
+                                external_story_id=external_story_id,
+                                version_history=None,
+                                created_at=datetime.datetime.fromisoformat(created_time.replace('Z', '+00:00')) if created_time else datetime.datetime.now(timezone.utc),
+                                updated_at=datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00')) if modified_time else None
+                            )
+                            db.session.add(book)
+                            added_count += 1
+                            new_books.append({'id': drive_id, 'title': title})
+                            logging.info(f"[Seed] Added new book: drive_id={drive_id}, title={title}")
+                        except Exception as e:
+                            skipped_count += 1
+                            errors.append(f"Error creating new Book for {title} ({drive_id}): {e}")
+                            logging.error(f"[Seed] Skipped file due to error creating Book: drive_id={drive_id}, title={title}, error={e}")
+                            continue
+                    else:
+                        updated = False
+                        try:
+                            if book.title != title:
+                                book.title = title
+                                updated = True
+                            if modified_time:
+                                new_updated_at = datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
+                                if new_updated_at.tzinfo is None:
+                                    new_updated_at = new_updated_at.replace(tzinfo=datetime.timezone.utc)
+                                if book.updated_at and book.updated_at.tzinfo is None:
+                                    book.updated_at = book.updated_at.replace(tzinfo=datetime.timezone.utc)
+                                if not book.updated_at or book.updated_at < new_updated_at:
+                                    book.updated_at = new_updated_at
+                                    updated = True
+                            if not book.external_story_id or not str(book.external_story_id).strip():
+                                try:
+                                    file_request = service.files().get_media(fileId=drive_id)
+                                    file_content = file_request.execute()
+                                    external_story_id = extract_story_id_from_pdf(file_content)
+                                    del file_content
+                                    gc.collect()
+                                    if external_story_id:
+                                        book.external_story_id = external_story_id
+                                        external_id_updates += 1
+                                        updated = True
+                                except Exception as e:
+                                    logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
+                                    errors.append(f"Error extracting story ID for {title}: {e}")
+                            if updated:
+                                updated_count += 1
+                                updated_books.append({'id': drive_id, 'title': title})
+                                logging.info(f"[Seed] Updated book: drive_id={drive_id}, title={title}")
+                        except Exception as e:
+                            skipped_count += 1
+                            errors.append(f"Error updating Book for {title} ({drive_id}): {e}")
+                            logging.error(f"[Seed] Skipped file due to error updating Book: drive_id={drive_id}, title={title}, error={e}")
+                            continue
+
+                    mem = process.memory_info().rss / (1024 * 1024)
+                    if mem > MEMORY_HIGH_THRESHOLD_MB:
+                        logging.warning(f"[Seed][THROTTLE] RAM {mem:.2f} MB > {MEMORY_HIGH_THRESHOLD_MB} MB. Sleeping 2s and running GC.")
+                        time.sleep(2)
+                        gc.collect()
+                    elif mem > MEMORY_LOW_THRESHOLD_MB:
+                        logging.info(f"[Seed][THROTTLE] RAM {mem:.2f} MB > {MEMORY_LOW_THRESHOLD_MB} MB. Running GC.")
+                        gc.collect()
+                    batch.append(book)
+                    if len(batch) >= BATCH_SIZE:
+                        try:
+                            db.session.commit()
+                            batch.clear()
+                            gc.collect()
+                            logging.info(f"[Seed][BATCH] Committed batch of {BATCH_SIZE} books. RAM: {mem:.2f} MB")
+                        except Exception as e:
+                            errors.append(f"Error committing batch at file {title} ({drive_id}): {e}")
+                            logging.error(f"[Seed] Error committing batch: {e}")
+                except Exception as e:
+                    skipped_count += 1
+                    errors.append(f"Error processing file {title} ({drive_id}): {e}")
+                    logging.error(f"[Seed] Skipped file due to error: drive_id={drive_id}, title={title}, error={e}")
+                    continue
+
+            if batch:
+                try:
+                    db.session.commit()
+                    batch.clear()
+                    gc.collect()
+                    mem = process.memory_info().rss / (1024 * 1024)
+                    logging.info(f"[Seed][FINAL BATCH] Committed final batch. RAM: {mem:.2f} MB")
+                except Exception as e:
+                    errors.append(f"Error committing final batch: {e}")
+                    logging.error(f"[Seed] Error committing final batch: {e}")
+
+            # Notify UI/backend about new/updated books
+            for book_info in new_books:
+                try:
+                    notify_url = request.host_url.rstrip('/') + '/api/notify-new-book'
+                    resp = requests.post(notify_url, json={
+                        'book_id': book_info['id'],
+                        'book_title': book_info['title']
+                    }, timeout=10)
+                    if resp.status_code != 200:
+                        errors.append(f"Error notifying new book: {resp.text}")
+                except Exception as e:
+                    errors.append(f"Error notifying new book: {e}")
+            for book_info in updated_books:
+                try:
+                    notify_url = request.host_url.rstrip('/') + '/api/notify-book-update'
+                    resp = requests.post(notify_url, json={
+                        'book_id': book_info['id'],
+                        'book_title': book_info['title']
+                    }, timeout=10)
+                    if resp.status_code != 200:
+                        errors.append(f"Error notifying book update: {resp.text}")
+                except Exception as e:
+                    errors.append(f"Error notifying book update: {e}")
+
+            missing_final_count = len(missing_drive_ids) if 'missing_drive_ids' in locals() else 0
+            return jsonify({
+                'success': True,
+                'added_count': added_count,
+                'updated_count': updated_count,
+                'external_id_updates': external_id_updates,
+                'skipped_count': skipped_count,
+                'missing_count': missing_final_count,
+                'deleted_count': deleted_count if 'deleted_count' in locals() else 0,
+                'relinked_count': relinked_count if 'relinked_count' in locals() else 0,
+                'missing_csv': os.path.basename(csv_fname) if 'csv_fname' in locals() else None,
+                'errors': errors,
+                'message': f"Seeded {added_count} new books, updated {updated_count} existing books, {external_id_updates} external IDs set."
+            })
         except Exception as e:
             logging.error(f"[API][seed-drive-books] Unexpected error: {e}")
             response = make_response(jsonify({'success': False, 'message': 'Internal error', 'error': str(e)}))
