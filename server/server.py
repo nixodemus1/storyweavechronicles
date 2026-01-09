@@ -4068,6 +4068,39 @@ class DriveWebhook(Resource):
         changed = request.headers.get('X-Goog-Changed')
         logging.info(f"[Drive Webhook] Channel: {channel_id}, Resource: {resource_id}, State: {resource_state}, Changed: {changed}")
 
+        # If Pub/Sub push delivered the Drive change inside the message body/attributes
+        # (common when using a Pub/Sub push subscription), prefer those values when
+        # the Drive-specific headers are not present.
+        try:
+            parsed_body = request.get_json(silent=True)
+            if parsed_body and isinstance(parsed_body, dict):
+                msg = parsed_body.get('message') or {}
+                if isinstance(msg, dict):
+                    attrs = msg.get('attributes') or {}
+                    if attrs:
+                        if not resource_id:
+                            resource_id = attrs.get('resourceId') or attrs.get('resource_id') or attrs.get('id')
+                        if not resource_state:
+                            resource_state = attrs.get('resourceState') or attrs.get('resource_state') or attrs.get('state')
+                        logging.info(f"[Drive Webhook] Extracted from message.attributes: resource_id={resource_id}, resource_state={resource_state}")
+                    # If message.data contains a JSON payload, try to parse it for a resource id too
+                    data_b64 = msg.get('data')
+                    if data_b64 and not resource_id:
+                        try:
+                            data_decoded = base64.b64decode(data_b64)
+                            try:
+                                data_json = json.loads(data_decoded)
+                                # common keys
+                                resource_id = resource_id or data_json.get('resourceId') or data_json.get('resource_id') or data_json.get('id')
+                                resource_state = resource_state or data_json.get('resourceState') or data_json.get('resource_state')
+                            except Exception:
+                                # not JSON, ignore
+                                pass
+                        except Exception:
+                            pass
+        except Exception:
+            logging.info('[Drive Webhook] Could not parse Pub/Sub message body for attributes.')
+
         # Only handle 'update' or 'add' events
         if resource_state in ['update', 'add']:
             try:
