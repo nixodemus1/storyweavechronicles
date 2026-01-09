@@ -3994,28 +3994,39 @@ class DriveWebhook(Resource):
         token = auth_header.split(' ')[1]
         try:
             # Verify the identity token using google.oauth2.id_token
-            # Prefer the configured PUBSUB_AUDIENCE (push endpoint). For debugging and
-            # compatibility with gcloud-issued identity tokens, also accept the
-            # configured GOOGLE_CLIENT_ID as an alternate audience.
+            # Build a prioritized list of accepted audiences to try.
+            # 1) PUBSUB_AUDIENCE (the push endpoint)
+            # 2) any audiences listed in PUBSUB_ACCEPTED_AUD (comma-separated env var)
+            # 3) GOOGLE_CLIENT_ID (legacy debug fallback)
             primary_audience = os.getenv('PUBSUB_AUDIENCE')
-            alternate_audience = os.getenv('GOOGLE_CLIENT_ID')
+            accepted_auds = []
+            if primary_audience:
+                accepted_auds.append(primary_audience)
+            extra = os.getenv('PUBSUB_ACCEPTED_AUD', '')
+            if extra:
+                for a in [x.strip() for x in extra.split(',') if x.strip()]:
+                    if a not in accepted_auds:
+                        accepted_auds.append(a)
+            google_client_id = os.getenv('GOOGLE_CLIENT_ID')
+            if google_client_id and google_client_id not in accepted_auds:
+                accepted_auds.append(google_client_id)
+
             decoded_token = None
-            try:
-                decoded_token = id_token.verify_oauth2_token(token, Request(), audience=primary_audience)
-                logging.info(f"Verified JWT claims (aud={primary_audience}): {decoded_token}")
-            except ValueError as e_primary:
-                # Audience mismatch or other verification error for primary audience.
-                logging.warning(f"Primary audience verification failed: {e_primary}")
-                if alternate_audience:
-                    try:
-                        decoded_token = id_token.verify_oauth2_token(token, Request(), audience=alternate_audience)
-                        logging.warning(f"Verified JWT claims using alternate audience (GOOGLE_CLIENT_ID={alternate_audience}). This is allowed for debugging only.")
-                        logging.info(f"Verified JWT claims (aud={alternate_audience}): {decoded_token}")
-                    except ValueError as e_alt:
-                        logging.error(f"Alternate audience verification also failed: {e_alt}")
-                        raise
-                else:
-                    raise
+            last_error = None
+            for aud in accepted_auds:
+                try:
+                    decoded_token = id_token.verify_oauth2_token(token, Request(), audience=aud)
+                    logging.info(f"Verified JWT claims (aud={aud}): {decoded_token}")
+                    matched_audience = aud
+                    break
+                except ValueError as e_aud:
+                    logging.warning(f"Audience verification failed for aud={aud}: {e_aud}")
+                    last_error = e_aud
+                    continue
+            if decoded_token is None:
+                # None of the candidate audiences worked
+                logging.error(f"JWT verification failed for all candidate audiences. Last error: {last_error}")
+                raise last_error if last_error else ValueError('JWT verification failed')
         except ValueError as e:
             # Token verification failed for all attempted audiences
             logging.error(f"JWT verification failed: {e}")
