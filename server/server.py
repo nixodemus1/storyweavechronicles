@@ -3970,6 +3970,45 @@ class PubsubPing(Resource):
             return response
 
 
+def publish_drive_to_pubsub(resource_id, resource_state, extra=None):
+    """Publish a small message to the configured Pub/Sub topic for downstream processing.
+
+    This is best-effort and will not raise on failure; callers should catch exceptions
+    if they need blocking behavior.
+    """
+    project = os.getenv('GOOGLE_PROJECT_ID')
+    topic_name = os.getenv('PUBSUB_TOPIC_NAME')
+    if not project or not topic_name:
+        logging.warning('[PubSub publish] PUBSUB config missing; skipping publish')
+        return None
+    topic = f'projects/{project}/topics/{topic_name}'
+    try:
+        pubsub_scopes = ['https://www.googleapis.com/auth/pubsub']
+        creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=pubsub_scopes)
+        pubsub_service = build('pubsub', 'v1', credentials=creds)
+        payload = {'resourceId': resource_id, 'resourceState': resource_state}
+        if extra and isinstance(extra, dict):
+            payload.update(extra)
+        data_b64 = base64.b64encode(json.dumps(payload).encode('utf-8')).decode('utf-8')
+        body = {
+            'messages': [
+                {
+                    'data': data_b64,
+                    'attributes': {
+                        'resourceId': str(resource_id) if resource_id else '',
+                        'resourceState': str(resource_state) if resource_state else ''
+                    }
+                }
+            ]
+        }
+        result = pubsub_service.projects().topics().publish(topic=topic, body=body).execute()
+        logging.info(f"[PubSub publish] Published Drive notification to {topic}: {result}")
+        return result
+    except Exception as e:
+        logging.error(f"[PubSub publish] Failed to publish Drive notification: {e}")
+        return None
+
+
 # === Webhooks & Integrations ===
 # -- Swagger models/parsers for integrations namespace --
 github_webhook_model = integrations_ns.model('GithubWebhookRequest', {
@@ -4100,6 +4139,17 @@ class DriveWebhook(Resource):
                             pass
         except Exception:
             logging.info('[Drive Webhook] Could not parse Pub/Sub message body for attributes.')
+
+        # Best-effort: forward the notification into Pub/Sub so downstream
+        # consumers won't miss it if they rely on Pub/Sub. This does not
+        # replace direct Pub/Sub watch registration, but acts as a fallback
+        # when Drive->Pub/Sub is unavailable.
+        try:
+            pub_result = publish_drive_to_pubsub(resource_id, resource_state, extra={'fileId': resource_id})
+            if pub_result:
+                logging.info(f"[Drive Webhook] Forwarded notification to Pub/Sub: {pub_result}")
+        except Exception as e:
+            logging.warning(f"[Drive Webhook] Pub/Sub forward failed (non-fatal): {e}")
 
         # Only handle 'update' or 'add' events
         if resource_state in ['update', 'add']:
