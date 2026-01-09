@@ -1,0 +1,23 @@
+name: Keep Render Warm
+
+on:
+  schedule:
+    - cron: '*/14 * * * *'  # every 14 minutes
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping endpoints
+        run: |
+          set -e
+          # List endpoints to ping (modify as needed)
+          endpoints=(
+            "https://dev-swc-backend-1v2c.onrender.com/api/health"
+            "https://swcflaskbackend.onrender.com/api/health"
+          )
+          for url in "${endpoints[@]}"; do
+            echo "Pinging $url"
+            status=$(curl -s -o /dev/null -w "%{http_code}" "$url" || echo "000")
+            echo "Status for $url: $status"
+          done

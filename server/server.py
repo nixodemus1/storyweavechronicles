@@ -50,6 +50,7 @@ from google.oauth2 import service_account
 import dateutil.parser
 from google.auth import jwt
 from google.auth.transport.requests import Request
+from google.oauth2 import id_token
 
 # --- Project Imports ---
 try:
@@ -135,7 +136,9 @@ service_account_info = {
     "type": "service_account",
     "project_id": os.getenv("GOOGLE_PROJECT_ID"),
     "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
-    "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
+    # Normalize the private key: accept either literal \n sequences or real newlines,
+    # and strip any surrounding quotes that might be present when loading from .env.
+    "private_key": (os.getenv("GOOGLE_PRIVATE_KEY") or '').replace('\\n', '\n').replace('"', '').strip(),
     "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
     "client_id": os.getenv("GOOGLE_CLIENT_ID"),
     "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
@@ -190,6 +193,7 @@ session_last_seen = {}  # session_id: last_seen_timestamp
 SESSION_TIMEOUT = 60  # seconds
 
 cleanup_covers_lock = threading.Lock()  # Add this near your other locks
+atlas_init_lock = threading.Lock()
 
 ATLAS_INITIALIZED = False  # C0103: UPPER_CASE naming style
 
@@ -987,28 +991,21 @@ def check_and_notify_new_books():
 
 def get_drive_service():
     """Get Google Drive service."""
-    creds = None
-    # Build credentials from .env
-    client_id = os.getenv('GOOGLE_CLIENT_ID')
-    client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
-    token_uri = os.getenv('GOOGLE_TOKEN_URI')
-    auth_uri = os.getenv('GOOGLE_AUTH_URI')
-    auth_provider_x509_cert_url = os.getenv('GOOGLE_AUTH_CERT_URI')
-    redirect_uris = [os.getenv('GOOGLE_REDIRECT_URI')]
-    # Load token from file as before
-    if os.path.exists(TOKEN_FILE):
-        creds = service_account.Credentials.from_service_account_info(
-            service_account_info,
-            scopes=SCOPES
-        )
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-    if not creds or not creds.valid:
-        creds = service_account.Credentials.from_service_account_info(
-            service_account_info,
-            scopes=SCOPES
-        )
-    return build('drive', 'v3', credentials=creds)
+    # Build credentials from service_account_info; provide clearer errors when missing
+    try:
+        # Quick sanity checks for common missing values
+        pk = service_account_info.get('private_key')
+        client_email = service_account_info.get('client_email')
+        project_id = service_account_info.get('project_id')
+        if not pk:
+            raise ValueError('GOOGLE_PRIVATE_KEY missing or empty')
+        if not client_email:
+            raise ValueError('GOOGLE_CLIENT_EMAIL missing')
+        creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
+        return build('drive', 'v3', credentials=creds)
+    except Exception as e:
+        logging.error(f"[get_drive_service] Failed to build Drive service: {e}")
+        raise
 
 def setup_drive_webhook(folder_id, webhook_url):
     """Setup Google Drive webhook."""
@@ -1062,13 +1059,30 @@ def handle_preflight():
 def check_atlas_init():
     """Initialize atlas on first API request."""
     global ATLAS_INITIALIZED
+    # Only initialize once. Use a non-blocking lock so concurrent incoming requests
+    # don't spawn multiple rebuilds during startup (causes churn/deletes).
     if not ATLAS_INITIALIZED and request.path.startswith('/api/'):
+        acquired = atlas_init_lock.acquire(blocking=False)
+        if not acquired:
+            # Another request is handling initialization — skip here.
+            logging.info('[Atlas][init] Initialization already in progress by another request; skipping.')
+            return
         try:
-            sync_atlas_with_covers()
-            rebuild_cover_cache()
-            ATLAS_INITIALIZED = True
-        except Exception as e:
-            logging.error("[Atlas] Error during first-load rebuild: %s", e)
+            # Double-check after acquiring lock
+            if not ATLAS_INITIALIZED:
+                try:
+                    sync_atlas_with_covers()
+                    rebuild_cover_cache()
+                    ATLAS_INITIALIZED = True
+                    logging.info('[Atlas][init] Atlas initialization complete.')
+                except Exception as e:
+                    logging.error('[Atlas] Error during first-load rebuild: %s', e)
+        finally:
+            try:
+                atlas_init_lock.release()
+            except RuntimeError:
+                # In case lock was not held for some reason, ignore release errors
+                pass
 
 
 # Runtime CORS diagnostics: log incoming Origin and ensure ACAO header for allowed origins
@@ -1566,6 +1580,59 @@ class GetUserMeta(Resource):
             'background_color': user.background_color or '#232323',
             'text_color': user.text_color or '#fff'
         })
+
+
+@auth_ns.route('/get-profile')
+class GetProfile(Resource):
+    """Return the currently authenticated user's profile.
+
+    Detection (non-invasive):
+    - cookie 'username'
+    - header 'X-Username'
+    - Authorization: Bearer <token> (treated as username for compatibility)
+
+    If no username is found, returns success: False so the frontend can continue unauthenticated.
+    """
+    def get(self):
+        try:
+            # Try cookie first
+            username = request.cookies.get('username')
+            # Then a custom header
+            if not username:
+                username = request.headers.get('X-Username')
+            # Finally, tolerate a Bearer token containing the username (non-invasive)
+            if not username:
+                auth = request.headers.get('Authorization') or ''
+                if auth.lower().startswith('bearer '):
+                    parts = auth.split(None, 1)
+                    if len(parts) > 1:
+                        username = parts[1].strip()
+
+            if not username:
+                # No authenticated user found — return non-error so frontend can proceed
+                return jsonify({'success': False, 'message': 'No authenticated user.'})
+
+            user = User.query.filter_by(username=username).first()
+            if not user:
+                return jsonify({'success': False, 'message': 'User not found.'})
+
+            user_obj = {
+                'username': user.username,
+                'email': user.email,
+                'backgroundColor': user.background_color or '#ffffff',
+                'textColor': user.text_color or '#000000',
+                'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
+                'secondaryEmails': json.loads(user.secondary_emails) if user.secondary_emails else [],
+                'font': user.font or '',
+                'timezone': user.timezone or 'UTC',
+                'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
+                'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
+                'is_admin': user.is_admin
+            }
+            return jsonify({'success': True, 'user': user_obj})
+        except Exception as e:
+            logging.error(f"[API][get-profile] Error: {e}")
+            return jsonify({'success': False, 'message': 'Internal error while retrieving profile.'}), 500
 
 # Register the namespace with the API
 api.add_namespace(auth_ns, path='/api')
@@ -3038,10 +3105,32 @@ class DeleteComment(Resource):
 class GetComments(Resource):
     def get(self):
         book_id = request.args.get('book_id')
-        page = int(request.args.get('page', 1))
-        page_size = int(request.args.get('page_size', 20))
+        # Defensive parsing for paging parameters
+        try:
+            page = int(request.args.get('page', 1))
+        except Exception:
+            page = 1
+        try:
+            page_size = int(request.args.get('page_size', 20))
+        except Exception:
+            page_size = 20
+        # Normalize bounds
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 1
+        if page_size > 200:
+            page_size = 200
+
         if not book_id:
             response = make_response(jsonify({'success': False, 'message': 'Book ID required.'}))
+            response.status_code = 400
+            return response
+
+        # Validate book_id to avoid malicious or malformed input from fuzzers.
+        # Google Drive ids are alphanumeric with - and _; require a conservative minimum length.
+        if not re.match(r'^[A-Za-z0-9_\-]{10,}$', book_id):
+            response = make_response(jsonify({'success': False, 'message': 'Invalid book_id parameter.'}))
             response.status_code = 400
             return response
         # Query all comments for the book, ordered by timestamp ascending
@@ -3606,6 +3695,108 @@ health_seed_drive_model = health_ns.model('SeedDriveBooksRequest', {
     'folder_id': fields.String(required=False, description='Drive folder id to seed from')
 })
 
+
+@health_ns.route('/seed-drive-books')
+@health_ns.expect(health_seed_drive_model, validate=False)
+class SeedDriveBooks(Resource):
+    """Seed the database with PDFs found in a Google Drive folder.
+
+    Safety:
+    - Disabled by default in production. Allow when `DEBUG` is true or env `ENABLE_SEED_DRIVE` == 'True',
+      or when request includes header `X-Admin-Username` belonging to an admin user.
+    - Non-destructive: will only add Book rows for Drive files not already present.
+    """
+    def post(self):
+        try:
+            # Guard: only allow when explicitly enabled or called by an admin
+            enabled_env = os.getenv('ENABLE_SEED_DRIVE', 'False') == 'True'
+            admin_header = request.headers.get('X-Admin-Username')
+            allowed = is_debug or enabled_env
+            if not allowed and admin_header:
+                try:
+                    allowed = is_admin(admin_header)
+                except Exception:
+                    allowed = False
+            if not allowed:
+                response = make_response(jsonify({'success': False, 'message': 'seed-drive-books disabled. Set ENABLE_SEED_DRIVE or call as admin.'}))
+                response.status_code = 403
+                return response
+
+            data = safe_get_json({}) or {}
+            # Support both legacy and newer env var names for the Drive folder ID
+            folder_id = (
+                data.get('folder_id')
+                or os.getenv('DRIVE_BOOKS_FOLDER_ID')
+                or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
+            )
+            if not folder_id:
+                response = make_response(jsonify({'success': False, 'message': 'No folder_id provided and DRIVE_BOOKS_FOLDER_ID not set.'}))
+                response.status_code = 400
+                return response
+
+            try:
+                service = get_drive_service()
+            except Exception as e:
+                logging.error(f"[API][seed-drive-books] Drive credentials/setup error: {e}")
+                response = make_response(jsonify({'success': False, 'message': 'Google Drive credentials unavailable.', 'error': str(e)}))
+                response.status_code = 503
+                return response
+
+            query = f"'{folder_id}' in parents and mimeType='application/pdf'"
+            try:
+                results = service.files().list(q=query, fields="files(id, name, createdTime, modifiedTime)").execute()
+            except Exception as e:
+                logging.error(f"[API][seed-drive-books] Drive files().list failed for folder {folder_id}: {e}")
+                response = make_response(jsonify({'success': False, 'message': 'Drive list failed', 'error': str(e)}))
+                response.status_code = 503
+                return response
+
+            files = results.get('files', [])
+            existing_ids = set(b.drive_id for b in Book.query.all())
+            added = 0
+            skipped = 0
+            for f in files:
+                fid = f.get('id')
+                title = f.get('name') or 'Untitled'
+                if not fid:
+                    continue
+                if fid in existing_ids:
+                    skipped += 1
+                    continue
+                try:
+                    book = Book(drive_id=fid, title=title, external_story_id=None, version_history=json.dumps([{'created': f.get('createdTime')}]))
+                    db.session.add(book)
+                    db.session.commit()
+                    added += 1
+                except Exception as db_exc:
+                    db.session.rollback()
+                    logging.error(f"[API][seed-drive-books] DB error adding {fid}: {db_exc}")
+            logging.info(f"[API][seed-drive-books] Completed: added={added}, skipped={skipped}, total_files={len(files)}")
+            return jsonify({'success': True, 'added': added, 'skipped': skipped, 'total_files': len(files)})
+        except Exception as e:
+            logging.error(f"[API][seed-drive-books] Unexpected error: {e}")
+            response = make_response(jsonify({'success': False, 'message': 'Internal error', 'error': str(e)}))
+            response.status_code = 500
+            return response
+
+
+@health_ns.route('/drive-ping', methods=['GET'])
+class DrivePing(Resource):
+    """Lightweight Drive connectivity check: tries to list 1 file using service account credentials."""
+    def get(self):
+        try:
+            service = get_drive_service()
+        except Exception as e:
+            logging.error(f"[API][drive-ping] Drive credentials/setup error: {e}")
+            return make_response(jsonify({'success': False, 'message': 'Drive credentials/setup error', 'error': str(e)}), 503)
+        try:
+            res = service.files().list(pageSize=1, fields='files(id)').execute()
+            files = res.get('files', []) if isinstance(res, dict) else []
+            return jsonify({'success': True, 'message': 'Drive reachable', 'sample_files': len(files)})
+        except Exception as e:
+            logging.error(f"[API][drive-ping] Drive API call failed: {e}")
+            return make_response(jsonify({'success': False, 'message': 'Drive API call failed', 'error': str(e)}), 503)
+
 health_simulate_cover_model = health_ns.model('SimulateCoverLoadRequest', {
     'file_ids': fields.List(fields.String, required=True, description='List of cover ids to request'),
     'num_users': fields.Integer(required=False, description='Number of simulated users', default=200),
@@ -3743,334 +3934,80 @@ class CoverDiagnostics(Resource):
             'atlas': atlas,
         })
 
-# --- Manual Seed Endpoint ---
-@health_ns.route('/seed-drive-books', methods=['POST'])
-@health_ns.expect(health_seed_drive_model, validate=False)
-class SeedDriveBooks(Resource):
-    def post(self):
-        """
-        Manually repopulate the Book table from all PDFs in the configured Google Drive folder.
-        Returns: {success, added_count, skipped_count, errors}
-        """
-        data = safe_get_json({})
-        folder_id = data.get('folder_id') or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
-        if not folder_id:
-            response = make_response(jsonify({'success': False, 'message': 'GOOGLE_DRIVE_FOLDER_ID not set.'}))
-            response.status_code = 500
-            return response
-        try:
-            service = get_drive_service()
-        except Exception as e:
-            response = make_response(jsonify({'success': False, 'message': f'Error initializing Google Drive service: {e}'}))
-            response.status_code = 500
-            return response
-        query = f"'{folder_id}' in parents and mimeType='application/pdf' and trashed = false"
-        files = []
-        page_token = None
-        try:
-            while True:
-                response = service.files().list(
-                    q=query,
-                    spaces='drive',
-                    fields='nextPageToken, files(id, name, createdTime, modifiedTime)',
-                    pageToken=page_token
-                ).execute()
-                files.extend(response.get('files', []))
-                page_token = response.get('nextPageToken', None)
-                if not page_token:
-                    break
-        except Exception as e:
-            response = make_response(jsonify({'success': False, 'message': f'Error listing files from Drive: {e}'}))
-            response.status_code = 500
-            return response
-        added_count = 0
-        updated_count = 0
-        external_id_updates = 0
-        skipped_count = 0
-        errors = []
-        new_books = []
-        updated_books = []
-        logging.info(f"[Seed] Total files returned from Drive: {len(files)}")
-        process = psutil.Process()
-        BATCH_SIZE = int(os.getenv('SEED_BATCH_SIZE', '10'))
-        MEMORY_HIGH_THRESHOLD_MB = int(os.getenv('MEMORY_HIGH_THRESHOLD_MB', '350'))
-        MEMORY_LOW_THRESHOLD_MB = int(os.getenv('MEMORY_LOW_THRESHOLD_MB', '250'))
-        batch = []
-        for idx, f in enumerate(files):
-            drive_id = f.get('id')
-            title = f.get('name')
-            created_time = f.get('createdTime')
-            modified_time = f.get('modifiedTime')
-            logging.info(f"[Seed] Processing file {idx+1}/{len(files)}: drive_id={drive_id}, title={title}, created_time={created_time}, modified_time={modified_time}")
-            try:
-                book = Book.query.filter_by(drive_id=drive_id).first()
-                if not book:
-                    external_story_id = None
-                    try:
-                        try:
-                            file_request = service.files().get_media(fileId=drive_id)
-                        except Exception as e:
-                            logging.error(f"[cover download] Drive get_media creation failed for {drive_id}: {e}")
-                            file_request = None
-                        file_content = file_request.execute()
-                        external_story_id = extract_story_id_from_pdf(file_content)
-                    except Exception as e:
-                        logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
-                        errors.append(f"Error extracting story ID for {title}: {e}")
-                        external_story_id = None
-                    try:
-                        book = Book(
-                            drive_id=drive_id,
-                            title=title,
-                            external_story_id=external_story_id,
-                            version_history=None,
-                            created_at=datetime.datetime.fromisoformat(created_time.replace('Z', '+00:00')) if created_time else datetime.datetime.now(datetime.UTC),
-                            updated_at=datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00')) if modified_time else None
-                        )
-                        db.session.add(book)
-                        added_count += 1
-                        new_books.append({'id': drive_id, 'title': title})
-                        logging.info(f"[Seed] Added new book: drive_id={drive_id}, title={title}")
-                    except Exception as e:
-                        skipped_count += 1
-                        errors.append(f"Error creating new Book for {title} ({drive_id}): {e}")
-                        logging.error(f"[Seed] Skipped file due to error creating Book: drive_id={drive_id}, title={title}, error={e}")
-                        continue
-                else:
-                    updated = False
-                    try:
-                        if book.title != title:
-                            book.title = title
-                            updated = True
-                        if modified_time:
-                            new_updated_at = datetime.datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
-                            if new_updated_at.tzinfo is None:
-                                new_updated_at = new_updated_at.replace(tzinfo=datetime.timezone.utc)
-                            if book.updated_at and book.updated_at.tzinfo is None:
-                                book.updated_at = book.updated_at.replace(tzinfo=datetime.timezone.utc)
-                            if not book.updated_at or book.updated_at < new_updated_at:
-                                book.updated_at = new_updated_at
-                                updated = True
-                        if not book.external_story_id or not str(book.external_story_id).strip():
-                            try:
-                                try:
-                                    file_request = service.files().get_media(fileId=drive_id)
-                                except Exception as e:
-                                    logging.error(f"[cover download nested] Drive get_media creation failed for {drive_id}: {e}")
-                                    file_request = None
-                                file_content = file_request.execute()
-                                external_story_id = extract_story_id_from_pdf(file_content)
-                                if external_story_id:
-                                    book.external_story_id = external_story_id
-                                    external_id_updates += 1
-                                    updated = True
-                            except Exception as e:
-                                logging.warning(f"[Seed] Error extracting story ID for {title}: {e}")
-                                errors.append(f"Error extracting story ID for {title}: {e}")
-                        if updated:
-                            db.session.commit()
+api.add_namespace(health_ns, path='/api')
 
-                            # Notify users about the updated book
-                            users = User.query.all()
-                            for user in users:
-                                add_notification(
-                                    user,
-                                    type_='book_update',
-                                    title='Book Updated!',
-                                    body=f"The book '{book.title}' has been updated.",
-                                    link=f"/read/{book.drive_id}"
-                                )
-                            logging.info(f"[Drive Webhook] Book updated: {book.title}")
+@health_ns.route('/pubsub-ping', methods=['GET'])
+class PubsubPing(Resource):
+    def get(self):
+        """Attempt a lightweight publish to the configured Pub/Sub topic to verify credentials and connectivity.
 
-                    except Exception as e:
-                        skipped_count += 1
-                        errors.append(f"Error updating Book for {title} ({drive_id}): {e}")
-                        logging.error(f"[Seed] Skipped file due to error updating Book: drive_id={drive_id}, title={title}, error={e}")
-                        continue
-                mem = process.memory_info().rss / (1024 * 1024)
-                if mem > MEMORY_HIGH_THRESHOLD_MB:
-                    logging.warning(f"[Seed][THROTTLE] RAM {mem:.2f} MB > {MEMORY_HIGH_THRESHOLD_MB} MB. Sleeping 2s and running GC.")
-                    time.sleep(2)
-                    gc.collect()
-                elif mem > MEMORY_LOW_THRESHOLD_MB:
-                    logging.info(f"[Seed][THROTTLE] RAM {mem:.2f} MB > {MEMORY_LOW_THRESHOLD_MB} MB. Running GC.")
-                    gc.collect()
-                batch.append(book)
-                if len(batch) >= BATCH_SIZE:
-                    try:
-                        db.session.commit()
-                        batch.clear()
-                        gc.collect()
-                        logging.info(f"[Seed][BATCH] Committed batch of {BATCH_SIZE} books. RAM: {mem:.2f} MB")
-                    except Exception as e:
-                        errors.append(f"Error committing batch at file {title} ({drive_id}): {e}")
-                        logging.error(f"[Seed] Error committing batch: {e}")
-            except Exception as e:
-                skipped_count += 1
-                errors.append(f"Error processing file {title} ({drive_id}): {e}")
-                logging.error(f"[Seed] Skipped file due to error: drive_id={drive_id}, title={title}, error={e}")
-                continue
-        if batch:
-            try:
-                db.session.commit()
-                batch.clear()
-                gc.collect()
-                mem = process.memory_info().rss / (1024 * 1024)
-                logging.info(f"[Seed][FINAL BATCH] Committed final batch. RAM: {mem:.2f} MB")
-            except Exception as e:
-                errors.append(f"Error committing final batch: {e}")
-                logging.error(f"[Seed] Error committing final batch: {e}")
-        # Use notification utility endpoints for new and updated books
-        for book_info in new_books:
-            try:
-                resp = requests.post(f'{os.getenv("VITE_HOST_URL", "http://localhost")}:{os.getenv("PORT", 5000)}/api/notify-new-book', json={
-                    'book_id': book_info['id'],
-                    'book_title': book_info['title']
-                })
-                if resp.status_code != 200:
-                    errors.append(f"Error notifying new book: {resp.text}")
-            except Exception as e:
-                errors.append(f"Error notifying new book: {e}")
-        for book_info in updated_books:
-            try:
-                resp = requests.post(f'{os.getenv("VITE_HOST_URL", "http://localhost")}:{os.getenv("PORT", 5000)}/api/notify-book-update', json={
-                    'book_id': book_info['id'],
-                    'book_title': book_info['title']
-                })
-                if resp.status_code != 200:
-                    errors.append(f"Error notifying book update: {resp.text}")
-            except Exception as e:
-                errors.append(f"Error notifying book update: {e}")
-        return jsonify({
-            'success': True,
-            'added_count': added_count,
-            'updated_count': updated_count,
-            'external_id_updates': external_id_updates,
-            'skipped_count': skipped_count,
-            'errors': errors,
-            'message': f"Seeded {added_count} new books, updated {updated_count} existing books, {external_id_updates} external IDs set."
-        })
-
-@health_ns.route('/simulate-cover-load', methods=['POST'])
-@health_ns.expect(health_simulate_cover_model, validate=False)
-class SimulateCoverLoad(Resource):
-    def post(self):
+        Returns 200 + publish result on success, 503 on publish failure, and 400 when config is missing.
         """
-        Simulate many users requesting static cover images concurrently for stress testing.
-        POST data: {"file_ids": ["id1", "id2", ...], "num_users": 200, "concurrency": 20}
-        """
-        data = request.get_json(force=True)
-        file_ids = data.get('file_ids', [])
-        num_users = int(data.get('num_users', 200))
-        concurrency = int(data.get('concurrency', 20))
-        if not file_ids:
-            response = make_response(jsonify({'success': False, 'message': 'file_ids required'}))
+        project = os.getenv('GOOGLE_PROJECT_ID')
+        topic_name = os.getenv('PUBSUB_TOPIC_NAME')
+        if not project or not topic_name:
+            response = make_response(jsonify({'success': False, 'message': 'PUBSUB config (GOOGLE_PROJECT_ID/PUBSUB_TOPIC_NAME) not set.'}))
             response.status_code = 400
             return response
-        results = []
-        errors = 0
-        total_time = 0.0
-        start_time = time.time()
-        log_path = os.path.join(os.path.dirname(__file__), 'logs.txt')
-        sim_handler = logging.FileHandler(log_path, mode='w', encoding='utf-8')
-        sim_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-        sim_handler.setFormatter(formatter)
-        logging.getLogger().addHandler(sim_handler)
-        old_handlers = [h for h in logging.getLogger().handlers if h is not sim_handler]
+        topic = f'projects/{project}/topics/{topic_name}'
         try:
-            def simulate_user(user_idx):
-                cover_id = random.choice(file_ids)
-                url = f"{os.getenv('VITE_HOST_URL', 'http://localhost')}:{os.getenv('PORT', 5000)}/covers/{cover_id}.jpg"
-                t0 = time.time()
-                try:
-                    resp = requests.get(url, timeout=10)
-                    t1 = time.time()
-                    elapsed = t1 - t0
-                    status = resp.status_code
-                    ok = status == 200
-                    log_msg = f"[SIM] User {user_idx} cover_id={cover_id} status={status} time={elapsed:.3f}s"
-                    logging.info(log_msg)
-                    return {'user': user_idx, 'cover_id': cover_id, 'status': status, 'elapsed': elapsed, 'ok': ok}
-                except Exception as e:
-                    t1 = time.time()
-                    elapsed = t1 - t0
-                    logging.error(f"[SIM] User {user_idx} cover_id={cover_id} ERROR: {e}")
-                    return {'user': user_idx, 'cover_id': cover_id, 'error': str(e), 'elapsed': elapsed, 'ok': False}
-            with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
-                futures = [executor.submit(simulate_user, i) for i in range(num_users)]
-                for future in concurrent.futures.as_completed(futures):
-                    result = future.result()
-                    results.append(result)
-                    total_time += result.get('elapsed', 0)
-                    if not result.get('ok', False):
-                        errors += 1
-            duration = time.time() - start_time
-            mem = psutil.Process().memory_info().rss / (1024 * 1024)
-            logging.info(f"[SIM] Simulated {num_users} static cover requests in {duration:.2f}s. Memory usage: {mem:.2f} MB. Errors: {errors}")
-        finally:
-            logging.getLogger().removeHandler(sim_handler)
-            sim_handler.close()
-            for h in old_handlers:
-                logging.getLogger().addHandler(h)
-        avg_time = total_time / max(1, len(results))
-        throughput = num_users / max(1, duration)
-        with open(log_path, 'a', encoding='utf-8') as f:
-            f.write(f"Simulated {num_users} users in {duration:.2f}s. Memory usage: {mem:.2f} MB\n")
-        return jsonify({'success': True, 'results': results, 'duration': duration, 'memory': mem})
-
-@health_ns.route('/test-send-scheduled-notifications', methods=['POST'])
-@health_ns.expect(health_test_notifications_model, validate=False)
-class TestSendScheduledNotifications(Resource):
-    def post(self):
-        """
-        Test endpoint to send a batch of fake notifications to a specified email address using the notification email function.
-        POST data: {"test_email": "your@email.com", "num_notifications": 10}
-        """
-        try:
-            # Defensive JSON parsing: respect DEBUG setting via safe_get_json
-            data = safe_get_json({})
-            if not data:
-                response = make_response(jsonify({'success': False, 'message': 'Missing JSON body.'}))
-                response.status_code = 400
-                return response
-            test_email = data.get('test_email')
-            try:
-                num_notifications = int(data.get('num_notifications', 10))
-            except Exception:
-                num_notifications = 10
-            if not test_email:
-                response = make_response(jsonify({'success': False, 'message': 'Missing test_email in request.'}))
-                response.status_code = 400
-                return response
-
-            # Generate fake notifications
-            fake_notifications = []
-            for i in range(num_notifications):
-                fake_notifications.append({
-                    'title': f'Notification {i+1}',
-                    'body': f'This is a test notification #{i+1}.',
-                    'timestamp': datetime.datetime.now().isoformat(),
-                    'type': 'test',
-                })
-
-            # Create a mock user object with an email attribute
-            class MockUser:
-                def __init__(self, email):
-                    self.email = email
-                    self.id = 'test'
-            test_user = MockUser(test_email)
-            subject = "Test Notification"
-            body = "This is a test notification email."
-            result = send_notification_email(test_user, subject, body, fake_notifications)
-
-            return jsonify({'success': True, 'message': f'Sent {num_notifications} fake notifications to {test_email}.', 'result': result})
+            # Use service account info to build Pub/Sub client via googleapiclient
+            pubsub_scopes = ['https://www.googleapis.com/auth/pubsub']
+            creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=pubsub_scopes)
+            pubsub_service = build('pubsub', 'v1', credentials=creds)
+            body = {
+                'messages': [
+                    {'data': base64.b64encode(b'pubsub-ping').decode('utf-8')}
+                ]
+            }
+            result = pubsub_service.projects().topics().publish(topic=topic, body=body).execute()
+            logging.info(f"[PubSub ping] Published test message to {topic}: {result}")
+            return jsonify({'success': True, 'result': result})
         except Exception as e:
-            response = make_response(jsonify({'success': False, 'message': str(e), 'trace': traceback.format_exc()}))
-            response.status_code = 500
+            logging.error(f"[PubSub ping] Failed to publish to topic {topic}: {e}")
+            response = make_response(jsonify({'success': False, 'message': str(e)}))
+            response.status_code = 503
             return response
 
-api.add_namespace(health_ns, path='/api')
+
+def publish_drive_to_pubsub(resource_id, resource_state, extra=None):
+    """Publish a small message to the configured Pub/Sub topic for downstream processing.
+
+    This is best-effort and will not raise on failure; callers should catch exceptions
+    if they need blocking behavior.
+    """
+    project = os.getenv('GOOGLE_PROJECT_ID')
+    topic_name = os.getenv('PUBSUB_TOPIC_NAME')
+    if not project or not topic_name:
+        logging.warning('[PubSub publish] PUBSUB config missing; skipping publish')
+        return None
+    topic = f'projects/{project}/topics/{topic_name}'
+    try:
+        pubsub_scopes = ['https://www.googleapis.com/auth/pubsub']
+        creds = service_account.Credentials.from_service_account_info(service_account_info, scopes=pubsub_scopes)
+        pubsub_service = build('pubsub', 'v1', credentials=creds)
+        payload = {'resourceId': resource_id, 'resourceState': resource_state}
+        if extra and isinstance(extra, dict):
+            payload.update(extra)
+        data_b64 = base64.b64encode(json.dumps(payload).encode('utf-8')).decode('utf-8')
+        body = {
+            'messages': [
+                {
+                    'data': data_b64,
+                    'attributes': {
+                        'resourceId': str(resource_id) if resource_id else '',
+                        'resourceState': str(resource_state) if resource_state else ''
+                    }
+                }
+            ]
+        }
+        result = pubsub_service.projects().topics().publish(topic=topic, body=body).execute()
+        logging.info(f"[PubSub publish] Published Drive notification to {topic}: {result}")
+        return result
+    except Exception as e:
+        logging.error(f"[PubSub publish] Failed to publish Drive notification: {e}")
+        return None
+
 
 # === Webhooks & Integrations ===
 # -- Swagger models/parsers for integrations namespace --
@@ -4086,7 +4023,7 @@ authorize_parser.add_argument('redirect', type=str, required=False, location='ar
 @integrations_ns.route('/drive-webhook', methods=['POST'])
 class DriveWebhook(Resource):
     def post(self):
-        # Verify JWT token from Pub/Sub
+        # Verify JWT token from Pub/Sub (expect OIDC identity token)
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
             response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
@@ -4095,17 +4032,73 @@ class DriveWebhook(Resource):
 
         token = auth_header.split(' ')[1]
         try:
-            # Verify the token using Google public keys
-            audience = os.getenv('PUBSUB_AUDIENCE')
-            decoded_token = jwt.decode(token, audience=audience, request=Request())
-        except Exception as e:
+            # Verify the identity token using google.oauth2.id_token
+            # Build a prioritized list of accepted audiences to try.
+            # 1) PUBSUB_AUDIENCE (the push endpoint)
+            # 2) any audiences listed in PUBSUB_ACCEPTED_AUD (comma-separated env var)
+            # 3) GOOGLE_CLIENT_ID (legacy debug fallback)
+            primary_audience = os.getenv('PUBSUB_AUDIENCE')
+            accepted_auds = []
+            if primary_audience:
+                accepted_auds.append(primary_audience)
+            extra = os.getenv('PUBSUB_ACCEPTED_AUD', '')
+            if extra:
+                for a in [x.strip() for x in extra.split(',') if x.strip()]:
+                    if a not in accepted_auds:
+                        accepted_auds.append(a)
+            google_client_id = os.getenv('GOOGLE_CLIENT_ID')
+            if google_client_id and google_client_id not in accepted_auds:
+                accepted_auds.append(google_client_id)
+
+            decoded_token = None
+            last_error = None
+            for aud in accepted_auds:
+                try:
+                    decoded_token = id_token.verify_oauth2_token(token, Request(), audience=aud)
+                    logging.info(f"Verified JWT claims (aud={aud}): {decoded_token}")
+                    matched_audience = aud
+                    break
+                except ValueError as e_aud:
+                    logging.warning(f"Audience verification failed for aud={aud}: {e_aud}")
+                    last_error = e_aud
+                    continue
+            if decoded_token is None:
+                # None of the candidate audiences worked
+                logging.error(f"JWT verification failed for all candidate audiences. Last error: {last_error}")
+                raise last_error if last_error else ValueError('JWT verification failed')
+        except ValueError as e:
+            # Token verification failed for all attempted audiences
             logging.error(f"JWT verification failed: {e}")
             response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
             response.status_code = 401
             return response
+        except Exception as e:
+            logging.error(f"Unexpected error during JWT verification: {e}")
+            response = make_response(jsonify({'success': False, 'message': 'Unauthorized'}))
+            response.status_code = 401
+            return response
 
-        # Log the verified token claims
-        logging.info(f"Verified JWT claims: {decoded_token}")
+        # Debug: log the decoded token claims (safe — token contains no secret keys)
+        try:
+            logging.info(f"Drive webhook token claims: {{'iss': decoded_token.get('iss'), 'sub': decoded_token.get('sub'), 'aud': decoded_token.get('aud'), 'email': decoded_token.get('email')}}")
+        except Exception:
+            logging.info("Drive webhook: could not log token claims cleanly")
+
+        # Debug: log raw request body and Pub/Sub message attributes (do not log Authorization header)
+        try:
+            raw_body = request.get_data(as_text=True)
+            logging.info(f"Drive webhook raw body: {raw_body}")
+            # Attempt to parse and log message.attributes if present
+            try:
+                parsed = json.loads(raw_body) if raw_body else {}
+                message = parsed.get('message') or {}
+                attributes = message.get('attributes') if isinstance(message, dict) else None
+                if attributes:
+                    logging.info(f"Drive webhook message.attributes: {attributes}")
+            except Exception:
+                logging.info("Drive webhook: raw body not JSON or attributes missing")
+        except Exception:
+            logging.info("Drive webhook: failed to read raw request body for diagnostics")
 
         # Process the webhook event
         channel_id = request.headers.get('X-Goog-Channel-ID')
@@ -4113,6 +4106,50 @@ class DriveWebhook(Resource):
         resource_state = request.headers.get('X-Goog-Resource-State')
         changed = request.headers.get('X-Goog-Changed')
         logging.info(f"[Drive Webhook] Channel: {channel_id}, Resource: {resource_id}, State: {resource_state}, Changed: {changed}")
+
+        # If Pub/Sub push delivered the Drive change inside the message body/attributes
+        # (common when using a Pub/Sub push subscription), prefer those values when
+        # the Drive-specific headers are not present.
+        try:
+            parsed_body = request.get_json(silent=True)
+            if parsed_body and isinstance(parsed_body, dict):
+                msg = parsed_body.get('message') or {}
+                if isinstance(msg, dict):
+                    attrs = msg.get('attributes') or {}
+                    if attrs:
+                        if not resource_id:
+                            resource_id = attrs.get('resourceId') or attrs.get('resource_id') or attrs.get('id')
+                        if not resource_state:
+                            resource_state = attrs.get('resourceState') or attrs.get('resource_state') or attrs.get('state')
+                        logging.info(f"[Drive Webhook] Extracted from message.attributes: resource_id={resource_id}, resource_state={resource_state}")
+                    # If message.data contains a JSON payload, try to parse it for a resource id too
+                    data_b64 = msg.get('data')
+                    if data_b64 and not resource_id:
+                        try:
+                            data_decoded = base64.b64decode(data_b64)
+                            try:
+                                data_json = json.loads(data_decoded)
+                                # common keys
+                                resource_id = resource_id or data_json.get('resourceId') or data_json.get('resource_id') or data_json.get('id')
+                                resource_state = resource_state or data_json.get('resourceState') or data_json.get('resource_state')
+                            except Exception:
+                                # not JSON, ignore
+                                pass
+                        except Exception:
+                            pass
+        except Exception:
+            logging.info('[Drive Webhook] Could not parse Pub/Sub message body for attributes.')
+
+        # Best-effort: forward the notification into Pub/Sub so downstream
+        # consumers won't miss it if they rely on Pub/Sub. This does not
+        # replace direct Pub/Sub watch registration, but acts as a fallback
+        # when Drive->Pub/Sub is unavailable.
+        try:
+            pub_result = publish_drive_to_pubsub(resource_id, resource_state, extra={'fileId': resource_id})
+            if pub_result:
+                logging.info(f"[Drive Webhook] Forwarded notification to Pub/Sub: {pub_result}")
+        except Exception as e:
+            logging.warning(f"[Drive Webhook] Pub/Sub forward failed (non-fatal): {e}")
 
         # Only handle 'update' or 'add' events
         if resource_state in ['update', 'add']:
@@ -4245,10 +4282,17 @@ class GithubWebhook(Resource):
 @integrations_ns.expect(authorize_parser, validate=False)
 class Authorize(Resource):
     def get(self):
-        creds = service_account.Credentials.from_service_account_info(
-            service_account_info,
-            scopes=SCOPES
-        )
+        try:
+            creds = service_account.Credentials.from_service_account_info(
+                service_account_info,
+                scopes=SCOPES
+            )
+        except Exception as e:
+            logging.error(f"/api/authorize: Failed to build service account credentials: {e}")
+            # Return 503 so scanners know this endpoint is unavailable in this environment
+            response = make_response(jsonify({'success': False, 'message': f'Authorization unavailable: {e}'}))
+            response.status_code = 503
+            return response
         return redirect("/")
 
 api.add_namespace(integrations_ns, path='/api')
@@ -4339,11 +4383,19 @@ def serve_static_file(filename):
 if __name__ == '__main__':
     # Register Google Drive webhook on startup
     try:
-        folder_id = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
-        webhook_url = os.getenv('PUBSUB_AUDIENCE')
-        setup_drive_webhook(folder_id, webhook_url)
-        logging.info("Google Drive webhook registered on startup.")
+        folder_id = os.getenv('GOOGLE_DRIVE_FOLDER_ID') or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
+        webhook_url = os.getenv('PUBSUB_AUDIENCE') or os.getenv('PUBSUB_TOPIC') or os.getenv('PUBSUB_TOPIC_NAME')
+        if not folder_id:
+            logging.warning('Google Drive webhook not registered: GOOGLE_DRIVE_FOLDER_ID is not set.')
+        elif not webhook_url:
+            logging.warning('Google Drive webhook not registered: PUBSUB_AUDIENCE/PUBSUB_TOPIC_NAME is not set.')
+        else:
+            try:
+                setup_drive_webhook(folder_id, webhook_url)
+                logging.info("Google Drive webhook registered on startup.")
+            except Exception as e:
+                logging.error(f"Failed to register Google Drive webhook during startup: {e}")
         logging.info("Tracemalloc started for memory tracking.")
     except Exception as e:
-        logging.error(f"Failed to register Google Drive webhook: {e}")
+        logging.error(f"Failed startup webhook block: {e}")
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=os.getenv("DEBUG", True))
