@@ -104,6 +104,30 @@ export default function LoginRegisterPage({ onAuth }) {
         <h2 style={{ textAlign: "center", marginBottom: 16 }}>
           {mode === "login" ? "Login" : "Register"}
         </h2>
+        {/* Discord OAuth button */}
+        {mode === 'login' && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+            <button
+              type="button"
+              onClick={() => {
+                const baseUrl = import.meta.env.VITE_HOST_URL || '';
+                // Redirect user to backend Discord connect endpoint
+                window.location.href = (baseUrl + '/api/discord/connect').replace('//api', '/api');
+              }}
+              style={{
+                background: '#5865F2',
+                color: '#fff',
+                border: 'none',
+                padding: '8px 12px',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontWeight: 600
+              }}
+            >
+              Continue with Discord
+            </button>
+          </div>
+        )}
         <div style={{ marginBottom: 16 }}>
           <label>{mode === "login" ? "Username or Email" : "Username"}</label>
           <input

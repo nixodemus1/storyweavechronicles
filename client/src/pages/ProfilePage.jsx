@@ -219,6 +219,24 @@ function ProfilePage({ user, setUser }) {
     };
   }, [activeTab]);
 
+  // If redirected back after linking Discord, refresh profile data
+  React.useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('discord_linked')) {
+        // Fetch latest profile and update user context/prop
+        fetch(`${API_BASE_URL}/api/get-profile`, { credentials: 'include' })
+          .then(r => r.json())
+          .then(js => {
+            if (js && js.success && js.user) {
+              if (setUser) setUser(js.user);
+            }
+          })
+          .catch(err => console.error('Failed to refresh profile after Discord link:', err));
+      }
+    } catch (e) { console.error(e); }
+  }, []);
+
   let tabContent = null;
   switch (activeTab) {
     case 'settings':

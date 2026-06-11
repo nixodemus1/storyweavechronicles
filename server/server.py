@@ -52,6 +52,7 @@ import dateutil.parser
 from google.auth import jwt
 from google.auth.transport.requests import Request
 from google.oauth2 import id_token
+from urllib.parse import urlencode
 
 # --- Project Imports ---
 try:
@@ -243,6 +244,10 @@ class User(db.Model):
     comments_page_size = db.Column(db.Integer, default=10)  # per-user comments page size
     is_admin = db.Column(db.Boolean, default=False)  # admin privileges
     banned = db.Column(db.Boolean, default=False)  # user ban status
+    # Discord integration
+    discord_id = db.Column(db.String(64), unique=True, nullable=True)
+    discord_connected = db.Column(db.Boolean, default=False)
+    discord_roles = db.Column(db.Text, nullable=True)  # JSON string of role ids/names
 
 class Vote(db.Model):
     """SQLAlchemy Voting Model"""
@@ -283,6 +288,23 @@ with app.app_context():
     db.create_all()
 
 tracemalloc.start()
+
+# Optionally enable the Google Sheets-backed queue consumer. This requires the
+# same service account / Google creds already used for Drive and the
+# environment variable `SHEETS_QUEUE_SPREADSHEET_ID` to be set.
+try:
+    if os.getenv('ENABLE_SHEETS_QUEUE', 'False').lower() == 'true':
+        from .sheets_queue import start_sheets_queue_worker
+        spreadsheet_id = os.getenv('SHEETS_QUEUE_SPREADSHEET_ID')
+        # start worker with the service account info dict defined earlier
+        try:
+            stop_sheets_worker = start_sheets_queue_worker(service_account_info, spreadsheet_id)
+            logging.info('[Startup] Sheets queue worker started')
+        except Exception as e:
+            logging.error(f"[Startup] Failed to start Sheets queue worker: {e}")
+except Exception:
+    # Import errors or missing modules should not break the app startup
+    logging.exception('[Startup] Error initializing optional Sheets queue worker')
 
 # =========================
 # 7. Utility Functions
@@ -1351,6 +1373,155 @@ class Login(Resource):
             'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
             'is_admin': user.is_admin
         })
+
+
+@auth_ns.route('/discord/connect')
+class DiscordConnect(Resource):
+    def get(self):
+        """Redirect user to Discord OAuth2 authorize URL with a short-lived state cookie."""
+        client_id = os.getenv('DISCORD_CLIENT_ID')
+        redirect_uri = os.getenv('DISCORD_REDIRECT_URI')
+        if not client_id or not redirect_uri:
+            response = make_response(jsonify({'success': False, 'message': 'Discord OAuth not configured.'}))
+            response.status_code = 500
+            return response
+        state = str(uuid.uuid4())
+        params = {
+            'client_id': client_id,
+            'redirect_uri': redirect_uri,
+            'response_type': 'code',
+            'scope': 'identify',
+            'prompt': 'consent',
+            'state': state
+        }
+        auth_url = f"https://discord.com/api/oauth2/authorize?{urlencode(params)}"
+        # Set state cookie for verification in callback
+        resp = redirect(auth_url)
+        resp.set_cookie('discord_oauth_state', state, max_age=300, httponly=True, samesite='Lax')
+        # Optional: if caller provided a link_username param, set cookie so callback links the Discord account
+        link_username = request.args.get('link_username')
+        if link_username:
+            resp.set_cookie('discord_link_username', link_username, max_age=300, httponly=True, samesite='Lax')
+        return resp
+
+
+@auth_ns.route('/discord/callback')
+class DiscordCallback(Resource):
+    def get(self):
+        """Handle Discord OAuth callback: exchange code, get user, create or login local user by discord_id."""
+        code = request.args.get('code')
+        state = request.args.get('state')
+        cookie_state = request.cookies.get('discord_oauth_state')
+        if not code or not state or state != cookie_state:
+            response = make_response(jsonify({'success': False, 'message': 'Invalid OAuth state.'}))
+            response.status_code = 400
+            return response
+        client_id = os.getenv('DISCORD_CLIENT_ID')
+        client_secret = os.getenv('DISCORD_CLIENT_SECRET')
+        redirect_uri = os.getenv('DISCORD_REDIRECT_URI')
+        if not client_id or not client_secret or not redirect_uri:
+            response = make_response(jsonify({'success': False, 'message': 'Discord OAuth not configured.'}))
+            response.status_code = 500
+            return response
+        # Exchange code for token
+        try:
+            token_resp = requests.post('https://discord.com/api/oauth2/token', data={
+                'client_id': client_id,
+                'client_secret': client_secret,
+                'grant_type': 'authorization_code',
+                'code': code,
+                'redirect_uri': redirect_uri
+            }, headers={'Content-Type': 'application/x-www-form-urlencoded'}, timeout=10)
+            token_resp.raise_for_status()
+            token_js = token_resp.json()
+            access_token = token_js.get('access_token')
+            if not access_token:
+                raise RuntimeError('No access token')
+            user_resp = requests.get('https://discord.com/api/users/@me', headers={'Authorization': f'Bearer {access_token}'}, timeout=10)
+            user_resp.raise_for_status()
+            user_js = user_resp.json()
+            discord_id = str(user_js.get('id'))
+            discord_username = f"{user_js.get('username', '')}#{user_js.get('discriminator', '')}"
+        except Exception as e:
+            logging.error(f"[Discord OAuth] Token exchange/user fetch failed: {e}")
+            response = make_response(jsonify({'success': False, 'message': 'Failed to complete Discord OAuth.', 'error': str(e)}))
+            response.status_code = 502
+            return response
+
+        # Check if this OAuth flow was initiated to link an existing user (cookie set by /discord/connect)
+        link_username = request.cookies.get('discord_link_username')
+        try:
+            if link_username:
+                existing_user = User.query.filter_by(username=link_username).first()
+                if existing_user:
+                    # Link discord account to this user
+                    existing_user.discord_id = discord_id
+                    existing_user.discord_connected = True
+                    try:
+                        db.session.add(existing_user)
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+                    # Clear the link cookie in the response
+                    # Redirect back to frontend profile page so the user's settings UI can refresh
+                    frontend_url = os.getenv('FRONTEND_BASE_URL', 'http://localhost:5173').rstrip('/') + '/profile?discord_linked=1'
+                    resp = redirect(frontend_url)
+                    resp.set_cookie('discord_link_username', '', max_age=0)
+                    return resp
+            # Not a link flow: behave as login/create
+            user = User.query.filter_by(discord_id=discord_id).first()
+            if user:
+                if user.banned:
+                    response = make_response(jsonify({'success': False, 'message': 'Account banned.'}))
+                    response.status_code = 403
+                    return response
+                # Return same payload as /api/login
+                return jsonify({
+                    'success': True,
+                    'message': 'Login via Discord successful.',
+                    'username': user.username,
+                    'email': user.email,
+                    'backgroundColor': user.background_color or '#ffffff',
+                    'textColor': user.text_color or '#000000',
+                    'bookmarks': json.loads(user.bookmarks) if user.bookmarks else [],
+                    'secondaryEmails': json.loads(user.secondary_emails) if user.secondary_emails else [],
+                    'font': user.font or '',
+                    'timezone': user.timezone or 'UTC',
+                    'notificationPrefs': json.loads(user.notification_prefs) if user.notification_prefs else {},
+                    'notificationHistory': json.loads(user.notification_history) if user.notification_history else [],
+                    'is_admin': user.is_admin
+                })
+            # Create a new user tied to this Discord account
+            base_un = (user_js.get('username') or 'discord_user').strip()
+            candidate = base_un
+            suffix = 1
+            while User.query.filter_by(username=candidate).first():
+                candidate = f"{base_un}_{suffix}"
+                suffix += 1
+            new_user = User(username=candidate, email=None, password=None, discord_id=discord_id, discord_connected=True)
+            db.session.add(new_user)
+            db.session.commit()
+            return jsonify({
+                'success': True,
+                'message': 'Account created via Discord login.',
+                'username': new_user.username,
+                'email': new_user.email,
+                'backgroundColor': new_user.background_color or '#ffffff',
+                'textColor': new_user.text_color or '#000000',
+                'bookmarks': json.loads(new_user.bookmarks) if new_user.bookmarks else [],
+                'secondaryEmails': json.loads(new_user.secondary_emails) if new_user.secondary_emails else [],
+                'font': new_user.font or '',
+                'timezone': new_user.timezone or 'UTC',
+                'notificationPrefs': json.loads(new_user.notification_prefs) if new_user.notification_prefs else {},
+                'notificationHistory': json.loads(new_user.notification_history) if new_user.notification_history else [],
+                'is_admin': new_user.is_admin
+            })
+        except Exception as e:
+            logging.error(f"[Discord OAuth] DB error: {e}")
+            db.session.rollback()
+            response = make_response(jsonify({'success': False, 'message': 'Internal error saving Discord user.', 'error': str(e)}))
+            response.status_code = 500
+            return response
 
 @auth_ns.route('/register')
 @auth_ns.expect(api.model('RegisterRequest', {
@@ -4011,22 +4182,10 @@ class SeedDriveBooks(Resource):
             return response
 
 
-@health_ns.route('/drive-ping', methods=['GET'])
-class DrivePing(Resource):
-    """Lightweight Drive connectivity check: tries to list 1 file using service account credentials."""
-    def get(self):
-        try:
-            service = get_drive_service()
-        except Exception as e:
-            logging.error(f"[API][drive-ping] Drive credentials/setup error: {e}")
-            return make_response(jsonify({'success': False, 'message': 'Drive credentials/setup error', 'error': str(e)}), 503)
-        try:
-            res = service.files().list(pageSize=1, fields='files(id)').execute()
-            files = res.get('files', []) if isinstance(res, dict) else []
-            return jsonify({'success': True, 'message': 'Drive reachable', 'sample_files': len(files)})
-        except Exception as e:
-            logging.error(f"[API][drive-ping] Drive API call failed: {e}")
-            return make_response(jsonify({'success': False, 'message': 'Drive API call failed', 'error': str(e)}), 503)
+# NOTE: Removed the lightweight /drive-ping endpoint to avoid external keep-alive pings
+# that prevent hosting providers from spinning down free-tier instances. If a
+# future health-check is needed, consider adding a rate-limited, auth-protected
+# endpoint or using an external queue-based solution for long-running checks.
 
 health_simulate_cover_model = health_ns.model('SimulateCoverLoadRequest', {
     'file_ids': fields.List(fields.String, required=True, description='List of cover ids to request'),

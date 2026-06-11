@@ -278,6 +278,32 @@ const SettingsTabContent = forwardRef(function SettingsTabContent(props, ref) {
       <div style={{ color: '#888', fontSize: 13, marginTop: 8 }}>
         {'Changes are saved when you leave the settings tab or page.'}
       </div>
+      {/* Discord connect area */}
+      <div style={{ marginTop: 12 }}>
+        <h4>Discord</h4>
+        {props.user?.discord_id ? (
+          <div style={{ color: '#444' }}>
+            Connected as <strong>{props.user.username}</strong> (Discord ID: {props.user.discord_id})
+            {/* TODO: add disconnect flow */}
+          </div>
+        ) : (
+          <div>
+            <div style={{ marginBottom: 8 }}>Connect your Discord account to enable moderation features and site integrations.</div>
+            <button
+              onClick={() => {
+                const baseUrl = import.meta.env.VITE_HOST_URL || '';
+                const username = props.user?.username || '';
+                // Redirect to backend connect endpoint with link_username so callback links to this account
+                const href = `${baseUrl.replace(/\/$/, '')}/api/discord/connect?link_username=${encodeURIComponent(username)}`;
+                window.location.href = href;
+              }}
+              style={{ padding: '8px 12px', borderRadius: 6, background: '#5865F2', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+            >
+              Connect Discord
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 });
